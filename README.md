@@ -9,6 +9,10 @@ The project started from DuckDB's official
 [extension-template-rs](https://github.com/duckdb/extension-template-rs) and has been reshaped to follow
 duckfn's skeleton conventions (entry module, `EXTENSION_NAME`, dependency list).
 
+**Requires DuckDB 1.5 or newer.** The host file system used to write the report (`output`) only reached
+DuckDB's C API in 1.5, so there is no 1.4 compatibility path; the extension is built and tested against
+v1.5.5.
+
 ## Functions
 
 Two aggregate function names, each with **two overloads** (dispatched by argument count), folding a
@@ -107,7 +111,7 @@ Every field of `duckfn_quantstats_html_options` is **nullable**; keys you omit t
 | `rf` | `DOUBLE` | `0.0` | Risk-free rate, **annualized** (`0.04` = 4%), matching quantstats' `rf` convention |
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
 | `match_dates` | `BOOLEAN` | `true` | Whether to align the start dates of strategy and benchmark |
-| `output` | `VARCHAR` | `NULL` | Also write the HTML to this path (ignored on wasm, see below) |
+| `output` | `VARCHAR` | `NULL` | Also write the HTML to this path, through DuckDB's VFS (see below) |
 
 Defaults come straight from quantstats-rs' `HtmlReportOptions::default()`; this extension does not invent a
 second set.
@@ -150,7 +154,7 @@ SELECT fund,
 FROM nav_table
 GROUP BY fund;
 
--- Also write the report to a file
+-- Also write the report to a file (through DuckDB's VFS, so this works on wasm too)
 SELECT duckfn_quantstats_html(
            trade_date, daily_return,
            {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
@@ -192,13 +196,38 @@ GROUP BY fund;
 | `duckfn_quantstats_html_prices`: fewer than two benchmark prices, so no return can be derived | Error `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output = ''` | Error `output must not be an empty string` |
+| The `output` path contains a NUL byte | Error `contains a NUL byte` |
+| `output` points at an existing file **longer** than the report | Error `is longer` (see below) |
+
+### Writing the report to a file
+
+`output` writes the rendered HTML through **DuckDB's VFS** (`duckfn::with_file_system`), not through
+`std::fs`:
+
+- local disk, in-memory file systems, whatever file system the wasm build exposes, and `s3://` /
+  `http(s)://` once `httpfs` is loaded all go through the same path with the same semantics;
+- it is also the only way an aggregate can write at all. DuckDB's C API gives aggregate functions no client
+  context (no bind callback, no `duckdb_aggregate_function_get_client_context`), so duckfn keeps an owned
+  long-lived connection from registration time and hands out a fresh `ClientContext` → `FileSystem` from it.
+
+**Known limitation: no truncate.** DuckDB's C API only exposes "create if needed"
+(`DUCKDB_FILE_FLAG_CREATE`); the flag that truncates (`FILE_FLAGS_FILE_CREATE_NEW`, i.e. `O_TRUNC` /
+`CREATE_ALWAYS`) exists on the C++ side only. Overwriting an **existing longer** file would therefore leave a
+tail behind, and that is reported as an error rather than silently writing "report plus garbage" — delete the
+file or write to a new path. Writing to a missing, equally long or shorter file works, and `read_text()`
+returns exactly what the function returned (the test suite pins that with `md5`).
+
+The path is part of the configuration, so under `GROUP BY` give each group its own file
+(`'report-' || symbol || '.html'`) instead of pointing every group at one path.
 
 ### WebAssembly
 
-`output` is **ignored** on `wasm32-unknown-emscripten`: there is no writable file system there, so writing at
-runtime would raise an IO error and kill the query — the extension simply does not hand the path to
-quantstats-rs and returns the HTML as usual. `just build_wasm`
-(`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`) compiles fine.
+Nothing in the code is wasm-specific any more: `output` goes through DuckDB's VFS, so the wasm build uses
+exactly the same code path as the native one. That replaces the earlier behaviour, where the path was dropped
+on `wasm32-unknown-emscripten` because `std::fs` has no writable file system there — the file now lands
+wherever DuckDB's own file system points in that environment, without this extension special-casing anything.
+`just build_wasm` (`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`)
+compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
 
 ## Entry-point chain
 
@@ -215,11 +244,15 @@ module layout.
 
 ## Dependencies
 
-- [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions with DuckDB.
+- [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions with
+  DuckDB. Its `duckdb-1-5` feature is enabled, which is what provides `DuckLazySlot`'s sibling — the host
+  file system (`duckfn::with_file_system`) used by `output`.
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension` enabled —
-  so **no local DuckDB build is required**.
+  so **no local DuckDB build is required**. The version floor is `>= 1.10500` (DuckDB 1.5.0: the crate
+  encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.5 is `1.10505.0`), because the
+  client-context / file-system part of the C API is 1.5-only.
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes only
   `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is unreachable),
   so both overloads are built on it instead of recomputing metrics — that would create a second source of

@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report.test
-# description: duckfn_quantstats_html 单序列报告：命名配置类型（7 字段）、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组，以及配置取值错误
+# description: duckfn_quantstats_html 单序列报告：命名配置类型（7 字段）、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组、output 落盘（经 DuckDB VFS），以及配置取值错误
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -227,3 +227,71 @@ SELECT duckfn_quantstats_html(trade_date, daily_return, {'output': ''}::duckfn_q
 FROM daily_returns;
 ----
 output must not be an empty string
+
+# ============================================================================
+# 报告落盘（output）：经 **DuckDB 的 VFS**，不是 std::fs
+#
+# 同一套语义在本地与 wasm 上成立：写路径是 duckfn::with_file_system 拿到的 DuckDB 文件系统，
+# 而 std::fs 在 wasm 目标下根本没有可写的地方（那正是这个字段以前在 wasm 上被忽略的原因）。
+# 写完之后用 DuckDB 自己的 read_text 读回来 —— 读写走同一个文件系统，内容必须逐字节一致。
+# __TEST_DIR__ 是测试运行器给的临时目录。
+# ============================================================================
+
+statement ok
+CREATE TABLE written_report AS
+SELECT duckfn_quantstats_html(
+           trade_date, daily_return,
+           {'output': '__TEST_DIR__/dfn_qs_report.html'}::duckfn_quantstats_html_options) AS html
+FROM daily_returns;
+
+# 落盘内容与函数返回值逐字节一致（同一份报告，一次返回、一次落盘）
+query T
+SELECT (SELECT md5(html) FROM written_report)
+     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_report.html')) AS same_content;
+----
+true
+
+# 确实是一份完整报告（不是空文件、也不是被截断的）
+query T
+SELECT length(content) > 1000 AS long_enough
+FROM read_text('__TEST_DIR__/dfn_qs_report.html');
+----
+true
+
+# 再写一次同一个路径、内容一样长：可重复写。
+# （C API 没有 truncate 这条限制只在「旧文件比新内容更长」时才暴露，见下面的用例。）
+statement ok
+CREATE TABLE rewritten_report AS
+SELECT duckfn_quantstats_html(
+           trade_date, daily_return,
+           {'output': '__TEST_DIR__/dfn_qs_report.html'}::duckfn_quantstats_html_options) AS html
+FROM daily_returns;
+
+query T
+SELECT (SELECT md5(html) FROM rewritten_report)
+     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_report.html')) AS same_content;
+----
+true
+
+# 旧文件比报告长：DuckDB 的 C API 只能「需要时新建」，没有 truncate（那个标志只在 C++ 侧），
+# 所以这里选择报错，而不是静默留下一份「报告 + 旧文件尾巴」。
+statement ok
+COPY (SELECT repeat('x', 200000) AS filler)
+TO '__TEST_DIR__/dfn_qs_longer.html' (FORMAT csv, HEADER false);
+
+statement error
+SELECT duckfn_quantstats_html(
+           trade_date, daily_return,
+           {'output': '__TEST_DIR__/dfn_qs_longer.html'}::duckfn_quantstats_html_options)
+FROM daily_returns;
+----
+is longer
+
+# 路径里有 NUL 字节：转成 C 字符串时就失败，不进入文件系统
+statement error
+SELECT duckfn_quantstats_html(
+           trade_date, daily_return,
+           {'output': 'a' || chr(0) || 'b'}::duckfn_quantstats_html_options)
+FROM daily_returns;
+----
+contains a NUL byte

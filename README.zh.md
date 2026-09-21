@@ -7,6 +7,9 @@
 本项目从 DuckDB 官方 [extension-template-rs](https://github.com/duckdb/extension-template-rs) 起步，
 并已按 duckfn 的骨架约定改造（入口模块、`EXTENSION_NAME`、依赖列表）。
 
+**要求 DuckDB 1.5 及以上。** 报告落盘（`output`）用的宿主文件系统是 1.5 才进 DuckDB C API 的，
+所以不再保留 1.4 兼容性；本扩展在 v1.5.5 上构建与测试。
+
 ## 函数
 
 两个聚合函数名字、各自**两个重载**（靠参数个数分派），都把「按日期排列的收益」归约成一份完整的
@@ -94,7 +97,7 @@ GROUP BY fund;
 | `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
-| `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径（wasm 下忽略，见下） |
+| `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径，走 DuckDB 的 VFS（见下） |
 
 默认值直接取自 quantstats-rs 的 `HtmlReportOptions::default()`，本扩展不另立一套。
 
@@ -135,7 +138,7 @@ SELECT fund,
 FROM nav_table
 GROUP BY fund;
 
--- 顺带落盘一份
+-- 顺带落盘一份（走 DuckDB 的 VFS，所以 wasm 下同样可用）
 SELECT duckfn_quantstats_html(
            trade_date, daily_return,
            {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
@@ -176,13 +179,35 @@ GROUP BY fund;
 | `duckfn_quantstats_html_prices`：基准价格点不足两个，差分不出收益率 | 报错 `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output = ''` | 报错 `output must not be an empty string` |
+| `output` 路径里有 NUL 字节 | 报错 `contains a NUL byte` |
+| `output` 指向的旧文件**比报告更长** | 报错 `is longer`（见下） |
+
+### 报告落盘（`output`）
+
+`output` 把渲染好的 HTML 经 **DuckDB 的 VFS**（`duckfn::with_file_system`）写出，而不是 `std::fs`：
+
+- 本地磁盘、内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` /
+  `http(s)://`，都是同一条通路、同一套语义；
+- 这也是聚合函数唯一写得进去的路子：DuckDB 的 C API 不给聚合函数客户端上下文（没有 bind 回调，也没有
+  `duckdb_aggregate_function_get_client_context`），所以 duckfn 在注册期留了一条自有长连接，
+  从这里现取 `ClientContext` → `FileSystem`。
+
+**已知限制：不能 truncate。** DuckDB 的 C API 只有「需要时新建」（`DUCKDB_FILE_FLAG_CREATE`），映射到
+`O_TRUNC` / `CREATE_ALWAYS` 的那个标志（`FILE_FLAGS_FILE_CREATE_NEW`）只在 C++ 侧。于是覆盖一个
+**更长的旧文件**会在尾部留下残渣 —— 这里选择**报错**而不是静默写下「报告 + 垃圾」：请删掉文件或换个
+路径。写到不存在的文件、等长或更短的文件都正常，`read_text()` 读回来的与函数返回值逐字节一致
+（测试里用 `md5` 钉住了这一点）。
+
+路径是配置的一部分，所以在 `GROUP BY` 下要给每个分组各自的文件（`'report-' || symbol || '.html'`），
+而不是所有分组都指向同一个路径。
 
 ### WebAssembly
 
-`output` 在 `wasm32-unknown-emscripten` 下**被忽略**：那边没有可写的文件系统，写盘只会在运行时抛
-IO 错误、把整条查询带崩，所以扩展干脆不把路径交给 quantstats-rs，HTML 照常返回。
+代码里已经没有任何 wasm 专属分支：`output` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径。
+这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
+文件系统）—— 现在文件落在该环境下 DuckDB 自己的文件系统里，本扩展不做任何特殊处理。
 `just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
-能正常编过。
+能正常编过；运行时行为由 DuckDB 的 VFS 决定，而不是由本扩展决定。
 
 ## 入口链路
 
@@ -198,10 +223,13 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 
 ## 依赖
 
-- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。
+- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开启了它的
+  `duckdb-1-5` feature —— `output` 用的宿主文件系统（`duckfn::with_file_system`）就在这个 feature 下。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
-  因此**不需要在本地编译 DuckDB**。
+  因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
+  编码成 `1.<major*10000 + minor*100 + patch>.0`，1.5.5 就是 `1.10505.0`），因为客户端上下文 /
+  文件系统那部分 C API 是 1.5 才有的。
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
   一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两个重载都基于它，
   不自己重算指标 —— 那会与报告里的数字形成两套真相。

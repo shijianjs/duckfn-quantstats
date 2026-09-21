@@ -9,3 +9,4 @@ venv
 .codebuddy
 .vscode
 .mcp.json
+/test/sql/*.html

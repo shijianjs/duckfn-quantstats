@@ -77,12 +77,16 @@ pub(crate) struct QuantstatsHtmlOptions {
 
     /// 生成报告的同时把 HTML 落盘到该路径。缺省不落盘。
     ///
-    /// 注意：WebAssembly 目标下该字段被**忽略**（那边没有可写的文件系统），报告照常返回、不报错。
+    /// 写文件走 **DuckDB 的 VFS**（`duckfn::with_file_system`），不是 `std::fs`：本地磁盘、内存
+    /// 文件系统、wasm 构建里宿主真正能读的那个文件系统，以及装了 httpfs 后的 `s3://` / `http(s)://`
+    /// 都是同一条通路、同一套语义。也因此聚合函数（C API 不给它客户端上下文）才写得进去。
     ///
     /// Also write the HTML to this path. Defaults to not writing anything.
     ///
-    /// Note: on WebAssembly targets the field is **ignored** (there is no writable file system
-    /// there); the report is still returned instead of failing.
+    /// The write goes through **DuckDB's VFS** (`duckfn::with_file_system`) rather than `std::fs`:
+    /// local disk, in-memory file systems, whatever file system the wasm build actually exposes, and
+    /// `s3://` / `http(s)://` once httpfs is loaded are all the same path with the same semantics —
+    /// which is also what lets an aggregate (no client context from the C API) write at all.
     pub output: Option<String>,
 }
 
@@ -123,31 +127,35 @@ impl QuantstatsHtmlOptions {
         if let Some(match_dates) = self.match_dates {
             options.match_dates = match_dates;
         }
-        if let Some(output) = &self.output {
-            if output.is_empty() {
-                return Err(duck_error(
-                    "duckfn_quantstats_html_options.output must not be an empty string",
-                ));
-            }
-            // 原生目标：把路径交给 quantstats-rs，它会在拼完模板后 std::fs::write。
-            //
-            // Native: hand the path to quantstats-rs, which does a std::fs::write after rendering.
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                options = options.with_output(output);
-            }
-            // wasm 目标：那边没有可写的文件系统，运行时写盘只会得到一个 IO 错误、把整条查询带崩，
-            // 所以这里直接忽略路径，HTML 照常返回。
-            //
-            // WebAssembly: there is no writable file system there; writing at runtime would only
-            // produce an IO error that kills the whole query, so the path is dropped and the HTML is
-            // still returned.
-            #[cfg(target_arch = "wasm32")]
-            {
-                let _ = output;
-            }
-        }
 
+        // `output` 刻意不在这里处理：quantstats-rs 落盘用的是 `std::fs`，而本扩展要的是 DuckDB 的
+        // VFS（本地磁盘、内存文件系统、wasm 上的文件系统走同一条通路）。路径交给调用方
+        // （report.rs）在拿到渲染结果后自己写，见 [`Self::output_path`]。
+        //
+        // `output` is deliberately not handled here: quantstats-rs writes with `std::fs`, while this
+        // extension wants DuckDB's VFS (local disk, in-memory file systems and the wasm build's file
+        // system all go through one path). The caller (report.rs) writes the rendered report itself —
+        // see [`Self::output_path`].
         Ok(options)
+    }
+
+    /// 报告落盘路径；没配就是 `None`。
+    ///
+    /// 空字符串是配置错误，在这里报掉（否则会拿一个空路径去开文件）。
+    ///
+    /// The path the report should be written to; `None` when unset.
+    ///
+    /// An empty string is a configuration error and is reported here (otherwise an empty path would be
+    /// handed to the file system).
+    pub(crate) fn output_path(&self) -> DuckResult<Option<&str>> {
+        let Some(output) = self.output.as_deref() else {
+            return Ok(None);
+        };
+        if output.is_empty() {
+            return Err(duck_error(
+                "duckfn_quantstats_html_options.output must not be an empty string",
+            ));
+        }
+        Ok(Some(output))
     }
 }

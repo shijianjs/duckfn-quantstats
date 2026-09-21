@@ -29,7 +29,7 @@
 //   kind.rs           一个分支的 SQL 侧名字（函数名、值列名）
 //   series.rs         内部点表示、日期换算、序列构造、价格差分
 //   slots.rs          参数槽：DuckLazySlot 的用法，以及基准列表的报错与归一化
-//   report.rs         收尾：点 → ReturnSeries → 渲染 HTML
+//   report.rs         收尾：点 → ReturnSeries → 渲染 HTML（配置里写了 output 就经 DuckDB 的 VFS 落盘）
 //
 // Two SQL names, four aggregate overloads.
 //
@@ -65,7 +65,8 @@
 //   series.rs         the internal point type, date conversion, series building, price differencing
 //   slots.rs          the argument slots: how DuckLazySlot is used, plus the benchmark list's errors and
 //                     normalisation
-//   report.rs         the tail: points → ReturnSeries → rendered HTML
+//   report.rs         the tail: points → ReturnSeries → rendered HTML (persisted through DuckDB's VFS
+//                     when the configuration sets `output`)
 // ============================================================================
 
 mod html_prices;
