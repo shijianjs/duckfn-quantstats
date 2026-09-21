@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report_values.test
-# description: 用 webbed 的 XPath 解析生成的 HTML，断言报告里的**真实值**：标题与统计区间、配置项回显（rf 年化口径 / strategy_title / benchmark_title）、逐行指标数字、图表与表格数量、以及带基准时多出来的那一列
+# description: 用 webbed 的 XPath 解析生成的 HTML，断言报告里的**真实值**：标题与统计区间、配置项回显（rf 年化口径 / strategy_title / benchmark_title）、逐行指标数字、图表与表格数量、以及带基准重载（4 参）多出来的那一列
 # group: [quantstats]
 #
 # 注意：本文件依赖社区扩展 webbed（`INSTALL webbed FROM community`），首次运行需要网络；
@@ -55,7 +55,7 @@ FROM daily_returns;
 
 statement ok
 CREATE TABLE benchmark_report AS
-SELECT duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, b.series,
+SELECT duckfn_quantstats_html(s.trade_date, s.daily_return, b.series,
     {'title': 'My Fund', 'strategy_title': 'My Fund', 'benchmark_title': 'Bench', 'rf': 0.04}::duckfn_quantstats_html_options) AS html
 FROM daily_returns s,
      (SELECT list({'date': trade_date, 'period_return': daily_return}) AS series FROM benchmark_returns) b;

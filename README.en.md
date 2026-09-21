@@ -14,10 +14,13 @@ duckfn's skeleton conventions (entry module, `EXTENSION_NAME`, dependency list).
 Two aggregate functions, both folding a date-ordered return series into one complete quantstats HTML
 report (`VARCHAR`):
 
-| Function | Description |
+| Signature | Description |
 | --- | --- |
 | `duckfn_quantstats_html(date, period_return, options)` | Single-series report; one row per period. |
-| `duckfn_quantstats_html_benchmark(date, period_return, benchmark, options)` | Benchmark report: the strategy side is aggregated row by row, the benchmark is a **list passed in once**. |
+| `duckfn_quantstats_html(date, period_return, benchmark, options)` | Benchmark report: the strategy side is aggregated row by row, the benchmark is a **list passed in once**. |
+
+Both are registered as one function set via `overloads_name`, so they occupy a single SQL name and are
+dispatched by argument count.
 
 - The options argument always comes **last** (data columns first, options last). It is a **nullable** config
   whose type is the named STRUCT `duckfn_quantstats_html_options`, created at load time; `NULL` means "all
@@ -25,8 +28,8 @@ report (`VARCHAR`):
 - `date` is a `DATE` and `period_return` is the return per period (`DOUBLE`). A row whose `date` or
   `period_return` is `NULL` is **skipped entirely**, like any other SQL aggregate.
 - `benchmark` is `STRUCT(date DATE, period_return DOUBLE)[]`. A `NULL` benchmark, an empty one, or one without
-  a single valid point is an **error** — the function is named after its benchmark, so without one
-  `duckfn_quantstats_html` is the right call.
+  a single valid point is an **error** — that overload exists for the benchmark case, so a single-series
+  report should simply omit the argument.
 - Both `options` and `benchmark` are read through `DuckLazy`: every row only builds an O(1) token, and the
   single real parse happens on the **first row of each group**. This is not a nicety — duckfn's adapter reads
   arguments per row, so a bare `Vec<...>` would copy the whole benchmark series once per row, degrading to
@@ -91,7 +94,7 @@ WITH benchmark AS (
     FROM benchmark_returns
 )
 SELECT s.fund,
-       duckfn_quantstats_html_benchmark(
+       duckfn_quantstats_html(
            s.trade_date, s.daily_return, benchmark.series,
            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
 FROM strategy_returns s, benchmark
@@ -108,7 +111,7 @@ A scalar subquery works just as well as the cross join (verified), with the same
 
 ```sql
 SELECT fund,
-       duckfn_quantstats_html_benchmark(
+       duckfn_quantstats_html(
            trade_date, daily_return,
            (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
            NULL)
@@ -168,7 +171,7 @@ module layout.
   so **no local DuckDB build is required**.
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes only
   `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is unreachable),
-  so both aggregates are built on it instead of recomputing metrics — that would create a second source of
+  so both overloads are built on it instead of recomputing metrics — that would create a second source of
   truth for numbers the report already prints.
 - [chrono](https://crates.io/crates/chrono): `ReturnSeries` wants `NaiveDate`, while duckfn's `DuckDate` only
   stores days since 1970-01-01, so the conversion lives in the extension.

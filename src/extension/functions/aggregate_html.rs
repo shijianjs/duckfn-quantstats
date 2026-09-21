@@ -11,12 +11,14 @@ use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 use crate::extension::types::return_point::QuantstatsReturnPoint;
 
 // ============================================================================
-// 两个聚合函数，把「按日期排列的收益」归约成一份 quantstats HTML 报告
+// 一个 SQL 名字，两个聚合重载
 //
-//   duckfn_quantstats_html(date, period_return, options)
-//     单序列：一行 = 一个周期。
-//   duckfn_quantstats_html_benchmark(date, period_return, benchmark, options)
-//     带基准：策略侧逐行聚合，基准侧是一个**一次性传入的列表**。
+//   duckfn_quantstats_html(date, period_return, options)                单序列报告
+//   duckfn_quantstats_html(date, period_return, benchmark, options)     带基准报告
+//
+// 两个签名只差一个 `benchmark` 参数，所以用 `overloads_name` 把两者注册成**同一个函数集**：
+// SQL 侧只有一个名字，按参数个数分派（`register_all_aggregate_overload` 会按名字分组，
+// 每个重载各自带参数表与返回类型）。参数顺序固定为「数据列在前、配置在后」。
 //
 // # 为什么基准是「列表参数」而不是「同组里的标签行」
 //
@@ -27,16 +29,13 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 //
 // 顺带消失的还有两条护栏：分组内不会再混进别的标的，也不会出现「只有基准行、没有策略行」的组。
 //
-// # 为什么基准参数要裹 DuckLazy
+// # 为什么基准与配置参数都要裹 DuckLazy
 //
 // `duckfn` 的适配层是**逐行**读参数的（`aggregate_function_adapter.rs` 的 `read_columns` 在行循环里），
 // 而 `Vec<T>::read_valid` 每次调用都会新建 Vec 并逐元素复制整个列表。裸写 `Vec<QuantstatsReturnPoint>`
 // 就是每行复制一遍整条基准序列，退化成 O(行数 × 基准长度)。裹上 `DuckLazy` 后每行只构造一个 O(1) 的
-// 凭证，真正的解析在分组首行做一次。
-//
-// 配置参数同理（它同样是「多行不变、比被聚合的值贵」的东西），只是它本来就很小。
-//
-// 两个函数都固定把配置参数放在最后（数据列在前、配置在后）。
+// 凭证，真正的解析在分组首行做一次。配置参数同理（它同样是「多行不变、比被聚合的值贵」的东西），
+// 只是它本来就很小。
 //
 // 报告只在 result() 里生成一次 —— 即每个分组一次。GROUP BY 100 个标的就会渲染 100 份完整报告
 // （每份内含十几张 SVG），这是预期行为，不是性能 bug。同理，每个分组仍会各自持有一份解析好的基准点：
@@ -45,13 +44,15 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 // 排序：DuckDB 并行/分块执行时 combine 的调用顺序不保证，所以这里只做「拼接」，
 // 真正的按日期排序交给 ReturnSeries::new（它内部会 sort）。因此 SQL 侧**不需要 ORDER BY**。
 //
-// Two aggregate functions folding a date-ordered return series into one quantstats HTML report.
+// One SQL name, two aggregate overloads.
 //
-//   duckfn_quantstats_html(date, period_return, options)
-//     Single series: one row per period.
-//   duckfn_quantstats_html_benchmark(date, period_return, benchmark, options)
-//     With a benchmark: the strategy side is aggregated row by row and the benchmark is a **list
-//     passed in once**.
+//   duckfn_quantstats_html(date, period_return, options)                single series
+//   duckfn_quantstats_html(date, period_return, benchmark, options)     with a benchmark
+//
+// The two signatures differ only by the `benchmark` argument, so `overloads_name` registers them as
+// **one function set**: a single SQL name dispatched by argument count
+// (`register_all_aggregate_overload` groups by name and every overload keeps its own parameter list
+// and return type). The argument order is always "data columns first, options last".
 //
 // # Why the benchmark is a list argument rather than labelled rows in the same group
 //
@@ -65,18 +66,15 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 // Two guards disappear with it: a group can no longer mix several instruments, and a group can no
 // longer hold only benchmark rows.
 //
-// # Why the benchmark argument is wrapped in DuckLazy
+// # Why both the benchmark and the options argument are wrapped in DuckLazy
 //
 // duckfn's adapter reads arguments **per row** (`read_columns` sits inside the row loop of
 // `aggregate_function_adapter.rs`), and `Vec<T>::read_valid` allocates a fresh Vec and copies every
 // element on each call. A bare `Vec<QuantstatsReturnPoint>` would therefore copy the whole benchmark
 // series once per row, degrading to O(rows × benchmark length). Wrapped in `DuckLazy`, every row only
-// builds an O(1) token and the single real parse happens on the group's first row.
-//
-// The options argument works the same way (it is likewise "constant across rows and more expensive
-// than the aggregated values"), it is just much smaller.
-//
-// Both functions keep the options argument last (data columns first, options last).
+// builds an O(1) token and the single real parse happens on the group's first row. The options
+// argument works the same way (it is likewise "constant across rows and more expensive than the
+// aggregated values"), it is just much smaller.
 //
 // The report is rendered once in result(), i.e. once per group. GROUP BY over 100 instruments renders
 // 100 full reports (each with a dozen inline SVGs); that is expected, not a performance bug. For the
@@ -89,11 +87,17 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 // SQL therefore does **not** need an ORDER BY.
 // ============================================================================
 
-/// 两个函数的注册名，同时也用作错误信息前缀。
+/// 注册名（两个重载共用），同时也用作错误信息前缀。
 ///
-/// The registered names of both functions, also used as error-message prefixes.
+/// 注意：函数集名字只写在下面两个 `#[duck_aggregate_function(overloads_name = "...")]` 上，
+/// 宏属性只能吃字面量，所以这两处字符串必须手动保持一致。
+///
+/// The registered name shared by both overloads, also used as the error-message prefix.
+///
+/// Note: the function-set name lives only on the two
+/// `#[duck_aggregate_function(overloads_name = "...")]` attributes below — macro attributes accept
+/// literals only, so those two strings must be kept in sync by hand.
 const HTML_FUNCTION: &str = "duckfn_quantstats_html";
-const HTML_BENCHMARK_FUNCTION: &str = "duckfn_quantstats_html_benchmark";
 
 // ============================================================================
 // 内部用的「一个点」
@@ -157,17 +161,12 @@ fn build_series(points: &[ReturnPoint], name: Option<String>) -> DuckResult<Retu
         .map_err(|err| duck_error(format!("cannot build the returns series: {err}")))
 }
 
-/// 渲染报告，并把 quantstats-rs 的错误转成 DuckDB 查询错误（`function` 用来指明是哪个函数）。
+/// 渲染报告，并把 quantstats-rs 的错误转成 DuckDB 查询错误。
 ///
-/// Render the report, turning quantstats-rs errors into DuckDB query errors (`function` names the
-/// function the error came from).
-fn render(
-    function: &str,
-    series: &ReturnSeries,
-    options: HtmlReportOptions<'_>,
-) -> DuckResult<String> {
+/// Render the report, turning quantstats-rs errors into DuckDB query errors.
+fn render(series: &ReturnSeries, options: HtmlReportOptions<'_>) -> DuckResult<String> {
     html(series, options)
-        .map_err(|err| duck_error(format!("{function}: cannot render the report: {err}")))
+        .map_err(|err| duck_error(format!("{HTML_FUNCTION}: cannot render the report: {err}")))
 }
 
 // ============================================================================
@@ -272,22 +271,25 @@ enum BenchmarkSlot {
 impl BenchmarkSlot {
     /// 只在第一行解析一次：校验非 NULL、非空，并把列表转成内部的点数组。
     ///
-    /// 错误都带函数名前缀，并且会指出替代方案 —— 没基准就该用 `duckfn_quantstats_html`。
+    /// 错误都带函数名前缀，并且会指出替代方案 —— 只想要单序列报告的话，用三参数那次重载即可。
     ///
     /// Parses once, on the first row: it rejects NULL and empty lists and converts the list into the
     /// internal point array.
     ///
-    /// Every error carries the function name and points at the alternative — without a benchmark,
-    /// `duckfn_quantstats_html` is the right function.
-    fn resolve(&mut self, benchmark: Option<&DuckLazy<Vec<QuantstatsReturnPoint>>>) -> DuckResult<()> {
+    /// Every error carries the function name and points at the alternative — for a single-series
+    /// report, use the three-argument overload.
+    fn resolve(
+        &mut self,
+        benchmark: Option<&DuckLazy<Vec<QuantstatsReturnPoint>>>,
+    ) -> DuckResult<()> {
         if !matches!(self, BenchmarkSlot::Unresolved) {
             return Ok(());
         }
 
         let Some(lazy) = benchmark else {
             return Err(duck_error(format!(
-                "{HTML_BENCHMARK_FUNCTION}: the benchmark list must not be NULL — pass the benchmark \
-                 series as list({{'date': ..., 'period_return': ...}}), or use {HTML_FUNCTION} for a \
+                "{HTML_FUNCTION}: the benchmark list must not be NULL — pass the benchmark series as \
+                 list({{'date': ..., 'period_return': ...}}), or omit the benchmark argument for a \
                  single-series report"
             )));
         };
@@ -300,7 +302,7 @@ impl BenchmarkSlot {
         // whole-NULL element (e.g. a literal `[NULL, ...]`).
         let parsed = lazy.try_get().map_err(|err| {
             duck_error(format!(
-                "{HTML_BENCHMARK_FUNCTION}: cannot read the benchmark list — every element must be a \
+                "{HTML_FUNCTION}: cannot read the benchmark list — every element must be a \
                  STRUCT(date DATE, period_return DOUBLE) and must not be NULL ({err})"
             ))
         })?;
@@ -322,8 +324,8 @@ impl BenchmarkSlot {
 
         if points.is_empty() {
             return Err(duck_error(format!(
-                "{HTML_BENCHMARK_FUNCTION}: the benchmark list is empty (or every point is missing its \
-                 date or its return) — use {HTML_FUNCTION} for a single-series report"
+                "{HTML_FUNCTION}: the benchmark list is empty (or every point is missing its date or \
+                 its return) — omit the benchmark argument for a single-series report"
             )));
         }
 
@@ -353,14 +355,14 @@ impl BenchmarkSlot {
         match self {
             BenchmarkSlot::Resolved(points) => Ok(Arc::clone(points)),
             BenchmarkSlot::Unresolved => Err(duck_error(format!(
-                "{HTML_BENCHMARK_FUNCTION}: the benchmark list was never read"
+                "{HTML_FUNCTION}: the benchmark list was never read"
             ))),
         }
     }
 }
 
 // ============================================================================
-// duckfn_quantstats_html：单序列报告
+// 重载 1/2：单序列报告
 // ============================================================================
 
 /// 单序列报告聚合状态：累积策略的点。
@@ -374,8 +376,8 @@ pub(crate) struct HtmlReportState {
 
 /// 单序列报告：对 `date` 与 `period_return` 两列做聚合，输出该组的完整 HTML 报告字符串。
 ///
-/// 参数顺序即 SQL 参数顺序：数据列在前（日期、收益率），可空配置在后。
-/// 两列任一为 NULL 的行会被整行跳过（duckfn 对非 `Option` 入参的既有语义，与 SQL 聚合惯例一致）。
+/// 三参数那次重载。两列任一为 NULL 的行会被整行跳过（duckfn 对非 `Option` 入参的既有语义，
+/// 与 SQL 聚合惯例一致）。
 ///
 /// ```sql
 /// SELECT duckfn_quantstats_html(date, period_return, NULL) FROM daily_returns;
@@ -387,10 +389,10 @@ pub(crate) struct HtmlReportState {
 /// Single-series report: aggregates the `date` and `period_return` columns into the full HTML report
 /// string of that group.
 ///
-/// Argument order is the SQL argument order: data columns first (date, return per period) and the
-/// nullable options last. A row whose `date` or `period_return` is NULL is skipped entirely — duckfn's
-/// existing semantics for non-`Option` arguments, and the usual SQL aggregate behaviour.
-#[duck_aggregate_function]
+/// This is the three-argument overload. A row whose `date` or `period_return` is NULL is skipped
+/// entirely — duckfn's existing semantics for non-`Option` arguments, and the usual SQL aggregate
+/// behaviour.
+#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html")]
 fn duckfn_quantstats_html(
     date: DuckDate,
     period_return: f64,
@@ -426,12 +428,12 @@ impl DuckAggregateState for HtmlReportState {
         let series = build_series(&self.points, None)?;
         let options = self.options.get().to_report_options()?;
 
-        Ok(Some(render(HTML_FUNCTION, &series, options)?))
+        Ok(Some(render(&series, options)?))
     }
 }
 
 // ============================================================================
-// duckfn_quantstats_html_benchmark：带基准报告
+// 重载 2/2：带基准报告
 // ============================================================================
 
 /// 带基准报告聚合状态：策略点逐行累积，基准点整体解析一次。
@@ -447,12 +449,12 @@ pub(crate) struct HtmlBenchmarkState {
 
 /// 带基准报告：策略侧逐行聚合，基准侧是**一次性传入的列表**。
 ///
-/// `benchmark` 是 `STRUCT(date DATE, period_return DOUBLE)[]`，通常由 `list(...)` 在一张单行结果里
-/// 构造出来；它只写一次、只求值一次，不会随分组的数量重复出现。两侧的起始日期对齐由 quantstats-rs
-/// 按 `match_dates`（默认 true）完成，这里不做额外处理。
+/// 四参数那次重载。`benchmark` 是 `STRUCT(date DATE, period_return DOUBLE)[]`，通常由 `list(...)`
+/// 在一张单行结果里构造出来；它只写一次、只求值一次，不会随分组的数量重复出现。两侧的起始日期对齐
+/// 由 quantstats-rs 按 `match_dates`（默认 true）完成，这里不做额外处理。
 ///
-/// `benchmark` 为 NULL 或为空（或每个点都缺日期/收益）时**直接报错**：函数名里就有 benchmark，
-/// 没有基准就该改用 `duckfn_quantstats_html`，报错比静默出一份没有基准的报告更不容易让人误判。
+/// `benchmark` 为 NULL 或为空（或每个点都缺日期/收益）时**直接报错**：这一支重载就是为带基准的场景
+/// 存在的，只想要单序列报告就该少传这个参数。报错比静默出一份没有基准的报告更不容易让人误判。
 ///
 /// ```sql
 /// WITH benchmark AS (
@@ -460,7 +462,7 @@ pub(crate) struct HtmlBenchmarkState {
 ///     FROM benchmark_returns
 /// )
 /// SELECT fund,
-///        duckfn_quantstats_html_benchmark(
+///        duckfn_quantstats_html(
 ///            date, period_return, benchmark.series,
 ///            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options)
 /// FROM fund_returns, benchmark
@@ -470,16 +472,17 @@ pub(crate) struct HtmlBenchmarkState {
 /// Benchmark report: the strategy side is aggregated row by row and the benchmark is a **list passed
 /// in once**.
 ///
-/// `benchmark` is `STRUCT(date DATE, period_return DOUBLE)[]`, normally built by `list(...)` over a
-/// single-row result; it is written once and evaluated once, and never repeats with the number of
-/// groups. Start-date alignment is done inside quantstats-rs according to `match_dates` (true by
-/// default) and is not repeated here.
+/// This is the four-argument overload. `benchmark` is
+/// `STRUCT(date DATE, period_return DOUBLE)[]`, normally built by `list(...)` over a single-row
+/// result; it is written once and evaluated once, and never repeats with the number of groups.
+/// Start-date alignment is done inside quantstats-rs according to `match_dates` (true by default) and
+/// is not repeated here.
 ///
-/// A NULL or empty `benchmark` (or one whose points all miss their date/return) is an **error**: the
-/// function is named after its benchmark, so without one `duckfn_quantstats_html` is the right call,
-/// and an error is harder to misread than a silently benchmark-less report.
-#[duck_aggregate_function]
-fn duckfn_quantstats_html_benchmark(
+/// A NULL or empty `benchmark` (or one whose points all miss their date/return) is an **error**: this
+/// overload exists for the benchmark case, so a single-series report should simply omit the argument.
+/// An error is harder to misread than a silently benchmark-less report.
+#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html")]
+fn duckfn_quantstats_html_with_benchmark(
     date: DuckDate,
     period_return: f64,
     benchmark: Option<DuckLazy<Vec<QuantstatsReturnPoint>>>,
@@ -505,9 +508,9 @@ impl DuckAggregateState for HtmlBenchmarkState {
     }
 
     fn result(&self) -> DuckOptionResult<String> {
-        // 空输入 → SQL NULL，与单序列版本一致。
+        // 空输入 → SQL NULL，与单序列重载一致。
         //
-        // Empty input → SQL NULL, matching the single-series function.
+        // Empty input → SQL NULL, matching the single-series overload.
         if self.points.is_empty() {
             return Ok(None);
         }
@@ -522,10 +525,6 @@ impl DuckAggregateState for HtmlBenchmarkState {
             .to_report_options()?
             .with_benchmark(&benchmark_series);
 
-        Ok(Some(render(
-            HTML_BENCHMARK_FUNCTION,
-            &strategy_series,
-            options,
-        )?))
+        Ok(Some(render(&strategy_series, options)?))
     }
 }

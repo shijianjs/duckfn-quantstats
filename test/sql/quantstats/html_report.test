@@ -19,18 +19,25 @@ SELECT typeof(NULL::duckfn_quantstats_html_options);
 ----
 STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR)
 
-# 两个函数都是聚合
-query T rowsort
-SELECT function_name || ':' || function_type FROM duckdb_functions() WHERE function_name LIKE 'duckfn_quantstats_html%';
-----
-duckfn_quantstats_html:aggregate
-duckfn_quantstats_html_benchmark:aggregate
-
-# 配置参数固定在最后：单序列是 (date, period_return, options)
-query I
+# 两个重载挂在同一个名字下，靠参数个数分派：
+#   3 参 = (date, period_return, options)               单序列
+#   4 参 = (date, period_return, benchmark, options)     带基准
+query I rowsort
 SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html';
 ----
 3
+4
+
+query T
+SELECT DISTINCT function_type FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html';
+----
+aggregate
+
+# 只占一个 SQL 名字：并进函数集之后，旧的独立名字不再注册
+statement error
+SELECT duckfn_quantstats_html_benchmark(1, 2, 3);
+----
+Scalar Function with name duckfn_quantstats_html_benchmark does not exist
 
 # ============================================================================
 # 固定数据集

@@ -9,19 +9,22 @@
 
 ## 函数
 
-两个聚合函数，都把「按日期排列的收益」归约成一份完整的 quantstats HTML 报告（`VARCHAR`）：
+一个聚合函数名字、**两个重载**（靠参数个数分派），都把「按日期排列的收益」归约成一份完整的
+quantstats HTML 报告（`VARCHAR`）：
 
-| 函数 | 说明 |
+| 签名 | 说明 |
 | --- | --- |
 | `duckfn_quantstats_html(date, period_return, options)` | 单序列报告，一行 = 一个周期。 |
-| `duckfn_quantstats_html_benchmark(date, period_return, benchmark, options)` | 带基准报告：策略侧逐行聚合，基准侧是一个**一次性传入的列表参数**。 |
+| `duckfn_quantstats_html(date, period_return, benchmark, options)` | 带基准报告：策略侧逐行聚合，基准侧是一个**一次性传入的列表参数**。 |
+
+两个重载由 `overloads_name` 注册成同一个函数集，SQL 里只占一个名字。
 
 - 配置参数 `options` **固定在参数列表最后**（数据列在前、配置在后）。它是**可空**配置，类型是加载期建好的
   命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
 - `date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，
   与其它 SQL 聚合函数一致。
 - `benchmark` 是 `STRUCT(date DATE, period_return DOUBLE)[]`。它是 `NULL`、是空列表、或列表里没有任何有效点时
-  都会**报错** —— 函数名里就有 benchmark，没基准就该改用 `duckfn_quantstats_html`。
+  都会**报错** —— 这一支重载就是为带基准的场景存在的，只想要单序列报告就少传这个参数。
 - `options` 与 `benchmark` 都用 `DuckLazy` 延迟读取：每行只构造一个 O(1) 的凭证，真正的解析只在**每组首行做一次**。
   这不是锦上添花：duckfn 的适配层是逐行读参数的，裸写 `Vec<...>` 会让整条基准序列被复制「行数」次，
   直接退化成 O(行数 × 基准长度)。
@@ -75,13 +78,13 @@ SELECT symbol,
 FROM daily_returns
 GROUP BY symbol;
 
--- 带基准：基准单独聚合成一行，再 cross join 进来（基准只写一次、只求值一次）
+-- 带基准：多传一个 benchmark 参数（4 参重载）；基准单独聚合成一行再 cross join 进来
 WITH benchmark AS (
     SELECT list({'date': trade_date, 'period_return': daily_return}) AS series
     FROM benchmark_returns
 )
 SELECT s.fund,
-       duckfn_quantstats_html_benchmark(
+       duckfn_quantstats_html(
            s.trade_date, s.daily_return, benchmark.series,
            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
 FROM strategy_returns s, benchmark
@@ -98,7 +101,7 @@ FROM daily_returns;
 
 ```sql
 SELECT fund,
-       duckfn_quantstats_html_benchmark(
+       duckfn_quantstats_html(
            trade_date, daily_return,
            (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
            NULL)
@@ -154,7 +157,7 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
-  一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两个聚合函数都基于它，
+  一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两个重载都基于它，
   不自己重算指标 —— 那会与报告里的数字形成两套真相。
 - [chrono](https://crates.io/crates/chrono)：`ReturnSeries` 要的是 `NaiveDate`，而 duckfn 的 `DuckDate`
   只存「自 1970-01-01 起的天数」，换算在扩展里做。

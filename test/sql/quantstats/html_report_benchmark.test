@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report_benchmark.test
-# description: duckfn_quantstats_html_benchmark 带基准报告：基准是「一次性传入的列表参数」（策略侧逐行聚合 + 单行 list 结果 cross join），配置参数放最后；覆盖 GROUP BY 每个标的、空输入 NULL、多线程一致性与五条错误路径
+# description: duckfn_quantstats_html 的带基准重载（4 参）：基准是「一次性传入的列表参数」（策略侧逐行聚合 + 单行 list 结果 cross join），配置参数放最后；覆盖与 3 参重载共存、GROUP BY 每个标的、空输入 NULL、多线程一致性与五条错误路径
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -36,10 +36,11 @@ SELECT typeof(series) FROM benchmark_series;
 ----
 STRUCT(date DATE, period_return DOUBLE)[]
 
-# 两个函数都是聚合，基准版本是 4 个参数
-query I
-SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html_benchmark';
+# 同一个 SQL 名字下两个签名：3 参（单序列）与 4 参（带基准）
+query I rowsort
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html';
 ----
+3
 4
 
 # ============================================================================
@@ -48,7 +49,7 @@ SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_qua
 
 # 单组：一个标的 + 一次传入的基准
 query T
-SELECT length(duckfn_quantstats_html_benchmark(
+SELECT length(duckfn_quantstats_html(
            s.trade_date, s.daily_return, b.series, NULL)) > 1000 AS long_enough
 FROM strategy_returns s, benchmark_series b
 WHERE s.fund = 'FUND_A';
@@ -57,7 +58,7 @@ true
 
 # 基准显示名生效（benchmark_title 只影响展示）
 query T
-SELECT position('SPX' IN duckfn_quantstats_html_benchmark(
+SELECT position('SPX' IN duckfn_quantstats_html(
            s.trade_date, s.daily_return, b.series,
            {'title': 'My Fund', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) > 0 AS has_benchmark_title
 FROM strategy_returns s, benchmark_series b
@@ -68,7 +69,7 @@ true
 # 基准序列的日期范围比策略宽（120 天 vs 120 个交易日，起点相同），仍然能出报告：
 # 起始日对齐由 quantstats-rs 按 match_dates 完成，这里不做额外处理。
 query T
-SELECT length(duckfn_quantstats_html_benchmark(
+SELECT length(duckfn_quantstats_html(
            s.trade_date, s.daily_return, b.series, NULL)) > 1000 AS ok
 FROM strategy_returns s, benchmark_series b
 WHERE s.fund = 'FUND_A';
@@ -78,7 +79,7 @@ true
 # GROUP BY 每个标的：两组都出报告，且各自用自己的配置
 query I
 SELECT count(*) FROM (
-    SELECT s.fund, duckfn_quantstats_html_benchmark(
+    SELECT s.fund, duckfn_quantstats_html(
                s.trade_date, s.daily_return, b.series,
                {'title': 'Fund ' || s.fund}::duckfn_quantstats_html_options) AS html
     FROM strategy_returns s, benchmark_series b
@@ -87,9 +88,21 @@ SELECT count(*) FROM (
 ----
 2
 
+# 同一个查询里两种重载可以共存：一个分组出单序列报告，另一个出带基准报告
+query T
+SELECT length(single) > 1000 AND length(with_benchmark) > 1000 AS both_ok
+FROM (
+    SELECT duckfn_quantstats_html(s.trade_date, s.daily_return, NULL) AS single,
+           duckfn_quantstats_html(s.trade_date, s.daily_return, b.series, NULL) AS with_benchmark
+    FROM strategy_returns s, benchmark_series b
+    WHERE s.fund = 'FUND_A'
+);
+----
+true
+
 # 空输入 -> SQL NULL（一组一行都没有）
 query T
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return, b.series, NULL) IS NULL AS is_null
 FROM strategy_returns s, benchmark_series b
 WHERE s.trade_date > DATE '2100-01-01';
@@ -105,7 +118,7 @@ PRAGMA threads=1;
 
 statement ok
 CREATE TABLE benchmark_single_thread AS
-SELECT md5(duckfn_quantstats_html_benchmark(
+SELECT md5(duckfn_quantstats_html(
            s.trade_date, s.daily_return, b.series, NULL)) AS digest
 FROM strategy_returns s, benchmark_series b
 WHERE s.fund = 'FUND_A';
@@ -114,7 +127,7 @@ statement ok
 PRAGMA threads=4;
 
 query T
-SELECT md5(duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, b.series, NULL))
+SELECT md5(duckfn_quantstats_html(s.trade_date, s.daily_return, b.series, NULL))
      = (SELECT digest FROM benchmark_single_thread) AS same_as_single_thread
 FROM strategy_returns s, benchmark_series b
 WHERE s.fund = 'FUND_A';
@@ -128,16 +141,16 @@ PRAGMA threads=1;
 # 错误路径
 # ============================================================================
 
-# 基准为 NULL：函数名里就有 benchmark，没基准应当改用单序列版本
+# 基准为 NULL：这一支就是为带基准的场景存在的，只要单序列就该少传这个参数
 statement error
-SELECT duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, NULL, NULL)
+SELECT duckfn_quantstats_html(s.trade_date, s.daily_return, NULL, NULL)
 FROM strategy_returns s, benchmark_series b;
 ----
 the benchmark list must not be NULL
 
 # 基准为空列表
 statement error
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return,
            []::STRUCT(date DATE, period_return DOUBLE)[], NULL)
 FROM strategy_returns s, benchmark_series b;
@@ -146,7 +159,7 @@ the benchmark list is empty
 
 # 基准点全都缺日期/收益（列表非空但没有任何有效点）
 statement error
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return,
            (SELECT list({'date': NULL::DATE, 'period_return': NULL::DOUBLE}) FROM benchmark_returns LIMIT 1),
            NULL)
@@ -156,7 +169,7 @@ the benchmark list is empty
 
 # 列表里有整体为 NULL 的元素
 statement error
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return,
            [NULL::STRUCT(date DATE, period_return DOUBLE)],
            NULL)
@@ -166,7 +179,7 @@ cannot read the benchmark list
 
 # list(...) 是聚合函数，不能内联当聚合参数
 statement error
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return,
            list({'date': s.trade_date, 'period_return': s.daily_return}), NULL)
 FROM strategy_returns s, benchmark_series b;
@@ -175,16 +188,16 @@ aggregate function calls cannot be nested
 
 # 基准点的字段名写错（必须是 date / period_return）
 statement error
-SELECT duckfn_quantstats_html_benchmark(
+SELECT duckfn_quantstats_html(
            s.trade_date, s.daily_return,
            (SELECT list({'dt': trade_date, 'ret': daily_return}) FROM benchmark_returns), NULL)
 FROM strategy_returns s, benchmark_series b;
 ----
 No function matches the given name and argument types
 
-# 参数顺序不对：配置不在最后 / 基准不在第三位
+# 参数顺序不对：配置不在最后 / 调用方按旧的重载名传参
 statement error
-SELECT duckfn_quantstats_html_benchmark(NULL, s.trade_date, s.daily_return)
+SELECT duckfn_quantstats_html(NULL, s.trade_date, s.daily_return)
 FROM strategy_returns s, benchmark_series b;
 ----
 No function matches the given name and argument types
