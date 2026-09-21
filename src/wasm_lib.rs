@@ -1,6 +1,8 @@
+#![cfg(target_arch = "wasm32")]
 #![allow(special_module_name)]
 
-mod lib;
+/// 和 lib.rs 保持同一组 mod，理由见 src/lib.rs。
+mod extension;
 
 // To build the Wasm target, a `staticlib` crate-type is required
 //
@@ -11,4 +13,4 @@ mod lib;
 // example, do not change the content of the file.
 //
 // To build the Wasm target explicitly, use:
-//   cargo build --example $PACKAGE_NAME
+//   cargo build --example duckfn_quantstats

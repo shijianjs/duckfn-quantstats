@@ -1,0 +1,7 @@
+# name: test/sql/duckfn_quantstats.test
+# description: smoke test — the extension loads under its own name
+# group: [quantstats]
+
+# Require statement will ensure the extension is loaded from now on.
+# It fails if the entry-point symbol does not match the extension name.
+require duckfn_quantstats

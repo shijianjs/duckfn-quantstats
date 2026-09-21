@@ -1,7 +1,8 @@
 [package]
-name = "rusty_quack"
+name = "duckfn_quantstats"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.86"
 
 [lib]
 crate-type = ["cdylib"]
@@ -15,15 +16,15 @@ strip = true
 # src/wasm_lib.rs forwards to src/lib.rs so that we can change from cdylib
 # (that is needed while compiling natively) to staticlib (needed since the
 # actual linking will be done via emcc
-name = "rusty_quack"
+name = "duckfn_quantstats"
 path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-duckdb = { version = "~1.10505.0", features = ["loadable-extension", "vscalar"] }
 duckfn = "0.0.5"
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
+# quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
 quack-rs = "0.16.0"
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
 # 这也是「无需在本地编译 DuckDB」的原因。
