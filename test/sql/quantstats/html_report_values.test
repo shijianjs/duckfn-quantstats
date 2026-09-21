@@ -1,0 +1,208 @@
+# name: test/sql/quantstats/html_report_values.test
+# description: 用 webbed 的 XPath 解析生成的 HTML，断言报告里的**真实值**：标题与统计区间、配置项回显（rf 年化口径 / strategy_title / benchmark_title）、逐行指标数字、图表与表格数量、以及带基准时多出来的那一列
+# group: [quantstats]
+#
+# 注意：本文件依赖社区扩展 webbed（`INSTALL webbed FROM community`），首次运行需要网络；
+# 装好后会落在用户的 DuckDB 扩展缓存里，之后离线也能跑。
+#
+# 其它两个 .test 文件不依赖任何外部扩展：它们用 md5 相等性与 length/position 做断言，
+# 覆盖的是「配置解析、NULL 处理、多线程 combine 一致性、错误路径」这些**行为**；
+# 本文件补的是「输出内容确实对」——两边的分工不要混。
+
+require duckfn_quantstats
+
+statement ok
+INSTALL webbed FROM community;
+
+statement ok
+LOAD webbed;
+
+# ============================================================================
+# 数据与报告
+# ============================================================================
+
+statement ok
+CREATE TABLE daily_returns AS SELECT * FROM (VALUES
+    (DATE '2024-01-02', 0.0100::DOUBLE),
+    (DATE '2024-01-03', -0.0200::DOUBLE),
+    (DATE '2024-01-04', 0.0300::DOUBLE),
+    (DATE '2024-01-05', 0.0000::DOUBLE),
+    (DATE '2024-01-08', 0.0150::DOUBLE),
+    (DATE '2024-01-09', -0.0050::DOUBLE),
+    (DATE '2024-01-10', 0.0200::DOUBLE),
+    (DATE '2024-01-11', -0.0100::DOUBLE),
+    (DATE '2024-01-12', 0.0050::DOUBLE)
+) t(trade_date, daily_return);
+
+statement ok
+CREATE TABLE benchmark_returns AS SELECT * FROM (VALUES
+    (DATE '2024-01-02', 0.0020::DOUBLE),
+    (DATE '2024-01-03', -0.0010::DOUBLE),
+    (DATE '2024-01-04', 0.0040::DOUBLE),
+    (DATE '2024-01-05', 0.0010::DOUBLE),
+    (DATE '2024-01-08', -0.0020::DOUBLE),
+    (DATE '2024-01-09', 0.0030::DOUBLE),
+    (DATE '2024-01-10', 0.0000::DOUBLE),
+    (DATE '2024-01-11', 0.0025::DOUBLE),
+    (DATE '2024-01-12', 0.0015::DOUBLE)
+) t(trade_date, daily_return);
+
+statement ok
+CREATE TABLE single_report AS
+SELECT duckfn_quantstats_html(trade_date, daily_return,
+    {'title': 'My Fund', 'strategy_title': 'My Fund', 'rf': 0.04}::duckfn_quantstats_html_options) AS html
+FROM daily_returns;
+
+statement ok
+CREATE TABLE benchmark_report AS
+SELECT duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, b.series,
+    {'title': 'My Fund', 'strategy_title': 'My Fund', 'benchmark_title': 'Bench', 'rf': 0.04}::duckfn_quantstats_html_options) AS html
+FROM daily_returns s,
+     (SELECT list({'date': trade_date, 'period_return': daily_return}) AS series FROM benchmark_returns) b;
+
+# webbed 的 html_extract_text(html, xpath) 返回 VARCHAR[]（所有匹配项），所以要么取 [1]，要么用 array_to_string 拼起来。
+
+# ============================================================================
+# 单序列：标题、统计区间、配置回显
+# ============================================================================
+
+# h1 = `{{title}}` + `<dt>` 统计区间
+query T
+SELECT html_extract_text(html, '//h1')[1] FROM single_report;
+----
+My Fund 2 Jan, 2024 - 12 Jan, 2024
+
+# 统计区间取自数据自身的首尾日期（格式 %e %b, %Y，个位数字前面不留空格）
+query T
+SELECT html_extract_text(html, '//h1/dt')[1] FROM single_report;
+----
+2 Jan, 2024 - 12 Jan, 2024
+
+# 指标表的表头用的是 strategy_title
+query T
+SELECT array_to_string(html_extract_text(html, '//div[@id="right"]/table[1]//thead/tr/th'), ' | ') FROM single_report;
+----
+Metric | My Fund
+
+# rf 是**年化**口径：传 0.04 应当原样显示成 4.0%
+# （crate 内部才把它换算成周期利率，报告表格里显示的就是年化值）
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Risk-Free Rate"]/td[2]')[1] FROM single_report;
+----
+4.0%
+
+# ============================================================================
+# 单序列：逐行指标的真实数字（固定输入 => 固定值）
+#
+# 这几个数字走完了整条链路：DuckDate -> NaiveDate 换算、按日期排序、指标计算、模板渲染。
+# 如果 quantstats-rs 换了算法，这里会红 —— 那正是我们想被通知的时刻。
+# ============================================================================
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Cumulative Return"]/td[2]')[1] FROM single_report;
+----
+4.49%
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Max Drawdown"]/td[2]')[1] FROM single_report;
+----
+-2.00%
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td[2]')[1] FROM single_report;
+----
+4.93
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Best Day"]/td[2]')[1] FROM single_report;
+----
+3.00%
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Worst Day"]/td[2]')[1] FROM single_report;
+----
+-2.00%
+
+# ============================================================================
+# 单序列：页面结构（图表与表格确实被渲染出来了，而不只是一个能通过 length 检查的字符串）
+# ============================================================================
+
+query I
+SELECT array_length(html_extract_text(html, '//svg')) FROM single_report;
+----
+10
+
+query I
+SELECT array_length(html_extract_text(html, '//table')) FROM single_report;
+----
+3
+
+query I
+SELECT array_length(html_extract_text(html, '//h3')) FROM single_report;
+----
+3
+
+# 没有基准时，指标表每行只有「标签 + 策略」两列
+query I
+SELECT len(html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Risk-Free Rate"]/td')) FROM single_report;
+----
+2
+
+# ============================================================================
+# 带基准：基准显示名生效、指标表多一列、两列取值不同
+# ============================================================================
+
+query T
+SELECT html_extract_text(html, '//h4')[1] FROM benchmark_report;
+----
+Benchmark is Bench |  Generated by QuantStats-RS (v. 0.1.0)
+
+query T
+SELECT array_to_string(html_extract_text(html, '//div[@id="right"]/table[1]//thead/tr/th'), ' | ') FROM benchmark_report;
+----
+Metric | Bench | My Fund
+
+# 有基准时每行三列（标签 + 基准 + 策略）
+query I
+SELECT len(html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Risk-Free Rate"]/td')) FROM benchmark_report;
+----
+3
+
+# 指标表的列顺序是「基准在前、策略在后」
+query T
+SELECT array_to_string(html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td'), ' | ') FROM benchmark_report;
+----
+Sharpe | 8.74 | 4.93
+
+# 策略列的 Sharpe 与单序列报告里的完全一致：加基准不会改动策略侧的指标
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td')[3]
+     = (SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td[2]')[1] FROM single_report)
+FROM benchmark_report;
+----
+true
+
+# ============================================================================
+# 配置项真的会被读进去：换 title / strategy_title / rf，报告随之改变
+# ============================================================================
+
+statement ok
+CREATE TABLE other_report AS
+SELECT duckfn_quantstats_html(trade_date, daily_return,
+    {'title': 'Other', 'strategy_title': 'Alpha', 'rf': 0}::duckfn_quantstats_html_options) AS html
+FROM daily_returns;
+
+query T
+SELECT html_extract_text(html, '//h1')[1] FROM other_report;
+----
+Other 2 Jan, 2024 - 12 Jan, 2024
+
+query T
+SELECT array_to_string(html_extract_text(html, '//div[@id="right"]/table[1]//thead/tr/th'), ' | ') FROM other_report;
+----
+Metric | Alpha
+
+query T
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Risk-Free Rate"]/td[2]')[1] FROM other_report;
+----
+0.0%

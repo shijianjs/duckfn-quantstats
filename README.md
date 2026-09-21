@@ -193,7 +193,32 @@ SELECT ...;
 测试用 SQLLogicTest 格式写在 `test/sql/` 下：
 
 ```shell
-make test_debug     # 或 make test_release
+make debug && make test    # make test 不会自动重新构建，改完 Rust 必须先 make debug
 ```
+
+测试分两类，分工不要混：
+
+| 文件 | 覆盖什么 | 额外依赖 |
+| --- | --- | --- |
+| `test/sql/quantstats/html_report.test`、`html_report_benchmark.test` | **行为**：配置解析与默认值、`NULL` 行跳过、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、错误路径 | 无 |
+| `test/sql/quantstats/html_report_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列 | 社区扩展 `webbed` |
+
+`webbed` 的安装写在测试文件里（`INSTALL webbed FROM community;`），**首次运行需要网络**，之后走本机
+DuckDB 扩展缓存。不想要这个依赖就删掉该文件，前两个文件不受影响。
+
+用 XPath 断言长 HTML 比 `length(...) > N` 有用，也比 md5 相等更容易定位失败原因：
+
+```sql
+-- 报告标题与统计区间
+SELECT html_extract_text(html, '//h1')[1] FROM report;
+-- -> My Fund 2 Jan, 2024 - 12 Jan, 2024
+
+-- 指标表里某一行的策略列（列顺序是「基准在前、策略在后」）
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td[2]')[1] FROM report;
+-- -> 4.93
+```
+
+注意 webbed 的 `html_extract_text(html, xpath)` 返回 `VARCHAR[]`（**所有**匹配项）：取单个值要 `[1]`，
+断言一整组可以用 `array_to_string(..., ' | ')` 或 `array_length(...)`。
 
 新增函数时至少覆盖：正常值、`NULL`、边界值、错误路径（`statement error`）。

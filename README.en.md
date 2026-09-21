@@ -209,8 +209,35 @@ SELECT ...;
 Tests are written in the SQLLogicTest format under `test/sql/`:
 
 ```shell
-make test_debug     # or make test_release
+make debug && make test    # make test does not rebuild; run make debug after editing Rust
 ```
+
+They come in two kinds, and the split is deliberate:
+
+| File | Covers | Extra dependency |
+| --- | --- | --- |
+| `test/sql/quantstats/html_report.test`, `html_report_benchmark.test` | **Behaviour**: option parsing and defaults, `NULL` rows skipped, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), error paths | none |
+| `test/sql/quantstats/html_report_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts and the extra benchmark column | the `webbed` community extension |
+
+`webbed` is installed from inside the test file (`INSTALL webbed FROM community;`), which needs **network on the
+first run** and then goes through the local DuckDB extension cache. Delete that file if you do not want the
+dependency; the other two are unaffected.
+
+Asserting on long HTML via XPath beats `length(...) > N` and localises failures far better than an md5
+comparison:
+
+```sql
+-- Report title and date range
+SELECT html_extract_text(html, '//h1')[1] FROM report;
+-- -> My Fund 2 Jan, 2024 - 12 Jan, 2024
+
+-- The strategy column of one row of the metrics table (benchmark column comes first)
+SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/td[2]')[1] FROM report;
+-- -> 4.93
+```
+
+Note that webbed's `html_extract_text(html, xpath)` returns `VARCHAR[]` (**all** matches): index with `[1]`
+for a single value, or use `array_to_string(..., ' | ')` / `array_length(...)` to assert a whole group.
 
 When adding a function, cover at least: normal values, `NULL`, boundary values and error paths
 (`statement error`).
