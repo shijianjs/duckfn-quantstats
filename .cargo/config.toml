@@ -1,3 +1,5 @@
+# Windows 上静态链接 C 运行库比较省事。
+#
 # statically linking the C runtime on windows seems sensible?
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-Ctarget-feature=+crt-static"]

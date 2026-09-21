@@ -1,4 +1,6 @@
 #
+# 本工作流调用 DuckDB 的主分发流水线来构建、测试并按需发布扩展。
+#
 # This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
 #
 name: Main Extension Distribution Pipeline

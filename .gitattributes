@@ -1,6 +1,7 @@
 # 统一换行符：入库统一为 LF，检出保持 LF（不生成 CRLF）
+# Normalize line endings: store LF, check out LF (never CRLF)
 * text=auto eol=lf
 
-# 二进制产物不做换行符转换
+# 二进制产物不做换行符转换 / No EOL conversion for binary artifacts
 *.duckdb_extension binary
 *.wasm binary

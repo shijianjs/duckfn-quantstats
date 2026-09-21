@@ -1,3 +1,5 @@
+[English](README.en.md) | [简体中文](README.md)
+
 # duckfn_quantstats
 
 用 [duckfn](https://crates.io/crates/duckfn) 写的 DuckDB 扩展（loadable extension）：在 SQL 里直接产出 quantstats 报告。

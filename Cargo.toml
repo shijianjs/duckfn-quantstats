@@ -12,10 +12,13 @@ lto = true
 strip = true
 
 [[example]]
-# crate-type can't be (at the moment) be overriden for specific targets
+# 目前无法按 target 覆盖 crate-type：src/wasm_lib.rs 转发到 src/lib.rs，
+# 这样原生编译保持 cdylib，Wasm 编译则用 staticlib（真正的链接由 emcc 完成）。
+#
+# crate-type can't be (at the moment) be overriden for specific targets:
 # src/wasm_lib.rs forwards to src/lib.rs so that we can change from cdylib
 # (that is needed while compiling natively) to staticlib (needed since the
-# actual linking will be done via emcc
+# actual linking will be done via emcc).
 name = "duckfn_quantstats"
 path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
@@ -25,8 +28,16 @@ duckfn = "0.0.5"
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
+#
+# duckfn is built on the two crates below; add them explicitly when you use their
+# types or builders directly.
+# quack-rs: the code expanded by `duckfn_entrypoint!` refers to `quack_rs::` paths,
+# so it must be a direct dependency.
 quack-rs = "0.16.0"
+
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
-# 这也是「无需在本地编译 DuckDB」的原因。
-# （仅使用头文件，不链接库）
+# 这也是「无需在本地编译 DuckDB」的原因（仅使用头文件，不链接库）。
+#
+# `loadable-extension` dispatches through DuckDB's API table instead of linking
+# libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 libduckdb-sys = { version = ">=1.4.4, <2", features = ["loadable-extension"] }
