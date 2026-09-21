@@ -41,3 +41,4 @@ quack-rs = "0.16.0"
 # `loadable-extension` dispatches through DuckDB's API table instead of linking
 # libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 libduckdb-sys = { version = ">=1.4.4, <2", features = ["loadable-extension"] }
+quantstats-rs = "0.1.0"
