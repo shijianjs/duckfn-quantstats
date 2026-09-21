@@ -197,12 +197,12 @@ GROUP BY fund;
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output = ''` | Error `output must not be an empty string` |
 | The `output` path contains a NUL byte | Error `contains a NUL byte` |
-| `output` points at an existing file **longer** than the report | Error `is longer` (see below) |
+| The `output` path cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
 
 ### Writing the report to a file
 
-`output` writes the rendered HTML through **DuckDB's VFS** (`duckfn::with_file_system`), not through
-`std::fs`:
+`output` writes the rendered HTML with duckfn's convenience layer `duck_vfs::write_string`, i.e. through
+**DuckDB's VFS** rather than `std::fs`:
 
 - local disk, in-memory file systems, whatever file system the wasm build exposes, and `s3://` /
   `http(s)://` once `httpfs` is loaded all go through the same path with the same semantics;
@@ -210,12 +210,12 @@ GROUP BY fund;
   context (no bind callback, no `duckdb_aggregate_function_get_client_context`), so duckfn keeps an owned
   long-lived connection from registration time and hands out a fresh `ClientContext` → `FileSystem` from it.
 
-**Known limitation: no truncate.** DuckDB's C API only exposes "create if needed"
-(`DUCKDB_FILE_FLAG_CREATE`); the flag that truncates (`FILE_FLAGS_FILE_CREATE_NEW`, i.e. `O_TRUNC` /
-`CREATE_ALWAYS`) exists on the C++ side only. Overwriting an **existing longer** file would therefore leave a
-tail behind, and that is reported as an error rather than silently writing "report plus garbage" — delete the
-file or write to a new path. Writing to a missing, equally long or shorter file works, and `read_text()`
-returns exactly what the function returned (the test suite pins that with `md5`).
+`output` **replaces** the target: afterwards the file holds exactly the report, even when it previously held
+something longer. That is duckfn's job — DuckDB's C API has no truncate (`DUCKDB_FILE_FLAG_CREATE` only means
+"create if needed", and the flag that maps to `O_TRUNC` / `CREATE_ALWAYS` lives on the C++ side), so duckfn's
+`duck_vfs` layer zeroes a longer file before writing; this extension just calls `duck_vfs::write_string`.
+`read_text()` therefore returns exactly what the function returned — the test suite pins that with `md5`,
+including the "existing file is longer" case.
 
 The path is part of the configuration, so under `GROUP BY` give each group its own file
 (`'report-' || symbol || '.html'`) instead of pointing every group at one path.
@@ -246,7 +246,7 @@ module layout.
 
 - [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions with
   DuckDB. Its `duckdb-1-5` feature is enabled, which is what provides `DuckLazySlot`'s sibling — the host
-  file system (`duckfn::with_file_system`) used by `output`.
+  file system (`duckfn::duck_vfs`) used by `output`.
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension` enabled —

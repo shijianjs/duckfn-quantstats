@@ -231,7 +231,7 @@ output must not be an empty string
 # ============================================================================
 # 报告落盘（output）：经 **DuckDB 的 VFS**，不是 std::fs
 #
-# 同一套语义在本地与 wasm 上成立：写路径是 duckfn::with_file_system 拿到的 DuckDB 文件系统，
+# 同一套语义在本地与 wasm 上成立：写路径是 duckfn 便捷层（duck_vfs::write_string）背后的 DuckDB 文件系统，
 # 而 std::fs 在 wasm 目标下根本没有可写的地方（那正是这个字段以前在 wasm 上被忽略的原因）。
 # 写完之后用 DuckDB 自己的 read_text 读回来 —— 读写走同一个文件系统，内容必须逐字节一致。
 # __TEST_DIR__ 是测试运行器给的临时目录。
@@ -273,19 +273,24 @@ SELECT (SELECT md5(html) FROM rewritten_report)
 ----
 true
 
-# 旧文件比报告长：DuckDB 的 C API 只能「需要时新建」，没有 truncate（那个标志只在 C++ 侧），
-# 所以这里选择报错，而不是静默留下一份「报告 + 旧文件尾巴」。
+# 旧文件比报告长：覆盖写就是覆盖写 —— duckfn 的便捷层内部会先把更长的旧文件清零再写正文
+# （C API 没有 truncate 这件事由它处理），所以尾部不会留下旧内容的残渣。
 statement ok
 COPY (SELECT repeat('x', 200000) AS filler)
 TO '__TEST_DIR__/dfn_qs_longer.html' (FORMAT csv, HEADER false);
 
-statement error
+statement ok
+CREATE TABLE report_over_longer_file AS
 SELECT duckfn_quantstats_html(
            trade_date, daily_return,
-           {'output': '__TEST_DIR__/dfn_qs_longer.html'}::duckfn_quantstats_html_options)
+           {'output': '__TEST_DIR__/dfn_qs_longer.html'}::duckfn_quantstats_html_options) AS html
 FROM daily_returns;
+
+query T
+SELECT (SELECT md5(html) FROM report_over_longer_file)
+     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_longer.html')) AS same_content;
 ----
-is longer
+true
 
 # 路径里有 NUL 字节：转成 C 字符串时就失败，不进入文件系统
 statement error

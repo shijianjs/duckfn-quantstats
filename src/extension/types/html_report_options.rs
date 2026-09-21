@@ -77,16 +77,20 @@ pub(crate) struct QuantstatsHtmlOptions {
 
     /// 生成报告的同时把 HTML 落盘到该路径。缺省不落盘。
     ///
-    /// 写文件走 **DuckDB 的 VFS**（`duckfn::with_file_system`），不是 `std::fs`：本地磁盘、内存
+    /// 写文件走 **DuckDB 的 VFS**（duckfn 的 `duck_vfs` 便捷层），不是 `std::fs`：本地磁盘、内存
     /// 文件系统、wasm 构建里宿主真正能读的那个文件系统，以及装了 httpfs 后的 `s3://` / `http(s)://`
     /// 都是同一条通路、同一套语义。也因此聚合函数（C API 不给它客户端上下文）才写得进去。
+    /// **覆盖写就是覆盖写**：目标已存在时内容会被换成这一次的报告（旧文件更长也不会留下尾巴，
+    /// C API 缺 truncate 这件事由便捷层内部处理）。
     ///
     /// Also write the HTML to this path. Defaults to not writing anything.
     ///
-    /// The write goes through **DuckDB's VFS** (`duckfn::with_file_system`) rather than `std::fs`:
-    /// local disk, in-memory file systems, whatever file system the wasm build actually exposes, and
-    /// `s3://` / `http(s)://` once httpfs is loaded are all the same path with the same semantics —
-    /// which is also what lets an aggregate (no client context from the C API) write at all.
+    /// The write goes through **DuckDB's VFS** (duckfn's `duck_vfs` convenience layer) rather than
+    /// `std::fs`: local disk, in-memory file systems, whatever file system the wasm build actually
+    /// exposes, and `s3://` / `http(s)://` once httpfs is loaded are all the same path with the same
+    /// semantics — which is also what lets an aggregate (no client context from the C API) write at
+    /// all. **Replace really replaces**: an existing target ends up holding exactly this report (a
+    /// longer file leaves no tail; the C API's missing truncate is handled inside that layer).
     pub output: Option<String>,
 }
 

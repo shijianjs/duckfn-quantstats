@@ -180,11 +180,11 @@ GROUP BY fund;
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output = ''` | 报错 `output must not be an empty string` |
 | `output` 路径里有 NUL 字节 | 报错 `contains a NUL byte` |
-| `output` 指向的旧文件**比报告更长** | 报错 `is longer`（见下） |
+| `output` 路径写不进去（目录不存在、远端不可写等） | 报错里带 `duckfn::duck_vfs::write` 与路径 |
 
 ### 报告落盘（`output`）
 
-`output` 把渲染好的 HTML 经 **DuckDB 的 VFS**（`duckfn::with_file_system`）写出，而不是 `std::fs`：
+`output` 用 duckfn 的便捷层 `duck_vfs::write_string` 落盘，也就是经 **DuckDB 的 VFS** 而不是 `std::fs`：
 
 - 本地磁盘、内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` /
   `http(s)://`，都是同一条通路、同一套语义；
@@ -192,11 +192,11 @@ GROUP BY fund;
   `duckdb_aggregate_function_get_client_context`），所以 duckfn 在注册期留了一条自有长连接，
   从这里现取 `ClientContext` → `FileSystem`。
 
-**已知限制：不能 truncate。** DuckDB 的 C API 只有「需要时新建」（`DUCKDB_FILE_FLAG_CREATE`），映射到
-`O_TRUNC` / `CREATE_ALWAYS` 的那个标志（`FILE_FLAGS_FILE_CREATE_NEW`）只在 C++ 侧。于是覆盖一个
-**更长的旧文件**会在尾部留下残渣 —— 这里选择**报错**而不是静默写下「报告 + 垃圾」：请删掉文件或换个
-路径。写到不存在的文件、等长或更短的文件都正常，`read_text()` 读回来的与函数返回值逐字节一致
-（测试里用 `md5` 钉住了这一点）。
+`output` 是**替换**：写完之后文件里恰好就是这份报告，哪怕它以前更长。这件事由 duckfn 负责 ——
+DuckDB 的 C API 没有 truncate（`DUCKDB_FILE_FLAG_CREATE` 只表示「需要时新建」，映射到 `O_TRUNC` /
+`CREATE_ALWAYS` 的标志在 C++ 侧），所以 duckfn 的 `duck_vfs` 层会先把更长的旧文件清零再写正文，
+本扩展只调 `duck_vfs::write_string`。于是 `read_text()` 读回来的与函数返回值逐字节一致 —— 测试里用
+`md5` 钉住了这一点，其中就包含「旧文件更长」这个用例。
 
 路径是配置的一部分，所以在 `GROUP BY` 下要给每个分组各自的文件（`'report-' || symbol || '.html'`），
 而不是所有分组都指向同一个路径。
@@ -224,7 +224,7 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 ## 依赖
 
 - [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开启了它的
-  `duckdb-1-5` feature —— `output` 用的宿主文件系统（`duckfn::with_file_system`）就在这个 feature 下。
+  `duckdb-1-5` feature —— `output` 用的宿主文件系统（`duckfn::duck_vfs`）就在这个 feature 下。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本

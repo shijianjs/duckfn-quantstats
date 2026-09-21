@@ -24,17 +24,19 @@ path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-# 0.0.6 起提供两样本项目用到的东西：
+# 0.0.7 起提供本扩展用到的全部设施：
 #   - `DuckLazySlot<T>`：把 DuckLazy 参数「解析一次」这条路径固化成类型；
-#   - `duckdb-1-5` feature 下的宿主文件系统（`duckfn::with_file_system`）：聚合的 `result()` 里也能
-#     通过 DuckDB 的 VFS 落盘，而不是只能用 std::fs（wasm 上根本没有可写的 std::fs）。
+#   - `duckdb-1-5` feature 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的
+#     `write_string` 就是「覆盖写」（内部处理了「C API 没有 truncate」，旧文件更长也照样写对），
+#     所以 `output` 落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs。
 #
-# Since 0.0.6 duckfn provides the two things this project uses:
+# Since 0.0.7 duckfn provides everything this project uses:
 #   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
-#   - the host file system under the `duckdb-1-5` feature (`duckfn::with_file_system`): an aggregate's
-#     `result()` can persist through DuckDB's VFS instead of `std::fs` only (there is no writable
-#     `std::fs` on wasm).
-duckfn = { version = "0.0.6", features = ["duckdb-1-5"] }
+#   - `duckfn::duck_vfs` under the `duckdb-1-5` feature: host file system access plus one-line reads
+#     and writes. Its `write_string` *is* "replace" (a longer existing file is dealt with internally,
+#     despite the C API having no truncate), which is what `output` uses instead of `std::fs` — there
+#     is no writable `std::fs` on wasm at all.
+duckfn = { version = "0.0.7", features = ["duckdb-1-5"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
@@ -48,7 +50,7 @@ quack-rs = "0.16.0"
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
 # 这也是「无需在本地编译 DuckDB」的原因（仅使用头文件，不链接库）。
 #
-# 版本下限是 DuckDB 1.5：客户端上下文 / 宿主文件系统（`duckfn::with_file_system`）是 1.5 才进 C API 的，
+# 版本下限是 DuckDB 1.5：客户端上下文 / 宿主文件系统（`duckfn::duck_vfs`）是 1.5 才进 C API 的，
 # 本扩展的 `output` 落盘依赖它，所以不再保留 1.4 兼容性。libduckdb-sys 把 DuckDB 版本编码成
 # `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，1.5.5 → 1.10505.0），
 # 于是 `>=1.10500` 就是「DuckDB >= 1.5」，并且排除掉 1.10404.0（= 1.4.4）。
@@ -57,7 +59,7 @@ quack-rs = "0.16.0"
 # libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 #
 # The lower bound is DuckDB 1.5: the client context / host file system
-# (`duckfn::with_file_system`) only reached the C API in 1.5, and this extension's `output` depends on
+# (`duckfn::duck_vfs`) only reached the C API in 1.5, and this extension's `output` depends on
 # it, so 1.4 compatibility is gone. libduckdb-sys encodes a DuckDB version as
 # `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 1.5.5 → 1.10505.0), so `>=1.10500`
 # means "DuckDB >= 1.5" and rules out 1.10404.0 (= 1.4.4).

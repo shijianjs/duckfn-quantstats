@@ -1,0 +1,5 @@
+# name: test/sql/duckfn_quantstats.test
+# description: 最小冒烟测试：扩展本身能被加载
+# group: [duckfn_quantstats]
+
+require duckfn_quantstats
