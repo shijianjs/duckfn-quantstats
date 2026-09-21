@@ -10,3 +10,6 @@ venv
 .vscode
 .mcp.json
 /test/sql/*.html
+
+test/sql/*.*
+
