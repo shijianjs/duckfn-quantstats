@@ -21,3 +21,11 @@ crate-type = ["staticlib"]
 
 [dependencies]
 duckdb = { version = "~1.10505.0", features = ["loadable-extension", "vscalar"] }
+duckfn = "0.0.5"
+
+# duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
+quack-rs = "0.16.0"
+# loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
+# 这也是「无需在本地编译 DuckDB」的原因。
+# （仅使用头文件，不链接库）
+libduckdb-sys = { version = ">=1.4.4, <2", features = ["loadable-extension"] }
