@@ -1,6 +1,7 @@
 use chrono::{NaiveDate, TimeDelta};
 use duckfn::{
-    DuckAggregateState, DuckDate, DuckOptionResult, DuckResult, duck_aggregate_function, duck_error,
+    DuckAggregateState, DuckDate, DuckLazy, DuckOptionResult, DuckResult, duck_aggregate_function,
+    duck_error,
 };
 use quantstats_rs::{HtmlReportOptions, ReturnSeries, html};
 
@@ -9,10 +10,19 @@ use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 // ============================================================================
 // 两个聚合函数，把「按日期排列的收益」归约成一份 quantstats HTML 报告
 //
-//   duckfn_quantstats_html(opt, dt, ret)
+//   duckfn_quantstats_html(dt, ret, opt)
 //     单序列：一行 = 一天，直接出报告。
-//   duckfn_quantstats_html_benchmark(opt, name, dt, ret)
+//   duckfn_quantstats_html_benchmark(name, dt, ret, opt)
 //     长表：`name` 是标签，等于 `opt.benchmark_name` 的行是基准、其余是策略，出带基准对比的报告。
+//
+// 配置参数一律放在参数列表**最后**（数据列在前、配置在后），与 SQL 里 `f(数据..., 配置)` 的阅读
+// 习惯一致，也让「数据列」在视觉上连成一组。
+//
+// 配置参数写成 `Option<DuckLazy<QuantstatsHtmlOptions>>`：
+//   - `DuckLazy` 每行只构造一个「本行内的延迟读取凭证」（O(1)，不解引用、不解析），
+//     真正的解析由 `ConfigSlot::resolve` 在第一行做一次，之后所有行复用解析结果；
+//   - 外层 `Option` 让整列配置为 NULL 时也能进入函数体并落到「用默认值」分支（非 Option 入参
+//     遇到 NULL 会让整行被跳过，那不是我们想要的语义）。
 //
 // 为什么是聚合而不是标量/表函数：报告天然是「按组归约」，与 SQL 的 GROUP BY 一一对应；
 // 标量函数做不到跨行归约，表函数还得自己解析表名、扫表。
@@ -25,11 +35,22 @@ use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 //
 // Two aggregate functions folding a date-ordered return series into one quantstats HTML report.
 //
-//   duckfn_quantstats_html(opt, dt, ret)
+//   duckfn_quantstats_html(dt, ret, opt)
 //     Single series: one row per day.
-//   duckfn_quantstats_html_benchmark(opt, name, dt, ret)
+//   duckfn_quantstats_html_benchmark(name, dt, ret, opt)
 //     Long table: `name` is a label; rows whose label equals `opt.benchmark_name` are the benchmark
 //     and the rest are the strategy, producing a report with benchmark comparison.
+//
+// The configuration argument always comes **last** (data columns first, config last), matching how
+// `f(data..., config)` reads in SQL and keeping the data columns visually grouped.
+//
+// The configuration argument is typed `Option<DuckLazy<QuantstatsHtmlOptions>>`:
+//   - `DuckLazy` builds an O(1) "deferred read scoped to this row" per row without dereferencing or
+//     parsing anything; the single real parse happens in `ConfigSlot::resolve` on the first row and
+//     every later row reuses the result;
+//   - the outer `Option` lets an all-NULL config column reach the function body and take the
+//     "use defaults" branch (a non-Option argument would make the whole row be skipped, which is not
+//     the semantics we want here).
 //
 // Why aggregates rather than a scalar or table function: a report is a per-group reduction, which
 // maps 1:1 onto GROUP BY; a scalar function cannot reduce across rows, and a table function would
@@ -82,41 +103,84 @@ fn build_series(points: &[(i32, f64)], name: Option<String>) -> DuckResult<Retur
 ///
 /// Render the report, turning quantstats-rs errors into DuckDB query errors (`what` names the
 /// function the error came from).
-fn render(
-    what: &str,
-    series: &ReturnSeries,
-    options: HtmlReportOptions<'_>,
-) -> DuckResult<String> {
+fn render(what: &str, series: &ReturnSeries, options: HtmlReportOptions<'_>) -> DuckResult<String> {
     html(series, options)
         .map_err(|err| duck_error(format!("{what}: cannot render the report: {err}")))
 }
 
-/// 两个聚合共用的配置槽：配置参数多行不变，只在第一行取到后存进状态，之后所有行复用，
-/// 免得每行都克隆一份 struct。
+// ============================================================================
+// 配置槽：只缓存**解析结果**，绝不缓存 DuckLazy 凭证
+//
+// `DuckLazy<T>` 的契约是「凭证只在本行回调内有效」，把它存进聚合状态、跨 chunk / 跨线程再解析
+// 会被运行时守卫拦下（报 "DuckLazy<T> is stale"）。所以这里存的是解析出来的普通数据，combine
+// 时也只是把这份数据搬过去 —— 两边解析的是同一份配置，不需要（也不能）重新解析。
+//
+// The configuration slot: it caches the *parsed value* and never the DuckLazy token.
+//
+// A `DuckLazy<T>` token is only valid inside the callback that produced it, so storing it in the
+// aggregate state and consuming it past the chunk or on another thread is rejected by the runtime
+// guard ("DuckLazy<T> is stale"). This slot therefore keeps the parsed value, and combine merely
+// moves that value across — both sides parsed the same configuration, so re-parsing is neither
+// needed nor allowed.
+// ============================================================================
+
+/// 配置的三种状态。
 ///
-/// A configuration slot shared by both aggregates: the config argument is constant across rows, so it
-/// is kept from the first row that carries one and reused afterwards instead of being cloned per row.
+/// The three states of the configuration slot.
 #[derive(Default, Debug, Clone)]
-struct ConfigSlot(Option<QuantstatsHtmlOptions>);
+enum ConfigSlot {
+    /// 还没有在任何 update 回调里解析过。
+    ///
+    /// Not parsed inside an update callback yet.
+    #[default]
+    Unresolved,
+    /// 已解析：`None` 表示整列配置都是 NULL，SQL 侧等价于全默认。
+    ///
+    /// Parsed: `None` means the whole config column was NULL, i.e. all defaults.
+    Resolved(Option<QuantstatsHtmlOptions>),
+}
 
 impl ConfigSlot {
-    /// 记录首个非 NULL 的配置；整列都是 NULL 时保持 `None`（`result()` 里退化成默认配置）。
+    /// 只在第一行解析一次；之后所有行只付 O(1) 的凭证构造成本。
     ///
-    /// Keep the first non-NULL config; when the whole column is NULL it stays `None` and `result()`
-    /// falls back to the default config.
-    fn absorb(&mut self, config: Option<QuantstatsHtmlOptions>) {
-        if self.0.is_none() {
-            self.0 = config;
+    /// 注意必须用 `try_get()` 而不是 `get()`：后者把失败做成 panic（再由适配层的 unwind 包成
+    /// 查询错误），这里已经是 `DuckResult` 语境，直接让错误正常传播更清楚。
+    ///
+    /// Parses once, on the first row; every later row only pays the O(1) token construction.
+    ///
+    /// `try_get()` is used rather than `get()`: the latter turns failures into panics (which the
+    /// adapter's unwind wrapper converts back into a query error), while here we are already in a
+    /// `DuckResult` context and can propagate the error directly.
+    fn resolve(&mut self, config: Option<&DuckLazy<QuantstatsHtmlOptions>>) -> DuckResult<()> {
+        if matches!(self, ConfigSlot::Unresolved) {
+            *self = ConfigSlot::Resolved(match config {
+                Some(lazy) => Some(lazy.try_get()?),
+                None => None,
+            });
+        }
+        Ok(())
+    }
+
+    /// 合并两个状态：配置不重新解析，直接把对面解析好的结果搬过来。
+    ///
+    /// Merge two states: the configuration is not re-parsed, the already-parsed value is moved over.
+    fn merge(&mut self, other: &Self) {
+        if matches!(self, ConfigSlot::Unresolved) {
+            *self = other.clone();
         }
     }
 
-    /// 取配置：整列没有配置时返回 `QuantstatsHtmlOptions::default()`（所有字段为 `None`），
-    /// 逐字段覆盖后等价于 quantstats-rs 的全默认。
+    /// 取配置。整列配置是 NULL、或这一组一行都没有过（`Unresolved`）时，退化成 `default()`
+    /// 的逐字段默认值 —— 也就是 quantstats-rs 自己的全默认。
     ///
-    /// Get the config: with no config at all it returns `QuantstatsHtmlOptions::default()` (all
-    /// fields `None`), which after per-field overriding equals quantstats-rs' own defaults.
+    /// Read the configuration. When the config column was NULL, or the group never had a row at all
+    /// (`Unresolved`), this falls back to `default()` field-by-field — which equals quantstats-rs'
+    /// own defaults.
     fn get(&self) -> QuantstatsHtmlOptions {
-        self.0.clone().unwrap_or_default()
+        match self {
+            ConfigSlot::Resolved(Some(config)) => config.clone(),
+            ConfigSlot::Resolved(None) | ConfigSlot::Unresolved => QuantstatsHtmlOptions::default(),
+        }
     }
 }
 
@@ -135,36 +199,38 @@ pub(crate) struct HtmlReportState {
 
 /// 单序列报告：对 `dt` 与 `ret` 两列做聚合，输出该组的完整 HTML 报告字符串。
 ///
-/// 参数顺序即 SQL 参数顺序：配置（可空，`NULL` 表示全默认）、日期、收益。
+/// 参数顺序即 SQL 参数顺序：数据列在前（日期、收益），可空配置在后。
 /// `dt` 或 `ret` 为 NULL 的行会被整行跳过（duckfn 对非 `Option` 入参的既有语义，与 SQL 聚合惯例一致）。
 ///
 /// ```sql
-/// SELECT duckfn_quantstats_html(NULL, dt, ret) FROM daily_returns;
-/// SELECT symbol, duckfn_quantstats_html({'title': 'My Fund'}, dt, ret) FROM daily_returns GROUP BY symbol;
+/// SELECT duckfn_quantstats_html(dt, ret, NULL) FROM daily_returns;
+/// SELECT symbol, duckfn_quantstats_html(dt, ret, {'title': 'My Fund'}::duckfn_quantstats_html_options)
+/// FROM daily_returns GROUP BY symbol;
 /// ```
 ///
 /// Single-series report: aggregates the `dt` and `ret` columns into the full HTML report string of
 /// that group.
 ///
-/// Argument order is the SQL argument order: config (nullable, `NULL` means all defaults), date,
-/// return. Rows whose `dt` or `ret` is NULL are skipped entirely — duckfn's existing semantics for
-/// non-`Option` arguments, and the usual SQL aggregate behaviour.
+/// Argument order is the SQL argument order: data columns first (date, return) and the nullable
+/// configuration last. Rows whose `dt` or `ret` is NULL are skipped entirely — duckfn's existing
+/// semantics for non-`Option` arguments, and the usual SQL aggregate behaviour.
 #[duck_aggregate_function]
 fn duckfn_quantstats_html(
-    config: Option<QuantstatsHtmlOptions>,
     dt: DuckDate,
     ret: f64,
+    config: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlReportState,
-) {
-    state.config.absorb(config);
+) -> DuckResult<()> {
+    state.config.resolve(config.as_ref())?;
     state.points.push((dt.days_since_epoch, ret));
+    Ok(())
 }
 
 impl DuckAggregateState for HtmlReportState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.config.absorb(other.config.0.clone());
+        self.config.merge(&other.config);
         self.points.extend_from_slice(&other.points);
     }
 
@@ -210,7 +276,8 @@ pub(crate) struct HtmlBenchmarkState {
 ///
 /// ```sql
 /// SELECT fund, duckfn_quantstats_html_benchmark(
-///     {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}, name, dt, ret)
+///     name, dt, ret,
+///     {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options)
 /// FROM returns GROUP BY fund;
 /// ```
 ///
@@ -227,21 +294,22 @@ pub(crate) struct HtmlBenchmarkState {
 ///     into one group; use `GROUP BY` to split them.
 #[duck_aggregate_function]
 fn duckfn_quantstats_html_benchmark(
-    config: Option<QuantstatsHtmlOptions>,
     name: String,
     dt: DuckDate,
     ret: f64,
+    config: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlBenchmarkState,
-) {
-    state.config.absorb(config);
+) -> DuckResult<()> {
+    state.config.resolve(config.as_ref())?;
     state.rows.push((name, dt.days_since_epoch, ret));
+    Ok(())
 }
 
 impl DuckAggregateState for HtmlBenchmarkState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.config.absorb(other.config.0.clone());
+        self.config.merge(&other.config);
         self.rows.extend_from_slice(&other.rows);
     }
 

@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report.test
-# description: duckfn_quantstats_html 单序列报告：命名配置类型、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组，以及配置取值错误
+# description: duckfn_quantstats_html 单序列报告：命名配置类型、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组，以及配置取值错误
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -19,12 +19,17 @@ SELECT typeof(NULL::duckfn_quantstats_html_options);
 ----
 STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark_name VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR)
 
-# 两个函数都是聚合
+# 两个函数都是聚合，且配置参数排在最后（数据列在前）
 query T rowsort
 SELECT function_name || ':' || function_type FROM duckdb_functions() WHERE function_name LIKE 'duckfn_quantstats_html%';
 ----
 duckfn_quantstats_html:aggregate
 duckfn_quantstats_html_benchmark:aggregate
+
+query I
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html_benchmark';
+----
+4
 
 # ============================================================================
 # 固定数据集
@@ -44,18 +49,18 @@ CREATE TABLE daily_returns AS SELECT * FROM (VALUES
 ) t(dt, ret);
 
 # ============================================================================
-# 配置的三种用法
+# 配置的三种用法（配置参数在最后，`DuckLazy` 让它只解析一次）
 # ============================================================================
 
 # 1) 整体 NULL：全部走 quantstats-rs 自己的默认值（默认标题是 "Strategy Tearsheet"）
 query T
-SELECT length(duckfn_quantstats_html(NULL, dt, ret)) > 1000 AS long_enough
+SELECT length(duckfn_quantstats_html(dt, ret, NULL)) > 1000 AS long_enough
 FROM daily_returns;
 ----
 true
 
 query T
-SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(NULL, dt, ret)) > 0 AS has_default_title
+SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(dt, ret, NULL)) > 0 AS has_default_title
 FROM daily_returns;
 ----
 true
@@ -63,7 +68,7 @@ true
 # 2) 只写部分键：其余键取默认值（这里只给 title）
 query T
 SELECT position('My Fund' IN duckfn_quantstats_html(
-           {'title': 'My Fund'}::duckfn_quantstats_html_options, dt, ret)) > 0 AS has_custom_title
+           dt, ret, {'title': 'My Fund'}::duckfn_quantstats_html_options)) > 0 AS has_custom_title
 FROM daily_returns;
 ----
 true
@@ -71,15 +76,15 @@ true
 # 3) 显式 NULL 类型化也没有区别
 query T
 SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(
-           NULL::duckfn_quantstats_html_options, dt, ret)) > 0 AS has_default_title
+           dt, ret, NULL::duckfn_quantstats_html_options)) > 0 AS has_default_title
 FROM daily_returns;
 ----
 true
 
 # 配置里的 periods_per_year 真的传下去了：改了它，报告里的年化数字会变，所以 md5 不同
 query T
-SELECT md5(duckfn_quantstats_html(NULL, dt, ret))
-    <> md5(duckfn_quantstats_html({'periods_per_year': 52}::duckfn_quantstats_html_options, dt, ret)) AS differs
+SELECT md5(duckfn_quantstats_html(dt, ret, NULL))
+    <> md5(duckfn_quantstats_html(dt, ret, {'periods_per_year': 52}::duckfn_quantstats_html_options)) AS differs
 FROM daily_returns;
 ----
 true
@@ -87,7 +92,7 @@ true
 # 不带 :: 的 struct 字面量是匿名 STRUCT(title VARCHAR)，与 8 字段的配置类型不匹配，
 # 必须显式 cast —— 这正是注册命名类型的意义。
 statement error
-SELECT duckfn_quantstats_html({'title': 'My Fund'}, dt, ret) FROM daily_returns;
+SELECT duckfn_quantstats_html(dt, ret, {'title': 'My Fund'}) FROM daily_returns;
 ----
 No function matches the given name and argument types
 
@@ -96,7 +101,7 @@ No function matches the given name and argument types
 # ============================================================================
 
 query T
-SELECT duckfn_quantstats_html(NULL, dt, ret) IS NULL AS is_null
+SELECT duckfn_quantstats_html(dt, ret, NULL) IS NULL AS is_null
 FROM daily_returns WHERE dt > DATE '2100-01-01';
 ----
 true
@@ -118,16 +123,17 @@ CREATE TABLE returns_with_nulls AS SELECT * FROM (VALUES
 ) t(dt, ret);
 
 query T
-SELECT (SELECT md5(duckfn_quantstats_html(NULL, dt, ret)) FROM returns_with_nulls)
-     = (SELECT md5(duckfn_quantstats_html(NULL, dt, ret)) FROM daily_returns) AS same_as_clean;
+SELECT (SELECT md5(duckfn_quantstats_html(dt, ret, NULL)) FROM returns_with_nulls)
+     = (SELECT md5(duckfn_quantstats_html(dt, ret, NULL)) FROM daily_returns) AS same_as_clean;
 ----
 true
 
 # ============================================================================
 # combine：多线程会把一组拆成多个状态再合并，结果必须与单线程完全一致
 #
-# 这也是「combine 只做拼接、排序交给 ReturnSeries::new」的依据 —— 20000 行的表
-# 跨多个 chunk，单线程一个状态、4 线程多个状态，两种路径的 md5 必须相同。
+# 20000 行的表跨多个 chunk：单线程一个状态、4 线程多个状态。这也是「combine 只做拼接、排序交给
+# ReturnSeries::new」以及「DuckLazy 凭证不跨状态搬运、只搬运解析结果」两条设计的端到端验证 ——
+# 凭证被搬进另一个状态并在 finalize 里消费的话，运行时会报 "DuckLazy<T> is stale"。
 # ============================================================================
 
 statement ok
@@ -141,13 +147,15 @@ PRAGMA threads=1;
 
 statement ok
 CREATE TABLE big_single_thread AS
-SELECT md5(duckfn_quantstats_html(NULL, dt, ret)) AS digest FROM big_returns;
+SELECT md5(duckfn_quantstats_html(dt, ret, {'title': 'T'}::duckfn_quantstats_html_options)) AS digest
+FROM big_returns;
 
 statement ok
 PRAGMA threads=4;
 
 query T
-SELECT md5(duckfn_quantstats_html(NULL, dt, ret)) = (SELECT digest FROM big_single_thread) AS same_as_single_thread
+SELECT md5(duckfn_quantstats_html(dt, ret, {'title': 'T'}::duckfn_quantstats_html_options))
+     = (SELECT digest FROM big_single_thread) AS same_as_single_thread
 FROM big_returns;
 ----
 true
@@ -156,7 +164,7 @@ statement ok
 PRAGMA threads=1;
 
 # ============================================================================
-# GROUP BY：每个分组一份报告，分组之间互不干扰
+# GROUP BY：每个分组一份报告，各自用自己那一组的配置
 # ============================================================================
 
 statement ok
@@ -168,16 +176,16 @@ FROM range(120) t(i);
 
 query I
 SELECT count(*) FROM (
-    SELECT symbol, duckfn_quantstats_html({'title': symbol}::duckfn_quantstats_html_options, dt, ret) AS html
+    SELECT symbol, duckfn_quantstats_html(dt, ret, {'title': symbol}::duckfn_quantstats_html_options) AS html
     FROM multi_asset GROUP BY symbol
 ) WHERE length(html) > 1000;
 ----
 2
 
-# 分组之间确实拿到了各自的标题
+# 每个分组确实拿到了自己那一组的配置（标题里带着自己的 symbol）
 query I
 SELECT count(*) FROM (
-    SELECT symbol, duckfn_quantstats_html({'title': symbol}::duckfn_quantstats_html_options, dt, ret) AS html
+    SELECT symbol, duckfn_quantstats_html(dt, ret, {'title': symbol}::duckfn_quantstats_html_options) AS html
     FROM multi_asset GROUP BY symbol
 ) WHERE position(symbol IN html) > 0;
 ----
@@ -187,14 +195,20 @@ SELECT count(*) FROM (
 # 配置取值的错误路径
 # ============================================================================
 
+# 配置参数在最后：把配置写在最前（本扩展早期的参数顺序）不再匹配任何签名
 statement error
-SELECT duckfn_quantstats_html({'periods_per_year': 0}::duckfn_quantstats_html_options, dt, ret)
+SELECT duckfn_quantstats_html({'title': 'My Fund'}::duckfn_quantstats_html_options, dt, ret) FROM daily_returns;
+----
+No function matches the given name and argument types
+
+statement error
+SELECT duckfn_quantstats_html(dt, ret, {'periods_per_year': 0}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ----
 periods_per_year must be greater than 0
 
 statement error
-SELECT duckfn_quantstats_html({'output': ''}::duckfn_quantstats_html_options, dt, ret)
+SELECT duckfn_quantstats_html(dt, ret, {'output': ''}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ----
 output must not be an empty string

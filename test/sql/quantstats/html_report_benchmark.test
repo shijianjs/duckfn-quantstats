@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report_benchmark.test
-# description: duckfn_quantstats_html_benchmark 长表报告：按 benchmark_name 拆策略/基准、基准显示名、GROUP BY 每个标的、空输入 NULL，以及三条错误路径（缺基准标签 / 标签无匹配 / 一组混了多个策略）
+# description: duckfn_quantstats_html_benchmark 长表报告：配置参数放最后、按 benchmark_name 拆策略/基准、基准显示名、GROUP BY 每个标的、空输入 NULL，以及三条错误路径（缺基准标签 / 标签无匹配 / 一组混了多个策略）
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -22,7 +22,7 @@ FROM (VALUES ('FUND_A'), ('FUND_B')) f(fund),
 # 单组（一个标的一行一个标签）：报告能出来
 query T
 SELECT length(duckfn_quantstats_html_benchmark(
-           {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret)) > 1000 AS long_enough
+           name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)) > 1000 AS long_enough
 FROM fund_returns WHERE fund = 'FUND_A';
 ----
 true
@@ -30,38 +30,51 @@ true
 # 基准显示名生效（benchmark_title 只影响展示）
 query T
 SELECT position('SPX' IN duckfn_quantstats_html_benchmark(
-           {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options, name, dt, ret)) > 0 AS has_bench_title
+           name, dt, ret, {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) > 0 AS has_bench_title
 FROM fund_returns WHERE fund = 'FUND_A';
 ----
 true
 
-# 不带基准时报告里不会出现基准名，带上之后一定不同
+# 不带基准显示名时报告里不会出现它，带上之后一定不同
 query T
-SELECT md5(duckfn_quantstats_html_benchmark({'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret))
+SELECT md5(duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options))
     <> md5(duckfn_quantstats_html_benchmark(
-           {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options, name, dt, ret)) AS differs
+           name, dt, ret, {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) AS differs
 FROM fund_returns WHERE fund = 'FUND_A';
 ----
 true
+
+# 配置参数在最后：把配置写在最前（本扩展早期的参数顺序）不再匹配任何签名
+statement error
+SELECT duckfn_quantstats_html_benchmark(
+           {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret)
+FROM fund_returns WHERE fund = 'FUND_A';
+----
+No function matches the given name and argument types
 
 # GROUP BY 每个标的：两组都能出报告（组内各只有一个策略标签 + 'SPY'）
 query I
 SELECT count(*) FROM (
     SELECT fund, duckfn_quantstats_html_benchmark(
-               {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret) AS html
+               name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options) AS html
     FROM fund_returns GROUP BY fund
 ) WHERE length(html) > 1000;
 ----
 2
 
-# 整条序列只留基准那一半时，报告会变成只有策略……所以这里应当被拦下，见下面的错误路径。
 # 空输入 -> SQL NULL
 query T
 SELECT duckfn_quantstats_html_benchmark(
-           {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret) IS NULL AS is_null
+           name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options) IS NULL AS is_null
 FROM fund_returns WHERE dt > DATE '2100-01-01';
 ----
 true
+
+# 配置整体 NULL 时，基准标签缺失，因此下面这条会走进错误路径（而不是静默出一份没有基准的报告）
+statement error
+SELECT duckfn_quantstats_html_benchmark(name, dt, ret, NULL) FROM fund_returns WHERE fund = 'FUND_A';
+----
+'benchmark_name' is required
 
 # ============================================================================
 # 错误路径
@@ -69,28 +82,28 @@ true
 
 # 没给基准标签：无法拆分策略与基准
 statement error
-SELECT duckfn_quantstats_html_benchmark({'title': 'FUND_A'}::duckfn_quantstats_html_options, name, dt, ret)
+SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'title': 'FUND_A'}::duckfn_quantstats_html_options)
 FROM fund_returns WHERE fund = 'FUND_A';
 ----
 'benchmark_name' is required
 
 # 基准标签一行都没匹配上
 statement error
-SELECT duckfn_quantstats_html_benchmark({'benchmark_name': 'QQQ'}::duckfn_quantstats_html_options, name, dt, ret)
+SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'QQQ'}::duckfn_quantstats_html_options)
 FROM fund_returns WHERE fund = 'FUND_A';
 ----
 no row matches benchmark_name = 'QQQ'
 
 # 非基准行出现多个不同标签：一个分组里混了多个标的，报告会把它们合成一条曲线
 statement error
-SELECT duckfn_quantstats_html_benchmark({'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret)
+SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)
 FROM fund_returns;
 ----
 distinct strategy labels
 
 # 组里只有基准行：没有可报告的策略
 statement error
-SELECT duckfn_quantstats_html_benchmark({'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret)
+SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)
 FROM fund_returns WHERE name = 'SPY';
 ----
 only rows labelled 'SPY'

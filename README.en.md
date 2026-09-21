@@ -16,11 +16,15 @@ report (`VARCHAR`):
 
 | Function | Description |
 | --- | --- |
-| `duckfn_quantstats_html(opt, dt, ret)` | Single-series report; one row per day. |
-| `duckfn_quantstats_html_benchmark(opt, name, dt, ret)` | Long-table report: `name` is a label; rows whose label equals `opt.benchmark_name` are the benchmark and the rest are the strategy. |
+| `duckfn_quantstats_html(dt, ret, opt)` | Single-series report; one row per day. |
+| `duckfn_quantstats_html_benchmark(name, dt, ret, opt)` | Long-table report: `name` is a label; rows whose label equals `opt.benchmark_name` are the benchmark and the rest are the strategy. |
 
+- The config argument `opt` always comes **last** (data columns first, config last).
 - `opt` is a **nullable** config whose type is the named STRUCT `duckfn_quantstats_html_options`, created at
   load time; `NULL` means "all defaults".
+- The config argument is read through `DuckLazy`: every row only builds an O(1) token, and the single real
+  parse happens on the **first row** and is reused by every later row — no matter how many fields the config
+  has, it never becomes a per-row cost.
 - `dt` is a `DATE` and `ret` is the return per period (`DOUBLE`). A row whose `dt` or `ret` is `NULL` is
   **skipped entirely**, like any other SQL aggregate.
 - A group without any valid row returns `NULL` (not an empty string, not an error).
@@ -50,26 +54,26 @@ second set.
 
 ```sql
 -- All-default config
-SELECT duckfn_quantstats_html(NULL, dt, ret) FROM daily_returns;
+SELECT duckfn_quantstats_html(dt, ret, NULL) FROM daily_returns;
 
 -- Only the keys you care about; a struct literal must be cast to the config type explicitly
 SELECT symbol,
        duckfn_quantstats_html(
-           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options, dt, ret) AS html
+           dt, ret, {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
 FROM daily_returns
 GROUP BY symbol;
 
 -- With a benchmark: a long table (label + date + return), 'SPY' being the benchmark
 SELECT fund,
        duckfn_quantstats_html_benchmark(
-           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options,
-           name, dt, ret) AS html
+           name, dt, ret,
+           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
 FROM returns
 GROUP BY fund;
 
 -- Also write the report to a file
 SELECT duckfn_quantstats_html(
-           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options, dt, ret)
+           dt, ret, {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ```
 

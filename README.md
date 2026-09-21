@@ -13,10 +13,13 @@
 
 | 函数 | 说明 |
 | --- | --- |
-| `duckfn_quantstats_html(opt, dt, ret)` | 单序列报告，一行 = 一天。 |
-| `duckfn_quantstats_html_benchmark(opt, name, dt, ret)` | 长表报告：`name` 是标签，等于 `opt.benchmark_name` 的行是基准，其余是策略。 |
+| `duckfn_quantstats_html(dt, ret, opt)` | 单序列报告，一行 = 一天。 |
+| `duckfn_quantstats_html_benchmark(name, dt, ret, opt)` | 长表报告：`name` 是标签，等于 `opt.benchmark_name` 的行是基准，其余是策略。 |
 
+- 配置参数 `opt` **固定在参数列表最后**（数据列在前、配置在后）。
 - `opt` 是**可空**配置，类型是加载期建好的命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
+- 配置参数内部是 `DuckLazy` 延迟读取：每行只构造一个 O(1) 的凭证，真正的解析只在**首行做一次**，
+  之后所有行复用解析结果 —— 配置有几个字段、嵌套多深，都不会变成每行的开销。
 - `dt` 是 `DATE`，`ret` 是按周期计的收益（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，与其它 SQL 聚合函数一致。
 - 该组一行都没有 → 返回 `NULL`（不是空串，也不是报错）。
 - 报告在 `result()` 里生成，即**每组渲染一次**。`GROUP BY` 100 个标的 = 渲染 100 份完整报告
@@ -44,26 +47,26 @@
 
 ```sql
 -- 全部默认配置
-SELECT duckfn_quantstats_html(NULL, dt, ret) FROM daily_returns;
+SELECT duckfn_quantstats_html(dt, ret, NULL) FROM daily_returns;
 
 -- 只写关心的几个键；struct 字面量必须显式转成配置类型
 SELECT symbol,
        duckfn_quantstats_html(
-           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options, dt, ret) AS html
+           dt, ret, {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
 FROM daily_returns
 GROUP BY symbol;
 
 -- 带基准：长表（标签 + 日期 + 收益），'SPY' 是基准
 SELECT fund,
        duckfn_quantstats_html_benchmark(
-           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options,
-           name, dt, ret) AS html
+           name, dt, ret,
+           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
 FROM returns
 GROUP BY fund;
 
 -- 顺带落盘一份
 SELECT duckfn_quantstats_html(
-           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options, dt, ret)
+           dt, ret, {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ```
 
