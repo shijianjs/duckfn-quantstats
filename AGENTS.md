@@ -42,6 +42,15 @@ git clone https://github.com/shijianjs/duckfn
 
 ## 仓库约定
 
+### 注册到 DuckDB 的函数名统一加前缀
+
+所有注册到 DuckDB 的函数名一律以 `dfn_quantstats_` 开头，例如 `dfn_quantstats_sharpe()`。
+范围包括标量函数、聚合函数、表函数、COPY 格式、cast、SQL 宏、replacement scan
+—— 凡是出现在 SQL 里的名字都要带前缀。
+
+duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函数定义成 `fn dfn_quantstats_xxx(...)` 即可。
+注意函数前缀是 `dfn_quantstats_`，与扩展名 `duckfn_quantstats` 不同，别混用。
+
 ### 临时文件放到 target/
 
 生成的临时文件（脚本、数据、日志、一次性验证代码等）一律放到 `target/` 下，
