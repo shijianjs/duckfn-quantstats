@@ -176,6 +176,7 @@ dependencies = [
 name = "duckfn_quantstats"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "duckfn",
  "libduckdb-sys",
  "quack-rs",

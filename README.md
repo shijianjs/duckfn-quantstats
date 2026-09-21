@@ -7,6 +7,93 @@
 本项目从 DuckDB 官方 [extension-template-rs](https://github.com/duckdb/extension-template-rs) 起步，
 并已按 duckfn 的骨架约定改造（入口模块、`EXTENSION_NAME`、依赖列表）。
 
+## 函数
+
+两个聚合函数，都把「按日期排列的收益」归约成一份完整的 quantstats HTML 报告（`VARCHAR`）：
+
+| 函数 | 说明 |
+| --- | --- |
+| `duckfn_quantstats_html(opt, dt, ret)` | 单序列报告，一行 = 一天。 |
+| `duckfn_quantstats_html_benchmark(opt, name, dt, ret)` | 长表报告：`name` 是标签，等于 `opt.benchmark_name` 的行是基准，其余是策略。 |
+
+- `opt` 是**可空**配置，类型是加载期建好的命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
+- `dt` 是 `DATE`，`ret` 是按周期计的收益（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，与其它 SQL 聚合函数一致。
+- 该组一行都没有 → 返回 `NULL`（不是空串，也不是报错）。
+- 报告在 `result()` 里生成，即**每组渲染一次**。`GROUP BY` 100 个标的 = 渲染 100 份完整报告
+  （每份内嵌十几张 SVG），耗时与内存随分组数线性增长。
+- SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `ReturnSeries::new`。
+
+### 配置字段
+
+`duckfn_quantstats_html_options` 的字段**全部可空**，没写的键取默认值：
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `title` | `VARCHAR` | `'Strategy Tearsheet'` | 报告标题 |
+| `strategy_title` | `VARCHAR` | `'Strategy'` | 策略显示名 |
+| `benchmark_title` | `VARCHAR` | `NULL` | 基准显示名（纯展示） |
+| `benchmark_name` | `VARCHAR` | `NULL` | 长表里代表基准的标签，只被 `duckfn_quantstats_html_benchmark` 读取 |
+| `rf` | `DOUBLE` | `0.0` | 无风险利率（按周期计，不是年化） |
+| `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
+| `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
+| `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径（wasm 下忽略，见下） |
+
+默认值直接取自 quantstats-rs 的 `HtmlReportOptions::default()`，本扩展不另立一套。
+
+### 用法
+
+```sql
+-- 全部默认配置
+SELECT duckfn_quantstats_html(NULL, dt, ret) FROM daily_returns;
+
+-- 只写关心的几个键；struct 字面量必须显式转成配置类型
+SELECT symbol,
+       duckfn_quantstats_html(
+           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options, dt, ret) AS html
+FROM daily_returns
+GROUP BY symbol;
+
+-- 带基准：长表（标签 + 日期 + 收益），'SPY' 是基准
+SELECT fund,
+       duckfn_quantstats_html_benchmark(
+           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options,
+           name, dt, ret) AS html
+FROM returns
+GROUP BY fund;
+
+-- 顺带落盘一份
+SELECT duckfn_quantstats_html(
+           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options, dt, ret)
+FROM daily_returns;
+```
+
+### 两个必须知道的行为
+
+- **struct 字面量必须显式写 `::duckfn_quantstats_html_options`。** 不写的话它是匿名的
+  `STRUCT(title VARCHAR)`，字段个数与配置类型不同，DuckDB 会直接说找不到匹配的函数 —— 注册这个
+  命名类型就是为了这一步 cast。
+- **`'...'::JSON::duckfn_quantstats_html_options` 要把 8 个键写全**（DuckDB 的 JSON→STRUCT 转换
+  不允许缺键），所以推荐直接用 struct 字面量。
+
+### 错误路径
+
+| 情况 | 行为 |
+| --- | --- |
+| 组内没有任何有效行 | 返回 `NULL` |
+| `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
+| `output = ''` | 报错 `output must not be an empty string` |
+| `duckfn_quantstats_html_benchmark` 没给 `benchmark_name` | 报错 `'benchmark_name' is required` |
+| `benchmark_name` 在组内一行都没匹配上 | 报错 `no row matches benchmark_name = '...'` |
+| 非基准行出现多个不同标签 | 报错 `distinct strategy labels`，提示改用 `GROUP BY` 拆开 |
+| 组内只有基准行 | 报错 `only rows labelled '...'`：没有可报告的策略 |
+
+### WebAssembly
+
+`output` 在 `wasm32-unknown-emscripten` 下**被忽略**：那边没有可写的文件系统，写盘只会在运行时抛
+IO 错误、把整条查询带崩，所以扩展干脆不把路径交给 quantstats-rs，HTML 照常返回。
+`just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
+能正常编过。
+
 ## 入口链路
 
 ```text
@@ -25,6 +112,11 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。
+- [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
+  一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两个聚合函数都基于它，
+  不自己重算指标 —— 那会与报告里的数字形成两套真相。
+- [chrono](https://crates.io/crates/chrono)：`ReturnSeries` 要的是 `NaiveDate`，而 duckfn 的 `DuckDate`
+  只存「自 1970-01-01 起的天数」，换算在扩展里做。
 
 ## 构建
 

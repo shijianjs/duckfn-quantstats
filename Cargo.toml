@@ -42,3 +42,12 @@ quack-rs = "0.16.0"
 # libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 libduckdb-sys = { version = ">=1.4.4, <2", features = ["loadable-extension"] }
 quantstats-rs = "0.1.0"
+
+# chrono：quantstats-rs 的 `ReturnSeries` 要的是 `chrono::NaiveDate`，
+# 而 duckfn 的 `DuckDate` 只存「自 1970-01-01 起的天数」，换算得我们自己来。
+# quantstats-rs 也依赖 chrono 0.4，两边会解析成同一个版本，不会引入第二份。
+#
+# chrono: quantstats-rs' `ReturnSeries` wants `chrono::NaiveDate`, while duckfn's
+# `DuckDate` only stores days since 1970-01-01 — the conversion is on us.
+# quantstats-rs depends on chrono 0.4 as well, so both resolve to the same version.
+chrono = "0.4"
