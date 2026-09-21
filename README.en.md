@@ -58,13 +58,18 @@ Every field of `duckfn_quantstats_html_options` is **nullable**; keys you omit t
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | Report title |
 | `strategy_title` | `VARCHAR` | `'Strategy'` | Strategy display name |
 | `benchmark_title` | `VARCHAR` | `NULL` | Benchmark display name (presentation only) |
-| `rf` | `DOUBLE` | `0.0` | Risk-free rate per period (not annualized) |
+| `rf` | `DOUBLE` | `0.0` | Risk-free rate, **annualized** (`0.04` = 4%), matching quantstats' `rf` convention |
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
 | `match_dates` | `BOOLEAN` | `true` | Whether to align the start dates of strategy and benchmark |
 | `output` | `VARCHAR` | `NULL` | Also write the HTML to this path (ignored on wasm, see below) |
 
 Defaults come straight from quantstats-rs' `HtmlReportOptions::default()`; this extension does not invent a
 second set.
+
+`rf` is **annualized** (`0.04` = 4%) and converted to a per-period rate inside the report; the crate has two
+conversions that differ slightly — Sharpe (and rolling Sharpe / Sortino) uses
+`(1 + rf)^(1/periods_per_year) - 1`, while PSR / Sortino in the metrics table use `rf / periods_per_year`.
+Both collapse to 0 when `rf = 0` (the default).
 
 ### Usage
 

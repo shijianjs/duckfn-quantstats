@@ -50,12 +50,16 @@
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | 报告标题 |
 | `strategy_title` | `VARCHAR` | `'Strategy'` | 策略显示名 |
 | `benchmark_title` | `VARCHAR` | `NULL` | 基准显示名（纯展示） |
-| `rf` | `DOUBLE` | `0.0` | 无风险利率（按周期计，不是年化） |
+| `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
 | `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径（wasm 下忽略，见下） |
 
 默认值直接取自 quantstats-rs 的 `HtmlReportOptions::default()`，本扩展不另立一套。
+
+`rf` 按**年化**口径传（`0.04` = 4%），报告内部再换算成周期利率；crate 里有两处换算略有差别 ——
+Sharpe（含滚动 Sharpe / Sortino）用 `(1 + rf)^(1/periods_per_year) - 1`，而指标表里的 PSR / Sortino 用
+`rf / periods_per_year`。`rf = 0`（默认）时两者都退化为 0。
 
 ### 用法
 

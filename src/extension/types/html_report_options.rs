@@ -49,9 +49,19 @@ pub(crate) struct QuantstatsHtmlOptions {
     /// Display name of the benchmark, presentation only; defaults to [`ReportOptions::default`].
     pub benchmark_title: Option<String>,
 
-    /// 无风险利率（按周期计，不是年化）。缺省 0.0。
+    /// 无风险利率，**年化**（`0.04` 表示 4%），与 Python quantstats 的 `rf` 口径一致。缺省 0.0。
     ///
-    /// Risk-free rate per period (not annualized); defaults to 0.0.
+    /// 报告内部会把它换算成周期利率，而 crate 里有两套换算：Sharpe（含滚动 Sharpe / Sortino）
+    /// 走 `(1 + rf)^(1/periods_per_year) - 1`，指标表里的 PSR / Sortino 走 `rf / periods_per_year`。
+    /// 两者略有差异，`rf = 0` 时都退化为 0。
+    ///
+    /// Annualized risk-free rate (`0.04` means 4%), matching the convention of Python quantstats'
+    /// `rf`; defaults to 0.0.
+    ///
+    /// The report converts it to a per-period rate internally, and the crate has two conversions:
+    /// Sharpe (and rolling Sharpe / Sortino) uses `(1 + rf)^(1/periods_per_year) - 1`, while PSR /
+    /// Sortino in the metrics table use `rf / periods_per_year`. They differ slightly and both
+    /// collapse to 0 when `rf = 0`.
     pub rf: Option<f64>,
 
     /// 年化周期数：日频 252、周频 52、月频 12。必须大于 0。缺省 252。
