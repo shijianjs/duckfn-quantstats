@@ -13,7 +13,8 @@
 // ============================================================================
 
 use duckfn::{
-    DuckAggregateState, DuckDate, DuckLazy, DuckOptionResult, DuckResult, duck_aggregate_function,
+    DuckAggregateState, DuckDate, DuckLazy, DuckLazySlot, DuckOptionResult, DuckResult,
+    duck_aggregate_function,
 };
 
 use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
@@ -22,14 +23,17 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 use super::kind::RETURNS;
 use super::report::{render_single, render_with_benchmark};
 use super::series::SeriesPoint;
-use super::slots::{BenchmarkSlot, OptionsSlot};
+use super::slots::{benchmark_points, resolve_benchmark};
 
 /// 单序列报告聚合状态（收益率路径）。
 ///
 /// Aggregate state for the single-series return report.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct HtmlReportState {
-    options: OptionsSlot,
+    /// 配置槽：首行解析一次，之后每行只加一次引用计数。
+    ///
+    /// The options slot: parsed on the first row, a refcount bump on every later one.
+    options: DuckLazySlot<QuantstatsHtmlOptions>,
     points: Vec<SeriesPoint>,
 }
 
@@ -57,7 +61,7 @@ fn duckfn_quantstats_html(
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlReportState,
 ) -> DuckResult<()> {
-    state.options.resolve(options.as_ref())?;
+    state.options.resolve_optional(options.as_ref())?;
     state.points.push(SeriesPoint {
         days_since_epoch: date.days_since_epoch,
         value: period_return,
@@ -69,7 +73,7 @@ impl DuckAggregateState for HtmlReportState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.options.merge(&other.options);
+        self.options.combine(&other.options);
         self.points.extend_from_slice(&other.points);
     }
 
@@ -83,8 +87,12 @@ impl DuckAggregateState for HtmlReportState {
 /// Aggregate state for the benchmark report over a return series.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct HtmlBenchmarkState {
-    options: OptionsSlot,
-    benchmark: BenchmarkSlot,
+    options: DuckLazySlot<QuantstatsHtmlOptions>,
+    /// 基准列表的槽：同样是首行解析一次 —— `Vec<T>` 的逐元素复制只发生在那一行。
+    ///
+    /// The benchmark list slot: likewise parsed on the first row only, which is where the element-by-
+    /// element copy of the `Vec<T>` happens.
+    benchmark: DuckLazySlot<Vec<QuantstatsReturnPoint>>,
     points: Vec<SeriesPoint>,
 }
 
@@ -129,8 +137,8 @@ fn duckfn_quantstats_html_with_benchmark(
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlBenchmarkState,
 ) -> DuckResult<()> {
-    state.options.resolve(options.as_ref())?;
-    state.benchmark.resolve(benchmark.as_ref(), RETURNS)?;
+    state.options.resolve_optional(options.as_ref())?;
+    resolve_benchmark(&mut state.benchmark, benchmark.as_ref(), RETURNS)?;
     state.points.push(SeriesPoint {
         days_since_epoch: date.days_since_epoch,
         value: period_return,
@@ -142,23 +150,23 @@ impl DuckAggregateState for HtmlBenchmarkState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.options.merge(&other.options);
-        self.benchmark.merge(&other.benchmark);
+        self.options.combine(&other.options);
+        self.benchmark.combine(&other.benchmark);
         self.points.extend_from_slice(&other.points);
     }
 
     fn result(&self) -> DuckOptionResult<String> {
         // 一行都没有 → SQL NULL。这个提前返回是必需的，不只是省事：一次 update 都没跑过时基准槽还是
-        // `Unresolved`，先取它就会撞上「从未解析」那条兜底错误。
+        // 未解析的，先取它就会把「整列都是 NULL」这个含义误当成「没读过基准」。
         //
         // No row at all → SQL NULL. This early return is required, not just an optimisation: with zero
-        // update calls the benchmark slot is still `Unresolved`, and reading it first would hit the
-        // "never read" fallback error.
+        // update calls nothing has parsed the benchmark slot yet, and reading it first would mistake
+        // "the whole column is NULL" for something else.
         if self.points.is_empty() {
             return Ok(None);
         }
 
-        let benchmark_points = self.benchmark.get(RETURNS)?;
+        let benchmark_points = benchmark_points(&self.benchmark, RETURNS)?;
         render_with_benchmark(RETURNS, &self.options, &self.points, &benchmark_points)
     }
 }

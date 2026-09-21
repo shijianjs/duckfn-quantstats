@@ -150,20 +150,27 @@ pub(super) fn prices_to_returns(prices: &[SeriesPoint]) -> Vec<SeriesPoint> {
 /// 收益率路径与价格路径的点结构体只差一个字段名（`period_return` / `price`），聚合对它们要做的事完全
 /// 一样，所以抽一层把它们统一成 [`SeriesPoint`]。
 ///
+/// 取 `&self` 而不是消耗 `self`：基准列表由 `DuckLazySlot` 交出来的是 `Arc<Vec<T>>`（好让 combine 只
+/// 做一次引用计数复制），借出去的那份没法被消耗。两个点结构体都是纯数据，读一遍就够了。
+///
 /// Normalising a benchmark point into the internal representation.
 ///
 /// The point structs of the two branches differ only in one field name (`period_return` / `price`) and the
 /// aggregate does exactly the same with both, so this trait normalises them into [`SeriesPoint`].
+///
+/// It takes `&self` rather than consuming `self` because `DuckLazySlot` hands the benchmark list out as an
+/// `Arc<Vec<T>>` (which is what keeps `combine` at a refcount bump), and a shared list cannot be consumed.
+/// Both point structs are plain data, so reading them once is enough.
 pub(super) trait IntoSeriesPoint {
     /// 缺日期或缺失值的点返回 `None` —— 跳过该点，而不是让整条查询失败。
     ///
     /// A point missing its date or its value yields `None` — the point is skipped rather than failing the
     /// whole query.
-    fn into_series_point(self) -> Option<SeriesPoint>;
+    fn to_series_point(&self) -> Option<SeriesPoint>;
 }
 
 impl IntoSeriesPoint for QuantstatsReturnPoint {
-    fn into_series_point(self) -> Option<SeriesPoint> {
+    fn to_series_point(&self) -> Option<SeriesPoint> {
         let (Some(date), Some(value)) = (self.date, self.period_return) else {
             return None;
         };
@@ -175,7 +182,7 @@ impl IntoSeriesPoint for QuantstatsReturnPoint {
 }
 
 impl IntoSeriesPoint for QuantstatsPricePoint {
-    fn into_series_point(self) -> Option<SeriesPoint> {
+    fn to_series_point(&self) -> Option<SeriesPoint> {
         let (Some(date), Some(value)) = (self.date, self.price) else {
             return None;
         };

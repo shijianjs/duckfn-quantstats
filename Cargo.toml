@@ -24,7 +24,11 @@ path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-duckfn = "0.0.5"
+# 0.0.6 起提供 DuckLazySlot<T>：把 DuckLazy 参数「解析一次」这条路径固化成类型。
+#
+# Since 0.0.6 duckfn provides `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once"
+# into a type.
+duckfn = "0.0.6"
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。

@@ -21,8 +21,8 @@
 // ============================================================================
 
 use duckfn::{
-    DuckAggregateState, DuckDate, DuckLazy, DuckOptionResult, DuckResult, duck_aggregate_function,
-    duck_error,
+    DuckAggregateState, DuckDate, DuckLazy, DuckLazySlot, DuckOptionResult, DuckResult,
+    duck_aggregate_function, duck_error,
 };
 
 use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
@@ -31,14 +31,17 @@ use crate::extension::types::price_point::QuantstatsPricePoint;
 use super::kind::PRICES;
 use super::report::{render_single, render_with_benchmark};
 use super::series::{SeriesPoint, prices_to_returns};
-use super::slots::{BenchmarkSlot, OptionsSlot};
+use super::slots::{benchmark_points, resolve_benchmark};
 
 /// 单序列报告聚合状态（价格路径）。
 ///
 /// Aggregate state for the single-series price report.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct HtmlPriceState {
-    options: OptionsSlot,
+    /// 配置槽：首行解析一次，之后每行只加一次引用计数。
+    ///
+    /// The options slot: parsed on the first row, a refcount bump on every later one.
+    options: DuckLazySlot<QuantstatsHtmlOptions>,
     /// 这里存的是**价格/净值**，差分留到 `result()` 里做。
     ///
     /// This holds **prices/NAVs**; the differencing happens in `result()`.
@@ -69,7 +72,7 @@ fn duckfn_quantstats_html_prices(
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlPriceState,
 ) -> DuckResult<()> {
-    state.options.resolve(options.as_ref())?;
+    state.options.resolve_optional(options.as_ref())?;
     state.points.push(SeriesPoint {
         days_since_epoch: date.days_since_epoch,
         value: price,
@@ -81,7 +84,7 @@ impl DuckAggregateState for HtmlPriceState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.options.merge(&other.options);
+        self.options.combine(&other.options);
         self.points.extend_from_slice(&other.points);
     }
 
@@ -95,11 +98,11 @@ impl DuckAggregateState for HtmlPriceState {
 /// Aggregate state for the benchmark report over a price series.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct HtmlPriceBenchmarkState {
-    options: OptionsSlot,
-    /// 这里存的是基准的**价格/净值**，差分留到 `result()` 里做。
+    options: DuckLazySlot<QuantstatsHtmlOptions>,
+    /// 这里存的也是基准的**价格/净值**，差分留到 `result()` 里做。
     ///
-    /// This holds the benchmark's **prices/NAVs**; the differencing happens in `result()`.
-    benchmark: BenchmarkSlot,
+    /// This holds the benchmark's **prices/NAVs** too; the differencing happens in `result()`.
+    benchmark: DuckLazySlot<Vec<QuantstatsPricePoint>>,
     points: Vec<SeriesPoint>,
 }
 
@@ -134,8 +137,8 @@ fn duckfn_quantstats_html_prices_with_benchmark(
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
     state: &mut HtmlPriceBenchmarkState,
 ) -> DuckResult<()> {
-    state.options.resolve(options.as_ref())?;
-    state.benchmark.resolve(benchmark.as_ref(), PRICES)?;
+    state.options.resolve_optional(options.as_ref())?;
+    resolve_benchmark(&mut state.benchmark, benchmark.as_ref(), PRICES)?;
     state.points.push(SeriesPoint {
         days_since_epoch: date.days_since_epoch,
         value: price,
@@ -147,8 +150,8 @@ impl DuckAggregateState for HtmlPriceBenchmarkState {
     type Output = String;
 
     fn simple_combine(&mut self, other: &Self) {
-        self.options.merge(&other.options);
-        self.benchmark.merge(&other.benchmark);
+        self.options.combine(&other.options);
+        self.benchmark.combine(&other.benchmark);
         self.points.extend_from_slice(&other.points);
     }
 
@@ -160,16 +163,16 @@ impl DuckAggregateState for HtmlPriceBenchmarkState {
             return Ok(None);
         }
 
-        let benchmark_prices = self.benchmark.get(PRICES)?;
-        let benchmark_points = prices_to_returns(&benchmark_prices);
+        let benchmark_prices = benchmark_points(&self.benchmark, PRICES)?;
+        let benchmark_returns = prices_to_returns(&benchmark_prices);
 
-        // 基准的价格点至少要两个才能差出收益率；`resolve()` 只保证了「点非空」，差分之后可能为空。
-        // 这时不能交给 build_series（会报 EmptySeries 那种含糊的错误），要给一句能直接看懂的话。
+        // `benchmark_points()` 只保证「列表里有带日期和值的点」，差分之后仍可能什么都不剩（基准只有一个
+        // 点）。这时不能交给 build_series（会报 EmptySeries 那种含糊的错误），要给一句能直接看懂的话。
         //
-        // At least two benchmark prices are needed to produce a single return; `resolve()` only guarantees
-        // "some points", which may still difference down to nothing. Handing that to build_series would
-        // fail with a vague EmptySeries error, so it gets an explicit message.
-        if benchmark_points.is_empty() {
+        // `benchmark_points()` only guarantees "the list has points with a date and a value"; differencing
+        // may still leave nothing (a benchmark of a single point). Handing that to build_series would fail
+        // with a vague EmptySeries error, so it gets an explicit message.
+        if benchmark_returns.is_empty() {
             return Err(duck_error(format!(
                 "{}: the benchmark prices produced no returns — at least two points are needed",
                 PRICES.function
@@ -177,6 +180,6 @@ impl DuckAggregateState for HtmlPriceBenchmarkState {
         }
 
         let strategy_points = prices_to_returns(&self.points);
-        render_with_benchmark(PRICES, &self.options, &strategy_points, &benchmark_points)
+        render_with_benchmark(PRICES, &self.options, &strategy_points, &benchmark_returns)
     }
 }

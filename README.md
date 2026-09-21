@@ -38,7 +38,9 @@ sees exactly two names.
 - Both `options` and `benchmark` are read through `DuckLazy`: every row only builds an O(1) token, and the
   single real parse happens on the **first row of each group**. This is not a nicety — duckfn's adapter reads
   arguments per row, so a bare `Vec<...>` would copy the whole benchmark series once per row, degrading to
-  O(rows × benchmark length).
+  O(rows × benchmark length). The parsed values are cached in the aggregate state through duckfn's
+  `DuckLazySlot`, which exists for exactly this shape: a `DuckLazy` token is only valid inside the callback
+  that produced it, so the state can hold the parse result and nothing else.
 - A group without any valid row returns `NULL` (not an empty string, not an error).
 - The report is rendered in `result()`, i.e. **once per group**. `GROUP BY` over 100 instruments renders 100
   full reports (each with a dozen inline SVGs); time and memory grow linearly with the number of groups, and

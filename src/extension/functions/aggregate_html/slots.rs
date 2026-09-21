@@ -1,9 +1,28 @@
 // ============================================================================
-// 两个「槽」：只缓存**解析结果**，绝不缓存 DuckLazy 凭证
+// 两个参数槽：配置与基准
 //
-// `DuckLazy<T>` 的契约是「凭证只在本行回调内有效」，把它存进聚合状态、跨 chunk / 跨线程再解析会被
-// 运行时守卫拦下（报 "DuckLazy<T> is stale"）。所以这里存的是解析出来的普通数据，combine 时也只是把
-// 这份数据搬过去 —— 同一列在各分组/各分片里解析出来的内容一样，不需要（也不能）重新解析。
+// 它们的共同点是「多行不变，却比被聚合的值贵」—— 配置是一个结构体，基准是一整条序列。duckfn 的适配层是
+// **逐行**读参数的（`aggregate_function_adapter.rs` 的 `read_columns` 坐在行循环里），而
+// `Vec<T>::read_valid` 每次调用都会新建 Vec 并逐元素复制整个列表，所以两者都写成 `DuckLazy<T>`：
+// 每行只构造一个 O(1) 的凭证，把真正的解析推迟到我们自己选定的时刻。
+//
+// 推迟到哪一刻？只在本行回调里。`DuckLazy<T>` 的契约是「凭证只在产生它的那次回调内有效」，把它存进聚合
+// 状态、跨 chunk / 跨线程再解析会被运行时守卫拦下（报 "DuckLazy<T> is stale"，是查询报错而不是 UB），
+// 能活下来的只有**解析结果**。而「每行都读、只真正解析第一行、combine 时搬运、result 里取值」正是这条
+// 路径的固定形状，0.0.6 起由 duckfn 的 `DuckLazySlot<T>` 直接提供，本文件不再自己写三态枚举：
+//
+//   update 回调    slot.resolve_optional(arg.as_ref())?   首行解析一次，其余行只加一次引用计数
+//   simple_combine slot.combine(&other.slot)              搬运已解析的值，不重新解析
+//   result         slot.get()                            `Option<Arc<T>>`；未解析与「解析为 NULL」都是 None
+//
+// 留在这里的是 duckfn 管不到的两件事：
+//
+//   1. 基准列表的**报错**：`try_get` 的原始错误是写给 duckfn 使用者看的，SQL 调用方需要的是「哪个函数、
+//      该写哪个键、不想带基准该怎么办」；
+//   2. 基准列表的**归一化**：把 `Vec<点>` 折叠成内部的 [`SeriesPoint`]，顺便丢掉缺日期 / 缺值的点。
+//
+// 配置侧没有这两件事（它的类型是具名 STRUCT，读不出来就是用户写错了），所以配置槽只用到上面那三行调用，
+// 没有别的适配代码。`NULL` 配置退化成全默认的处理在 report.rs 里（那儿才知道要交给哪个渲染函数）。
 //
 // # 为什么基准是「列表参数」而不是「同组里的标签行」
 //
@@ -14,235 +33,136 @@
 //
 // 顺带消失的还有两条护栏：分组内不会再混进别的标的，也不会出现「只有基准行、没有策略行」的组。
 //
-// # 为什么基准与配置参数都要裹 DuckLazy
+// Two argument slots: the configuration and the benchmark.
 //
-// `duckfn` 的适配层是**逐行**读参数的（`aggregate_function_adapter.rs` 的 `read_columns` 在行循环里），
-// 而 `Vec<T>::read_valid` 每次调用都会新建 Vec 并逐元素复制整个列表。裸写 `Vec<...Point>`
-// 就是每行复制一遍整条基准序列，退化成 O(行数 × 基准长度)。裹上 `DuckLazy` 后每行只构造一个 O(1) 的
-// 凭证，真正的解析在分组首行做一次。配置参数同理（它同样是「多行不变、比被聚合的值贵」的东西），
-// 只是它本来就很小。
+// Both of them are "constant across rows and more expensive than the aggregated values" — one is a struct,
+// the other a whole series. duckfn's adapter reads arguments **per row** (`read_columns` sits inside the
+// row loop of `aggregate_function_adapter.rs`) and `Vec<T>::read_valid` allocates a fresh Vec and copies
+// every element on each call, so both are written as `DuckLazy<T>`: every row only builds an O(1) token,
+// and the real parse is deferred to the moment we choose.
 //
-// Two slots: they cache the *parsed value* and never the DuckLazy token.
+// That moment is inside the row callback, and only there: a `DuckLazy<T>` token is only valid inside the
+// callback that produced it, so storing it in the aggregate state and consuming it past the chunk or on
+// another thread is rejected by the runtime guard ("DuckLazy<T> is stale" — a query error, not UB). Only
+// the *parsed value* can survive. "Read every row, really parse only the first one, carry the result over
+// in `combine`, read it back in `result`" is exactly the shape duckfn's `DuckLazySlot<T>` provides since
+// 0.0.6, so this file no longer hand-rolls the three-state enum.
 //
-// A `DuckLazy<T>` token is only valid inside the callback that produced it, so storing it in the aggregate
-// state and consuming it past the chunk or on another thread is rejected by the runtime guard
-// ("DuckLazy<T> is stale"). These slots therefore keep the parsed value, and combine merely moves that
-// value across — the same column parses to the same content everywhere, so re-parsing is neither needed
-// nor allowed.
+// What is left here are the two things duckfn cannot know about:
+//
+//   1. the benchmark list **errors** (the raw `try_get` message is written for a duckfn user, while a SQL
+//      caller needs "which function, which key, and what to do instead");
+//   2. the benchmark list **normalisation** — folding `Vec<point>` into the internal [`SeriesPoint`] and
+//      dropping the points that miss their date or their value.
+//
+// The options side needs neither (it is a named STRUCT: if it cannot be read, the user wrote it wrong), so
+// the options slot is used through nothing but the three calls above. Falling back to all defaults when
+// the options column is NULL happens in report.rs, where the target renderer is known.
 //
 // # Why the benchmark is a list argument rather than labelled rows in the same group
 //
-// An aggregate only sees the rows of its own group. Representing the benchmark as rows in the same
-// group (a long table plus a config key saying which label is the benchmark) forces the benchmark rows
-// to appear **once per group**: 100 instruments × 1000 days = 100k rows materialised and scanned, while
-// the benchmark itself is only 1000 rows. With a list passed in once, the benchmark is written once and
+// An aggregate only sees the rows of its own group. Representing the benchmark as rows in the same group
+// (a long table plus a config key saying which label is the benchmark) forces the benchmark rows to appear
+// **once per group**: 100 instruments × 1000 days = 100k rows materialised and scanned, while the
+// benchmark itself is only 1000 rows. With a list passed in once, the benchmark is written once and
 // evaluated once, the strategy side still gets its grouping from GROUP BY, and the "which label is the
 // benchmark" config key disappears.
 //
 // Two guards disappear with it: a group can no longer mix several instruments, and a group can no longer
 // hold only benchmark rows.
-//
-// # Why both the benchmark and the options argument are wrapped in DuckLazy
-//
-// duckfn's adapter reads arguments **per row** (`read_columns` sits inside the row loop of
-// `aggregate_function_adapter.rs`), and `Vec<T>::read_valid` allocates a fresh Vec and copies every
-// element on each call. A bare `Vec<...Point>` would therefore copy the whole benchmark series once per
-// row, degrading to O(rows × benchmark length). Wrapped in `DuckLazy`, every row only builds an O(1)
-// token and the single real parse happens on the group's first row. The options argument works the same
-// way (it is likewise "constant across rows and more expensive than the aggregated values"), it is just
-// much smaller.
 // ============================================================================
 
-use std::sync::Arc;
-
-use duckfn::{DuckLazy, DuckResult, DuckValueType, duck_error};
-
-use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
+use duckfn::{DuckLazy, DuckLazySlot, DuckResult, DuckValueType, duck_error};
 
 use super::kind::SeriesKind;
 use super::series::{IntoSeriesPoint, SeriesPoint};
 
-/// 报告配置的三种状态。
+/// 行回调里解析基准列表：首行解析一次并缓存，其余行只付 O(1) 的成本。
 ///
-/// The three states of the options slot.
-#[derive(Default, Debug, Clone)]
-pub(super) enum OptionsSlot {
-    /// 还没有在任何 update 回调里解析过。
-    ///
-    /// Not parsed inside an update callback yet.
-    #[default]
-    Unresolved,
-    /// 已解析：`None` 表示整列配置都是 NULL，SQL 侧等价于全默认。
-    ///
-    /// Parsed: `None` means the whole options column was NULL, i.e. all defaults.
-    Resolved(Option<QuantstatsHtmlOptions>),
-}
-
-impl OptionsSlot {
-    /// 只在第一行解析一次；之后所有行只付 O(1) 的凭证构造成本。
-    ///
-    /// 用 `try_get()` 而不是 `get()`：后者把失败做成 panic（再由适配层的 unwind 包成查询错误），
-    /// 而这里已经是 `DuckResult` 语境，让错误正常传播更清楚。
-    ///
-    /// Parses once, on the first row; every later row only pays the O(1) token construction.
-    ///
-    /// `try_get()` rather than `get()`: the latter turns failures into panics (which the adapter's unwind
-    /// wrapper converts back into a query error), while here we are already in a `DuckResult` context and
-    /// can propagate the error directly.
-    pub(super) fn resolve(
-        &mut self,
-        options: Option<&DuckLazy<QuantstatsHtmlOptions>>,
-    ) -> DuckResult<()> {
-        if matches!(self, OptionsSlot::Unresolved) {
-            *self = OptionsSlot::Resolved(match options {
-                Some(lazy) => Some(lazy.try_get()?),
-                None => None,
-            });
-        }
-        Ok(())
-    }
-
-    /// 合并两个状态：配置不重新解析，直接把对面解析好的结果搬过来。
-    ///
-    /// Merge two states: the options are not re-parsed, the already-parsed value is moved over.
-    pub(super) fn merge(&mut self, other: &Self) {
-        if matches!(self, OptionsSlot::Unresolved) {
-            *self = other.clone();
-        }
-    }
-
-    /// 取配置。整列配置是 NULL、或这一组一行都没有过（`Unresolved`）时，退化成 `default()` 的逐字段
-    /// 默认值 —— 也就是 quantstats-rs 自己的全默认。
-    ///
-    /// Read the options. When the options column was NULL, or the group never had a row at all
-    /// (`Unresolved`), this falls back to `default()` field-by-field — which equals quantstats-rs' own
-    /// defaults.
-    pub(super) fn get(&self) -> QuantstatsHtmlOptions {
-        match self {
-            OptionsSlot::Resolved(Some(options)) => options.clone(),
-            OptionsSlot::Resolved(None) | OptionsSlot::Unresolved => QuantstatsHtmlOptions::default(),
-        }
-    }
-}
-
-/// 基准序列的三种状态。
+/// 解析失败时把错误换成对 SQL 调用方有意义的说法，并**保持槽原样**（`DuckLazySlot` 的语义），
+/// 于是下一行还会再试一次；当然，这里返回的错误会立刻让整条查询失败。
 ///
-/// 与 [`OptionsSlot`] 同构：只在首行解析一次，之后所有行复用；combine 只搬运已解析的数据。
-/// 存 `Arc` 是为了让 combine 变成 O(1) 的引用计数复制，而不是把整条基准序列深拷一遍。
+/// Parses the benchmark list in the row callback: once on the first row, O(1) afterwards.
 ///
-/// The three states of the benchmark slot.
-///
-/// Isomorphic to [`OptionsSlot`]: parsed once on the first row and reused afterwards, with combine only
-/// moving the parsed data. The `Arc` keeps combine at an O(1) refcount bump instead of deep-copying the
-/// whole benchmark series.
-#[derive(Default, Debug, Clone)]
-pub(super) enum BenchmarkSlot {
-    /// 还没有在任何 update 回调里解析过。
-    ///
-    /// Not parsed inside an update callback yet.
-    #[default]
-    Unresolved,
-    /// 已解析且非空（空列表在解析时就已经报错）。
-    ///
-    /// Parsed and non-empty (an empty list is rejected while parsing).
-    ///
-    /// 注意：价格路径下这里存的还是**价格/净值**，差分留到 `result()` 里做（差分可能让结果变空）。
-    ///
-    /// Note: on the price branch this still holds *prices*; the differencing happens in `result()`
-    /// (because it may end up empty).
-    Resolved(Arc<Vec<SeriesPoint>>),
-}
+/// A failed parse is turned into a message that means something to a SQL caller and leaves the slot
+/// untouched (that is `DuckLazySlot`'s own semantics), so the next row would try again — although the
+/// error returned here fails the whole query straight away.
+pub(super) fn resolve_benchmark<T: DuckValueType>(
+    slot: &mut DuckLazySlot<Vec<T>>,
+    benchmark: Option<&DuckLazy<Vec<T>>>,
+    kind: SeriesKind,
+) -> DuckResult<()> {
+    let SeriesKind {
+        function,
+        value_field,
+    } = kind;
 
-impl BenchmarkSlot {
-    /// 只在第一行解析一次：校验非 NULL、非空，并把列表转成内部的点数组。
-    ///
-    /// 错误都带函数名前缀（`kind.function`），并且会指出替代方案 —— 只想要单序列报告的话，用三参数
-    /// 那次重载即可。
-    ///
-    /// Parses once, on the first row: it rejects NULL and empty lists and converts the list into the
-    /// internal point array.
-    ///
-    /// Every error carries the function name (`kind.function`) and points at the alternative — for a
-    /// single-series report, use the three-argument overload.
-    // `T` 除了能归一化成 `SeriesPoint`，还必须满足 `DuckValueType` —— `DuckLazy<Vec<T>>::try_get`
-    // 要求 `Vec<T>: DuckValueType`，而它由 `T: DuckValueType` 推出。
+    // 上游的错误信息是写给 duckfn 使用者的（会提到 `try_get()`），这里换成对 SQL 调用方有意义的说法：
+    // 列表里出现了整体为 NULL 的元素（例如字面量 `[NULL, ...]`）时就会走到这里。
     //
-    // Besides normalising into a `SeriesPoint`, `T` must satisfy `DuckValueType`: `try_get` on
-    // `DuckLazy<Vec<T>>` needs `Vec<T>: DuckValueType`, which follows from `T: DuckValueType`.
-    pub(super) fn resolve<T: IntoSeriesPoint + DuckValueType>(
-        &mut self,
-        benchmark: Option<&DuckLazy<Vec<T>>>,
-        kind: SeriesKind,
-    ) -> DuckResult<()> {
-        if !matches!(self, BenchmarkSlot::Unresolved) {
-            return Ok(());
-        }
+    // The upstream message is written for a duckfn user (it mentions `try_get()`), so it is replaced with
+    // something meaningful to a SQL caller: this is reached when the list contains a whole-NULL element
+    // (e.g. a literal `[NULL, ...]`).
+    slot.resolve_optional(benchmark).map_err(|err| {
+        duck_error(format!(
+            "{function}: cannot read the benchmark list — every element must be a \
+             STRUCT(date DATE, {value_field} DOUBLE) and must not be NULL ({err})"
+        ))
+    })?;
+    Ok(())
+}
 
-        let function = kind.function;
-        let value_field = kind.value_field;
+/// 把基准列表从槽里取出来，归一化成内部的点数组。
+///
+/// 只在 `result()` 里调用（每组一次）：归一化要遍历整条列表，放在逐行的 `resolve_benchmark` 里就成了
+/// O(行数 × 基准长度)，正是 `DuckLazy` / `DuckLazySlot` 要消掉的那笔开销。
+///
+/// Reads the benchmark list out of the slot and normalises it into the internal point array.
+///
+/// Called from `result()` only (once per group): normalising walks the whole list, and doing that in the
+/// per-row `resolve_benchmark` would be O(rows × benchmark length) — exactly the cost `DuckLazy` and
+/// `DuckLazySlot` exist to remove.
+pub(super) fn benchmark_points<T: IntoSeriesPoint>(
+    slot: &DuckLazySlot<Vec<T>>,
+    kind: SeriesKind,
+) -> DuckResult<Vec<SeriesPoint>> {
+    let SeriesKind {
+        function,
+        value_field,
+    } = kind;
 
-        let Some(lazy) = benchmark else {
-            return Err(duck_error(format!(
-                "{function}: the benchmark list must not be NULL — pass the benchmark series as \
-                 list({{'date': ..., '{value_field}': ...}}), or omit the benchmark argument for a \
-                 single-series report"
-            )));
-        };
+    // `get()` 的 `None` 同时覆盖「没解析过」与「解析成 NULL」。前者在这儿不可达：一组一行都没有时
+    // `result()` 已经提前返回 NULL，而只要 update 跑过一次，槽里就一定有解析结果。所以走到这里的就是
+    // 「整列基准都是 NULL」那种情况。
+    //
+    // `get()` yields `None` for both "never parsed" and "parsed as NULL". The former is unreachable here:
+    // `result()` already returns NULL when a group has no row at all, and a single update call is enough to
+    // put a parse result in the slot. So what lands here is a benchmark column that is NULL throughout.
+    let Some(parsed) = slot.get() else {
+        return Err(duck_error(format!(
+            "{function}: the benchmark list must not be NULL — pass the benchmark series as \
+             list({{'date': ..., '{value_field}': ...}}), or omit the benchmark argument for a \
+             single-series report"
+        )));
+    };
 
-        // 上游的错误信息是写给 duckfn 使用者的（会提到 `try_get()`），这里换成对 SQL 调用方有意义的说法：
-        // 列表里出现了整体为 NULL 的元素（例如字面量 `[NULL, ...]`）时就会走到这里。
-        //
-        // The upstream message is written for a duckfn user (it mentions `try_get()`), so it is replaced
-        // with something meaningful to a SQL caller: this is reached when the list contains a whole-NULL
-        // element (e.g. a literal `[NULL, ...]`).
-        let parsed = lazy.try_get().map_err(|err| {
-            duck_error(format!(
-                "{function}: cannot read the benchmark list — every element must be a \
-                 STRUCT(date DATE, {value_field} DOUBLE) and must not be NULL ({err})"
-            ))
-        })?;
+    let points: Vec<SeriesPoint> = parsed
+        .iter()
+        .filter_map(IntoSeriesPoint::to_series_point)
+        .collect();
 
-        let points: Vec<SeriesPoint> = parsed
-            .into_iter()
-            .filter_map(IntoSeriesPoint::into_series_point)
-            .collect();
-
-        if points.is_empty() {
-            return Err(duck_error(format!(
-                "{function}: the benchmark list is empty (or every point is missing its date or its \
-                 value) — omit the benchmark argument for a single-series report"
-            )));
-        }
-
-        *self = BenchmarkSlot::Resolved(Arc::new(points));
-        Ok(())
+    // 空列表，或列表里每个点都缺日期/缺值 —— 两者对报告来说一样：没有基准可用。这一支重载就是为带基准
+    // 的场景存在的，所以报错而不是静默出一份没有基准的报告。
+    //
+    // An empty list, or a list whose every point misses its date or its value — both mean the same to the
+    // report: there is no benchmark to use. This overload exists for the benchmark case, so it errors out
+    // instead of silently producing a benchmark-less report.
+    if points.is_empty() {
+        return Err(duck_error(format!(
+            "{function}: the benchmark list is empty (or every point is missing its date or its \
+             value) — omit the benchmark argument for a single-series report"
+        )));
     }
 
-    /// 合并两个状态：不重新解析，只搬运对面解析好的结果。
-    ///
-    /// Merge two states: no re-parsing, the already-parsed value of the other side is moved over.
-    pub(super) fn merge(&mut self, other: &Self) {
-        if matches!(self, BenchmarkSlot::Unresolved) {
-            *self = other.clone();
-        }
-    }
-
-    /// 取已解析的基准点。
-    ///
-    /// `Unresolved` 在这里不可达：一组一行都没有时 `result()` 已经提前返回 `NULL` 了。留这条分支
-    /// 只是不想在理论上不可达的路径上 unwrap。
-    ///
-    /// Read the parsed benchmark points.
-    ///
-    /// `Unresolved` is unreachable here: `result()` already returns `NULL` early when a group has no row at
-    /// all. The branch exists only so that no theoretically unreachable path unwraps.
-    pub(super) fn get(&self, kind: SeriesKind) -> DuckResult<Arc<Vec<SeriesPoint>>> {
-        match self {
-            BenchmarkSlot::Resolved(points) => Ok(Arc::clone(points)),
-            BenchmarkSlot::Unresolved => Err(duck_error(format!(
-                "{}: the benchmark list was never read",
-                kind.function
-            ))),
-        }
-    }
+    Ok(points)
 }
