@@ -49,14 +49,6 @@ pub(crate) struct QuantstatsHtmlOptions {
     /// Display name of the benchmark, presentation only; defaults to [`ReportOptions::default`].
     pub benchmark_title: Option<String>,
 
-    /// 长表里代表**基准**的那个标签，只被本扩展用来拆分策略/基准两组，不会传给 quantstats-rs。
-    /// 只有 `duckfn_quantstats_html_benchmark` 会读它。
-    ///
-    /// The label that marks the **benchmark** rows in a long table. It is used by this extension to
-    /// split strategy from benchmark and is never forwarded to quantstats-rs. Only
-    /// `duckfn_quantstats_html_benchmark` reads it.
-    pub benchmark_name: Option<String>,
-
     /// 无风险利率（按周期计，不是年化）。缺省 0.0。
     ///
     /// Risk-free rate per period (not annualized); defaults to 0.0.

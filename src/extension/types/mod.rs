@@ -5,3 +5,4 @@
 // notch more visible than its siblings (the private `mod types;` still keeps the whole subtree
 // inside `extension`).
 pub(crate) mod html_report_options;
+pub(crate) mod return_point;

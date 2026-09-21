@@ -13,18 +13,33 @@
 
 | 函数 | 说明 |
 | --- | --- |
-| `duckfn_quantstats_html(dt, ret, opt)` | 单序列报告，一行 = 一天。 |
-| `duckfn_quantstats_html_benchmark(name, dt, ret, opt)` | 长表报告：`name` 是标签，等于 `opt.benchmark_name` 的行是基准，其余是策略。 |
+| `duckfn_quantstats_html(date, period_return, options)` | 单序列报告，一行 = 一个周期。 |
+| `duckfn_quantstats_html_benchmark(date, period_return, benchmark, options)` | 带基准报告：策略侧逐行聚合，基准侧是一个**一次性传入的列表参数**。 |
 
-- 配置参数 `opt` **固定在参数列表最后**（数据列在前、配置在后）。
-- `opt` 是**可空**配置，类型是加载期建好的命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
-- 配置参数内部是 `DuckLazy` 延迟读取：每行只构造一个 O(1) 的凭证，真正的解析只在**首行做一次**，
-  之后所有行复用解析结果 —— 配置有几个字段、嵌套多深，都不会变成每行的开销。
-- `dt` 是 `DATE`，`ret` 是按周期计的收益（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，与其它 SQL 聚合函数一致。
+- 配置参数 `options` **固定在参数列表最后**（数据列在前、配置在后）。它是**可空**配置，类型是加载期建好的
+  命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
+- `date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，
+  与其它 SQL 聚合函数一致。
+- `benchmark` 是 `STRUCT(date DATE, period_return DOUBLE)[]`。它是 `NULL`、是空列表、或列表里没有任何有效点时
+  都会**报错** —— 函数名里就有 benchmark，没基准就该改用 `duckfn_quantstats_html`。
+- `options` 与 `benchmark` 都用 `DuckLazy` 延迟读取：每行只构造一个 O(1) 的凭证，真正的解析只在**每组首行做一次**。
+  这不是锦上添花：duckfn 的适配层是逐行读参数的，裸写 `Vec<...>` 会让整条基准序列被复制「行数」次，
+  直接退化成 O(行数 × 基准长度)。
 - 该组一行都没有 → 返回 `NULL`（不是空串，也不是报错）。
 - 报告在 `result()` 里生成，即**每组渲染一次**。`GROUP BY` 100 个标的 = 渲染 100 份完整报告
-  （每份内嵌十几张 SVG），耗时与内存随分组数线性增长。
+  （每份内嵌十几张 SVG），耗时与内存随分组数线性增长；同理每个分组都会各自持有一份解析好的基准点
+  （聚合状态不跨分组共享，这部分省不掉，能省掉的是 DuckDB 层的行展开与扫描）。
 - SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `ReturnSeries::new`。
+
+### 为什么基准是一个列表参数
+
+若把基准写成「同一张长表里按标签区分的行」，为了让**每个**分组都拿得到基准，基准行就必须在每个分组里
+各出现一遍：100 个标的 × 1000 天 = 10 万行被物化/扫描，而基准本身只有 1000 行，还得额外配一个
+「哪个标签是基准」的配置项。改成一次性传入的列表后，基准只写一次、只求值一次，策略侧仍然靠 `GROUP BY`
+自然分组。
+
+代价是它得先在子查询里聚合好：`list(...)` 本身是聚合函数，**不能内联写进聚合调用**
+（DuckDB 会报 `aggregate function calls cannot be nested`），必须先聚合成单行再 `cross join` 进来。
 
 ### 配置字段
 
@@ -35,7 +50,6 @@
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | 报告标题 |
 | `strategy_title` | `VARCHAR` | `'Strategy'` | 策略显示名 |
 | `benchmark_title` | `VARCHAR` | `NULL` | 基准显示名（纯展示） |
-| `benchmark_name` | `VARCHAR` | `NULL` | 长表里代表基准的标签，只被 `duckfn_quantstats_html_benchmark` 读取 |
 | `rf` | `DOUBLE` | `0.0` | 无风险利率（按周期计，不是年化） |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
@@ -46,49 +60,69 @@
 ### 用法
 
 ```sql
--- 全部默认配置
-SELECT duckfn_quantstats_html(dt, ret, NULL) FROM daily_returns;
+-- 单序列：全部默认配置
+SELECT duckfn_quantstats_html(trade_date, daily_return, NULL) FROM daily_returns;
 
--- 只写关心的几个键；struct 字面量必须显式转成配置类型
+-- 单序列：只写关心的几个键；struct 字面量必须显式转成配置类型
 SELECT symbol,
        duckfn_quantstats_html(
-           dt, ret, {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
+           trade_date, daily_return,
+           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
 FROM daily_returns
 GROUP BY symbol;
 
--- 带基准：长表（标签 + 日期 + 收益），'SPY' 是基准
-SELECT fund,
+-- 带基准：基准单独聚合成一行，再 cross join 进来（基准只写一次、只求值一次）
+WITH benchmark AS (
+    SELECT list({'date': trade_date, 'period_return': daily_return}) AS series
+    FROM benchmark_returns
+)
+SELECT s.fund,
        duckfn_quantstats_html_benchmark(
-           name, dt, ret,
-           {'title': 'My Fund', 'benchmark_name': 'SPY', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
-FROM returns
-GROUP BY fund;
+           s.trade_date, s.daily_return, benchmark.series,
+           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
+FROM strategy_returns s, benchmark
+GROUP BY s.fund;
 
 -- 顺带落盘一份
 SELECT duckfn_quantstats_html(
-           dt, ret, {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
+           trade_date, daily_return,
+           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ```
 
-### 两个必须知道的行为
+`benchmark` 也可以写成标量子查询（实测可行），效果与 `cross join` 单行一样：
 
-- **struct 字面量必须显式写 `::duckfn_quantstats_html_options`。** 不写的话它是匿名的
+```sql
+SELECT fund,
+       duckfn_quantstats_html_benchmark(
+           trade_date, daily_return,
+           (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
+           NULL)
+FROM strategy_returns
+GROUP BY fund;
+```
+
+### 三个必须知道的行为
+
+- **配置的 struct 字面量必须显式写 `::duckfn_quantstats_html_options`。** 不写的话它是匿名的
   `STRUCT(title VARCHAR)`，字段个数与配置类型不同，DuckDB 会直接说找不到匹配的函数 —— 注册这个
   命名类型就是为了这一步 cast。
-- **`'...'::JSON::duckfn_quantstats_html_options` 要把 8 个键写全**（DuckDB 的 JSON→STRUCT 转换
+- **`'...'::JSON::duckfn_quantstats_html_options` 要把 7 个键写全**（DuckDB 的 JSON→STRUCT 转换
   不允许缺键），所以推荐直接用 struct 字面量。
+- **基准点的键名固定是 `date` / `period_return`**（duckfn 的 `DuckStruct` 派生不支持字段改名）。
+  它和匿名 `STRUCT(date DATE, period_return DOUBLE)` 完全一致，所以**不需要 cast**；只有当列类型不是
+  `DATE` / `DOUBLE` 时才要显式转一下：`{'date': trade_date::DATE, 'period_return': daily_return::DOUBLE}`。
 
 ### 错误路径
 
 | 情况 | 行为 |
 | --- | --- |
 | 组内没有任何有效行 | 返回 `NULL` |
+| 基准参数为 `NULL` | 报错 `the benchmark list must not be NULL` |
+| 基准是空列表，或列表里没有任何有效点 | 报错 `the benchmark list is empty` |
+| 基准列表里有整体为 `NULL` 的元素 | 报错 `cannot read the benchmark list` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output = ''` | 报错 `output must not be an empty string` |
-| `duckfn_quantstats_html_benchmark` 没给 `benchmark_name` | 报错 `'benchmark_name' is required` |
-| `benchmark_name` 在组内一行都没匹配上 | 报错 `no row matches benchmark_name = '...'` |
-| 非基准行出现多个不同标签 | 报错 `distinct strategy labels`，提示改用 `GROUP BY` 拆开 |
-| 组内只有基准行 | 报错 `only rows labelled '...'`：没有可报告的策略 |
 
 ### WebAssembly
 

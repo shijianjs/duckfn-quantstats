@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report.test
-# description: duckfn_quantstats_html 单序列报告：命名配置类型、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组，以及配置取值错误
+# description: duckfn_quantstats_html 单序列报告：命名配置类型（7 字段）、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组，以及配置取值错误
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -17,19 +17,20 @@ SELECT count(*) FROM duckdb_types() WHERE type_name = 'duckfn_quantstats_html_op
 query T
 SELECT typeof(NULL::duckfn_quantstats_html_options);
 ----
-STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark_name VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR)
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR)
 
-# 两个函数都是聚合，且配置参数排在最后（数据列在前）
+# 两个函数都是聚合
 query T rowsort
 SELECT function_name || ':' || function_type FROM duckdb_functions() WHERE function_name LIKE 'duckfn_quantstats_html%';
 ----
 duckfn_quantstats_html:aggregate
 duckfn_quantstats_html_benchmark:aggregate
 
+# 配置参数固定在最后：单序列是 (date, period_return, options)
 query I
-SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html_benchmark';
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html';
 ----
-4
+3
 
 # ============================================================================
 # 固定数据集
@@ -46,7 +47,7 @@ CREATE TABLE daily_returns AS SELECT * FROM (VALUES
     (DATE '2024-01-10', 0.0200::DOUBLE),
     (DATE '2024-01-11', -0.0100::DOUBLE),
     (DATE '2024-01-12', 0.0050::DOUBLE)
-) t(dt, ret);
+) t(trade_date, daily_return);
 
 # ============================================================================
 # 配置的三种用法（配置参数在最后，`DuckLazy` 让它只解析一次）
@@ -54,13 +55,13 @@ CREATE TABLE daily_returns AS SELECT * FROM (VALUES
 
 # 1) 整体 NULL：全部走 quantstats-rs 自己的默认值（默认标题是 "Strategy Tearsheet"）
 query T
-SELECT length(duckfn_quantstats_html(dt, ret, NULL)) > 1000 AS long_enough
+SELECT length(duckfn_quantstats_html(trade_date, daily_return, NULL)) > 1000 AS long_enough
 FROM daily_returns;
 ----
 true
 
 query T
-SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(dt, ret, NULL)) > 0 AS has_default_title
+SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(trade_date, daily_return, NULL)) > 0 AS has_default_title
 FROM daily_returns;
 ----
 true
@@ -68,7 +69,7 @@ true
 # 2) 只写部分键：其余键取默认值（这里只给 title）
 query T
 SELECT position('My Fund' IN duckfn_quantstats_html(
-           dt, ret, {'title': 'My Fund'}::duckfn_quantstats_html_options)) > 0 AS has_custom_title
+           trade_date, daily_return, {'title': 'My Fund'}::duckfn_quantstats_html_options)) > 0 AS has_custom_title
 FROM daily_returns;
 ----
 true
@@ -76,23 +77,24 @@ true
 # 3) 显式 NULL 类型化也没有区别
 query T
 SELECT position('Strategy Tearsheet' IN duckfn_quantstats_html(
-           dt, ret, NULL::duckfn_quantstats_html_options)) > 0 AS has_default_title
+           trade_date, daily_return, NULL::duckfn_quantstats_html_options)) > 0 AS has_default_title
 FROM daily_returns;
 ----
 true
 
 # 配置里的 periods_per_year 真的传下去了：改了它，报告里的年化数字会变，所以 md5 不同
 query T
-SELECT md5(duckfn_quantstats_html(dt, ret, NULL))
-    <> md5(duckfn_quantstats_html(dt, ret, {'periods_per_year': 52}::duckfn_quantstats_html_options)) AS differs
+SELECT md5(duckfn_quantstats_html(trade_date, daily_return, NULL))
+    <> md5(duckfn_quantstats_html(trade_date, daily_return,
+           {'periods_per_year': 52}::duckfn_quantstats_html_options)) AS differs
 FROM daily_returns;
 ----
 true
 
-# 不带 :: 的 struct 字面量是匿名 STRUCT(title VARCHAR)，与 8 字段的配置类型不匹配，
+# 不带 :: 的 struct 字面量是匿名 STRUCT(title VARCHAR)，与配置类型的字段数不匹配，
 # 必须显式 cast —— 这正是注册命名类型的意义。
 statement error
-SELECT duckfn_quantstats_html(dt, ret, {'title': 'My Fund'}) FROM daily_returns;
+SELECT duckfn_quantstats_html(trade_date, daily_return, {'title': 'My Fund'}) FROM daily_returns;
 ----
 No function matches the given name and argument types
 
@@ -101,8 +103,8 @@ No function matches the given name and argument types
 # ============================================================================
 
 query T
-SELECT duckfn_quantstats_html(dt, ret, NULL) IS NULL AS is_null
-FROM daily_returns WHERE dt > DATE '2100-01-01';
+SELECT duckfn_quantstats_html(trade_date, daily_return, NULL) IS NULL AS is_null
+FROM daily_returns WHERE trade_date > DATE '2100-01-01';
 ----
 true
 
@@ -120,11 +122,11 @@ CREATE TABLE returns_with_nulls AS SELECT * FROM (VALUES
     (DATE '2024-01-10', 0.0200::DOUBLE),
     (DATE '2024-01-11', -0.0100::DOUBLE),
     (DATE '2024-01-12', 0.0050::DOUBLE)
-) t(dt, ret);
+) t(trade_date, daily_return);
 
 query T
-SELECT (SELECT md5(duckfn_quantstats_html(dt, ret, NULL)) FROM returns_with_nulls)
-     = (SELECT md5(duckfn_quantstats_html(dt, ret, NULL)) FROM daily_returns) AS same_as_clean;
+SELECT (SELECT md5(duckfn_quantstats_html(trade_date, daily_return, NULL)) FROM returns_with_nulls)
+     = (SELECT md5(duckfn_quantstats_html(trade_date, daily_return, NULL)) FROM daily_returns) AS same_as_clean;
 ----
 true
 
@@ -138,8 +140,8 @@ true
 
 statement ok
 CREATE TABLE big_returns AS SELECT
-    (DATE '2020-01-01' + CAST(i AS INTEGER))::DATE AS dt,
-    CAST(0.001 * ((i % 11) - 5) AS DOUBLE) AS ret
+    (DATE '2020-01-01' + CAST(i AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 11) - 5) AS DOUBLE) AS daily_return
 FROM range(20000) t(i);
 
 statement ok
@@ -147,15 +149,16 @@ PRAGMA threads=1;
 
 statement ok
 CREATE TABLE big_single_thread AS
-SELECT md5(duckfn_quantstats_html(dt, ret, {'title': 'T'}::duckfn_quantstats_html_options)) AS digest
+SELECT md5(duckfn_quantstats_html(trade_date, daily_return,
+           {'title': 'T'}::duckfn_quantstats_html_options)) AS digest
 FROM big_returns;
 
 statement ok
 PRAGMA threads=4;
 
 query T
-SELECT md5(duckfn_quantstats_html(dt, ret, {'title': 'T'}::duckfn_quantstats_html_options))
-     = (SELECT digest FROM big_single_thread) AS same_as_single_thread
+SELECT md5(duckfn_quantstats_html(trade_date, daily_return,
+           {'title': 'T'}::duckfn_quantstats_html_options)) = (SELECT digest FROM big_single_thread) AS same_as_single_thread
 FROM big_returns;
 ----
 true
@@ -170,13 +173,14 @@ PRAGMA threads=1;
 statement ok
 CREATE TABLE multi_asset AS SELECT
     CASE WHEN i % 2 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
-    (DATE '2024-01-01' + CAST(i AS INTEGER))::DATE AS dt,
-    CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS ret
+    (DATE '2024-01-01' + CAST(i AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS daily_return
 FROM range(120) t(i);
 
 query I
 SELECT count(*) FROM (
-    SELECT symbol, duckfn_quantstats_html(dt, ret, {'title': symbol}::duckfn_quantstats_html_options) AS html
+    SELECT symbol, duckfn_quantstats_html(
+               trade_date, daily_return, {'title': symbol}::duckfn_quantstats_html_options) AS html
     FROM multi_asset GROUP BY symbol
 ) WHERE length(html) > 1000;
 ----
@@ -185,7 +189,8 @@ SELECT count(*) FROM (
 # 每个分组确实拿到了自己那一组的配置（标题里带着自己的 symbol）
 query I
 SELECT count(*) FROM (
-    SELECT symbol, duckfn_quantstats_html(dt, ret, {'title': symbol}::duckfn_quantstats_html_options) AS html
+    SELECT symbol, duckfn_quantstats_html(
+               trade_date, daily_return, {'title': symbol}::duckfn_quantstats_html_options) AS html
     FROM multi_asset GROUP BY symbol
 ) WHERE position(symbol IN html) > 0;
 ----
@@ -197,18 +202,19 @@ SELECT count(*) FROM (
 
 # 配置参数在最后：把配置写在最前（本扩展早期的参数顺序）不再匹配任何签名
 statement error
-SELECT duckfn_quantstats_html({'title': 'My Fund'}::duckfn_quantstats_html_options, dt, ret) FROM daily_returns;
+SELECT duckfn_quantstats_html({'title': 'My Fund'}::duckfn_quantstats_html_options, trade_date, daily_return)
+FROM daily_returns;
 ----
 No function matches the given name and argument types
 
 statement error
-SELECT duckfn_quantstats_html(dt, ret, {'periods_per_year': 0}::duckfn_quantstats_html_options)
+SELECT duckfn_quantstats_html(trade_date, daily_return, {'periods_per_year': 0}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ----
 periods_per_year must be greater than 0
 
 statement error
-SELECT duckfn_quantstats_html(dt, ret, {'output': ''}::duckfn_quantstats_html_options)
+SELECT duckfn_quantstats_html(trade_date, daily_return, {'output': ''}::duckfn_quantstats_html_options)
 FROM daily_returns;
 ----
 output must not be an empty string

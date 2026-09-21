@@ -1,109 +1,190 @@
 # name: test/sql/quantstats/html_report_benchmark.test
-# description: duckfn_quantstats_html_benchmark 长表报告：配置参数放最后、按 benchmark_name 拆策略/基准、基准显示名、GROUP BY 每个标的、空输入 NULL，以及三条错误路径（缺基准标签 / 标签无匹配 / 一组混了多个策略）
+# description: duckfn_quantstats_html_benchmark 带基准报告：基准是「一次性传入的列表参数」（策略侧逐行聚合 + 单行 list 结果 cross join），配置参数放最后；覆盖 GROUP BY 每个标的、空输入 NULL、多线程一致性与五条错误路径
 # group: [quantstats]
 
 require duckfn_quantstats
 
 # ============================================================================
-# 长表：一个标的占多行，用 name 区分策略与基准
-#   fund = FUND_A / FUND_B，name ∈ {该标的自身, 'SPY'}
-#   每个 (fund, 角色) 各 120 行，两条序列共用同一批日期
+# 数据：策略一张表（逐行），基准一张表（单独聚合一次）
+#
+# 关键点：`list(...)` 本身是聚合函数，**不能**内联写进聚合调用
+# （DuckDB 会报 `aggregate function calls cannot be nested`），
+# 必须先在一个子查询/CTE 里聚合成单行，再 cross join 进来。
+# 这样基准序列只写一次、只求值一次，不会随分组数量重复出现。
 # ============================================================================
 
 statement ok
-CREATE TABLE fund_returns AS
-SELECT f.fund,
-       CASE WHEN b.is_bench THEN 'SPY' ELSE f.fund END AS name,
-       (DATE '2024-01-01' + CAST(b.d // 2 AS INTEGER))::DATE AS dt,
-       CAST(0.001 * ((b.d % 7) - 3) + CASE WHEN b.is_bench THEN 0.0002 ELSE 0.0 END AS DOUBLE) AS ret
-FROM (VALUES ('FUND_A'), ('FUND_B')) f(fund),
-     (SELECT CAST(i AS BIGINT) AS d, i % 2 = 1 AS is_bench FROM range(240) t(i)) b;
+CREATE TABLE strategy_returns AS SELECT
+    CASE WHEN i % 2 = 0 THEN 'FUND_A' ELSE 'FUND_B' END AS fund,
+    (DATE '2024-01-01' + CAST(i // 2 AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS daily_return
+FROM range(240) t(i);
 
-# 单组（一个标的一行一个标签）：报告能出来
+statement ok
+CREATE TABLE benchmark_returns AS SELECT
+    (DATE '2024-01-01' + CAST(i AS INTEGER))::DATE AS trade_date,
+    CAST(0.0005 * ((i % 5) - 2) AS DOUBLE) AS daily_return
+FROM range(120) t(i);
+
+statement ok
+CREATE TABLE benchmark_series AS
+SELECT list({'date': trade_date, 'period_return': daily_return}) AS series FROM benchmark_returns;
+
+# 基准点结构体与匿名 STRUCT(date DATE, period_return DOUBLE) 完全一致，所以不需要任何 cast
+query T
+SELECT typeof(series) FROM benchmark_series;
+----
+STRUCT(date DATE, period_return DOUBLE)[]
+
+# 两个函数都是聚合，基准版本是 4 个参数
+query I
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html_benchmark';
+----
+4
+
+# ============================================================================
+# 正常路径
+# ============================================================================
+
+# 单组：一个标的 + 一次传入的基准
 query T
 SELECT length(duckfn_quantstats_html_benchmark(
-           name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)) > 1000 AS long_enough
-FROM fund_returns WHERE fund = 'FUND_A';
+           s.trade_date, s.daily_return, b.series, NULL)) > 1000 AS long_enough
+FROM strategy_returns s, benchmark_series b
+WHERE s.fund = 'FUND_A';
 ----
 true
 
 # 基准显示名生效（benchmark_title 只影响展示）
 query T
 SELECT position('SPX' IN duckfn_quantstats_html_benchmark(
-           name, dt, ret, {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) > 0 AS has_bench_title
-FROM fund_returns WHERE fund = 'FUND_A';
+           s.trade_date, s.daily_return, b.series,
+           {'title': 'My Fund', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) > 0 AS has_benchmark_title
+FROM strategy_returns s, benchmark_series b
+WHERE s.fund = 'FUND_A';
 ----
 true
 
-# 不带基准显示名时报告里不会出现它，带上之后一定不同
+# 基准序列的日期范围比策略宽（120 天 vs 120 个交易日，起点相同），仍然能出报告：
+# 起始日对齐由 quantstats-rs 按 match_dates 完成，这里不做额外处理。
 query T
-SELECT md5(duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options))
-    <> md5(duckfn_quantstats_html_benchmark(
-           name, dt, ret, {'benchmark_name': 'SPY', 'benchmark_title': 'SPX'}::duckfn_quantstats_html_options)) AS differs
-FROM fund_returns WHERE fund = 'FUND_A';
+SELECT length(duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return, b.series, NULL)) > 1000 AS ok
+FROM strategy_returns s, benchmark_series b
+WHERE s.fund = 'FUND_A';
 ----
 true
 
-# 配置参数在最后：把配置写在最前（本扩展早期的参数顺序）不再匹配任何签名
-statement error
-SELECT duckfn_quantstats_html_benchmark(
-           {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options, name, dt, ret)
-FROM fund_returns WHERE fund = 'FUND_A';
-----
-No function matches the given name and argument types
-
-# GROUP BY 每个标的：两组都能出报告（组内各只有一个策略标签 + 'SPY'）
+# GROUP BY 每个标的：两组都出报告，且各自用自己的配置
 query I
 SELECT count(*) FROM (
-    SELECT fund, duckfn_quantstats_html_benchmark(
-               name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options) AS html
-    FROM fund_returns GROUP BY fund
-) WHERE length(html) > 1000;
+    SELECT s.fund, duckfn_quantstats_html_benchmark(
+               s.trade_date, s.daily_return, b.series,
+               {'title': 'Fund ' || s.fund}::duckfn_quantstats_html_options) AS html
+    FROM strategy_returns s, benchmark_series b
+    GROUP BY s.fund
+) WHERE length(html) > 1000 AND position('Fund FUND_' IN html) > 0;
 ----
 2
 
-# 空输入 -> SQL NULL
+# 空输入 -> SQL NULL（一组一行都没有）
 query T
 SELECT duckfn_quantstats_html_benchmark(
-           name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options) IS NULL AS is_null
-FROM fund_returns WHERE dt > DATE '2100-01-01';
+           s.trade_date, s.daily_return, b.series, NULL) IS NULL AS is_null
+FROM strategy_returns s, benchmark_series b
+WHERE s.trade_date > DATE '2100-01-01';
 ----
 true
 
-# 配置整体 NULL 时，基准标签缺失，因此下面这条会走进错误路径（而不是静默出一份没有基准的报告）
-statement error
-SELECT duckfn_quantstats_html_benchmark(name, dt, ret, NULL) FROM fund_returns WHERE fund = 'FUND_A';
+# ============================================================================
+# combine：多线程下基准点只被搬运、不被重新解析，结果必须与单线程一致
+# ============================================================================
+
+statement ok
+PRAGMA threads=1;
+
+statement ok
+CREATE TABLE benchmark_single_thread AS
+SELECT md5(duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return, b.series, NULL)) AS digest
+FROM strategy_returns s, benchmark_series b
+WHERE s.fund = 'FUND_A';
+
+statement ok
+PRAGMA threads=4;
+
+query T
+SELECT md5(duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, b.series, NULL))
+     = (SELECT digest FROM benchmark_single_thread) AS same_as_single_thread
+FROM strategy_returns s, benchmark_series b
+WHERE s.fund = 'FUND_A';
 ----
-'benchmark_name' is required
+true
+
+statement ok
+PRAGMA threads=1;
 
 # ============================================================================
 # 错误路径
 # ============================================================================
 
-# 没给基准标签：无法拆分策略与基准
+# 基准为 NULL：函数名里就有 benchmark，没基准应当改用单序列版本
 statement error
-SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'title': 'FUND_A'}::duckfn_quantstats_html_options)
-FROM fund_returns WHERE fund = 'FUND_A';
+SELECT duckfn_quantstats_html_benchmark(s.trade_date, s.daily_return, NULL, NULL)
+FROM strategy_returns s, benchmark_series b;
 ----
-'benchmark_name' is required
+the benchmark list must not be NULL
 
-# 基准标签一行都没匹配上
+# 基准为空列表
 statement error
-SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'QQQ'}::duckfn_quantstats_html_options)
-FROM fund_returns WHERE fund = 'FUND_A';
+SELECT duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return,
+           []::STRUCT(date DATE, period_return DOUBLE)[], NULL)
+FROM strategy_returns s, benchmark_series b;
 ----
-no row matches benchmark_name = 'QQQ'
+the benchmark list is empty
 
-# 非基准行出现多个不同标签：一个分组里混了多个标的，报告会把它们合成一条曲线
+# 基准点全都缺日期/收益（列表非空但没有任何有效点）
 statement error
-SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)
-FROM fund_returns;
+SELECT duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return,
+           (SELECT list({'date': NULL::DATE, 'period_return': NULL::DOUBLE}) FROM benchmark_returns LIMIT 1),
+           NULL)
+FROM strategy_returns s, benchmark_series b;
 ----
-distinct strategy labels
+the benchmark list is empty
 
-# 组里只有基准行：没有可报告的策略
+# 列表里有整体为 NULL 的元素
 statement error
-SELECT duckfn_quantstats_html_benchmark(name, dt, ret, {'benchmark_name': 'SPY'}::duckfn_quantstats_html_options)
-FROM fund_returns WHERE name = 'SPY';
+SELECT duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return,
+           [NULL::STRUCT(date DATE, period_return DOUBLE)],
+           NULL)
+FROM strategy_returns s, benchmark_series b;
 ----
-only rows labelled 'SPY'
+cannot read the benchmark list
+
+# list(...) 是聚合函数，不能内联当聚合参数
+statement error
+SELECT duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return,
+           list({'date': s.trade_date, 'period_return': s.daily_return}), NULL)
+FROM strategy_returns s, benchmark_series b;
+----
+aggregate function calls cannot be nested
+
+# 基准点的字段名写错（必须是 date / period_return）
+statement error
+SELECT duckfn_quantstats_html_benchmark(
+           s.trade_date, s.daily_return,
+           (SELECT list({'dt': trade_date, 'ret': daily_return}) FROM benchmark_returns), NULL)
+FROM strategy_returns s, benchmark_series b;
+----
+No function matches the given name and argument types
+
+# 参数顺序不对：配置不在最后 / 基准不在第三位
+statement error
+SELECT duckfn_quantstats_html_benchmark(NULL, s.trade_date, s.daily_return)
+FROM strategy_returns s, benchmark_series b;
+----
+No function matches the given name and argument types
