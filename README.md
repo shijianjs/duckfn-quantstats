@@ -9,22 +9,26 @@
 
 ## 函数
 
-一个聚合函数名字、**两个重载**（靠参数个数分派），都把「按日期排列的收益」归约成一份完整的
+两个聚合函数名字、各自**两个重载**（靠参数个数分派），都把「按日期排列的收益」归约成一份完整的
 quantstats HTML 报告（`VARCHAR`）：
 
-| 签名 | 说明 |
-| --- | --- |
-| `duckfn_quantstats_html(date, period_return, options)` | 单序列报告，一行 = 一个周期。 |
-| `duckfn_quantstats_html(date, period_return, benchmark, options)` | 带基准报告：策略侧逐行聚合，基准侧是一个**一次性传入的列表参数**。 |
+| 签名 | 输入 | 说明 |
+| --- | --- | --- |
+| `duckfn_quantstats_html(date, period_return, options)` | 收益率序列 | 单序列报告，一行 = 一个周期。 |
+| `duckfn_quantstats_html(date, period_return, benchmark, options)` | 收益率序列 | 带基准报告，基准侧是一个**一次性传入的列表参数**。 |
+| `duckfn_quantstats_html_prices(date, price, options)` | 价格/净值序列 | 单序列报告，函数内部换算成收益率。 |
+| `duckfn_quantstats_html_prices(date, price, benchmark, options)` | 价格/净值序列 | 带基准报告，两侧都是价格/净值。 |
 
-两个重载由 `overloads_name` 注册成同一个函数集，SQL 里只占一个名字。
+前两个由 `overloads_name` 注册成一个函数集、后两个注册成另一个，SQL 里各占一个名字。
 
 - 配置参数 `options` **固定在参数列表最后**（数据列在前、配置在后）。它是**可空**配置，类型是加载期建好的
   命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
-- `date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`）。两列任一为 `NULL` 的行会被**整行跳过**，
-  与其它 SQL 聚合函数一致。
-- `benchmark` 是 `STRUCT(date DATE, period_return DOUBLE)[]`。它是 `NULL`、是空列表、或列表里没有任何有效点时
-  都会**报错** —— 这一支重载就是为带基准的场景存在的，只想要单序列报告就少传这个参数。
+- `date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`），`price` 是当天的价格或净值（`DOUBLE`）。
+  两列任一为 `NULL` 的行会被**整行跳过**，与其它 SQL 聚合函数一致。
+- `benchmark` 是 `STRUCT(date DATE, <值列名> DOUBLE)[]`（`period_return` 或 `price`）。它是 `NULL`、是空列表、
+  或列表里没有任何有效点时都会**报错** —— 这一支重载就是为带基准的场景存在的，只想要单序列报告就少传这个参数。
+- 价格那一支**必须另起一个名字**：`(date, price, options)` 与 `(date, period_return, options)` 的类型序列
+  完全一样（都是 `DATE, DOUBLE, STRUCT`），同一个名字下无法按类型分派。
 - `options` 与 `benchmark` 都用 `DuckLazy` 延迟读取：每行只构造一个 O(1) 的凭证，真正的解析只在**每组首行做一次**。
   这不是锦上添花：duckfn 的适配层是逐行读参数的，裸写 `Vec<...>` 会让整条基准序列被复制「行数」次，
   直接退化成 O(行数 × 基准长度)。
@@ -33,6 +37,39 @@ quantstats HTML 报告（`VARCHAR`）：
   （每份内嵌十几张 SVG），耗时与内存随分组数线性增长；同理每个分组都会各自持有一份解析好的基准点
   （聚合状态不跨分组共享，这部分省不掉，能省掉的是 DuckDB 层的行展开与扫描）。
 - SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `ReturnSeries::new`。
+
+### 价格/净值路径
+
+`duckfn_quantstats_html_prices` 收的是**价格、净值这类水平值**，不是百分比变化。值列叫 `price` 是照搬
+Python quantstats 的词汇：它把这类输入统称 prices，内部对看起来像价格的序列自动做 `pct_change`。
+**净值（NAV）严格说不是 price**，但 quantstats 也不区分，净值序列照样当 prices 喂 —— 所以这里用同一个键收下，
+不用去想该填哪个。换算规则：
+
+- 组内先按 `date` 排序，再逐点算 `price_t / price_{t-1} - 1`；
+- 每组的第一个点没有前值，丢弃；
+- 前值缺失、为 0 或不是有限数时，该点**跳过**（与「`NULL` 行跳过」同一语义，不报错、也不会往序列里塞
+  `inf`/`NaN`）；跳过只影响它自己，下一个点仍然和它自己的前一个点比；
+- 差分后没有任何有效点时返回 `NULL`（例如整组只有一个点）；
+- 同一分组内同一天只应有一个点，否则差分出来的是那一天内部的变动。
+
+用 SQL 自己写等价物别扭得多：窗口函数**不能**直接写进聚合调用（DuckDB 会报
+`aggregate function calls cannot contain window function calls`），必须先在一个子查询里算好收益率：
+
+```sql
+-- 自己算：多一层子查询，而且窗口的 PARTITION BY / ORDER BY 很容易写漏
+SELECT fund, duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+FROM (
+    SELECT fund, trade_date,
+           nav / lag(nav) OVER (PARTITION BY fund ORDER BY trade_date) - 1.0 AS period_return
+    FROM nav_table
+)
+GROUP BY fund;
+
+-- 用快捷方式：价格/净值直接进去，分区交给 GROUP BY
+SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html
+FROM nav_table
+GROUP BY fund;
+```
 
 ### 为什么基准是一个列表参数
 
@@ -90,6 +127,13 @@ SELECT s.fund,
 FROM strategy_returns s, benchmark
 GROUP BY s.fund;
 
+-- 价格/净值序列：直接用快捷方式，不用自己写 pct_change 窗口
+SELECT fund,
+       duckfn_quantstats_html_prices(
+           trade_date, nav, {'title': 'My Fund'}::duckfn_quantstats_html_options) AS html
+FROM nav_table
+GROUP BY fund;
+
 -- 顺带落盘一份
 SELECT duckfn_quantstats_html(
            trade_date, daily_return,
@@ -128,6 +172,7 @@ GROUP BY fund;
 | 基准参数为 `NULL` | 报错 `the benchmark list must not be NULL` |
 | 基准是空列表，或列表里没有任何有效点 | 报错 `the benchmark list is empty` |
 | 基准列表里有整体为 `NULL` 的元素 | 报错 `cannot read the benchmark list` |
+| `duckfn_quantstats_html_prices`：基准价格点不足两个，差分不出收益率 | 报错 `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output = ''` | 报错 `output must not be an empty string` |
 
@@ -203,7 +248,7 @@ make debug && make test    # make test 不会自动重新构建，改完 Rust �
 
 | 文件 | 覆盖什么 | 额外依赖 |
 | --- | --- | --- |
-| `test/sql/quantstats/html_report.test`、`html_report_benchmark.test` | **行为**：配置解析与默认值、`NULL` 行跳过、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、错误路径 | 无 |
+| `test/sql/quantstats/html_report.test`、`html_report_benchmark.test`、`html_report_prices.test` | **行为**：配置解析与默认值、`NULL` 行跳过、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、价格路径与 `lag()` 差分的结果逐字节一致、错误路径 | 无 |
 | `test/sql/quantstats/html_report_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列 | 社区扩展 `webbed` |
 
 `webbed` 的安装写在测试文件里（`INSTALL webbed FROM community;`），**首次运行需要网络**，之后走本机

@@ -11,25 +11,30 @@ duckfn's skeleton conventions (entry module, `EXTENSION_NAME`, dependency list).
 
 ## Functions
 
-Two aggregate functions, both folding a date-ordered return series into one complete quantstats HTML
-report (`VARCHAR`):
+Two aggregate function names, each with **two overloads** (dispatched by argument count), folding a
+date-ordered series into one complete quantstats HTML report (`VARCHAR`):
 
-| Signature | Description |
-| --- | --- |
-| `duckfn_quantstats_html(date, period_return, options)` | Single-series report; one row per period. |
-| `duckfn_quantstats_html(date, period_return, benchmark, options)` | Benchmark report: the strategy side is aggregated row by row, the benchmark is a **list passed in once**. |
+| Signature | Input | Description |
+| --- | --- | --- |
+| `duckfn_quantstats_html(date, period_return, options)` | return series | Single-series report; one row per period. |
+| `duckfn_quantstats_html(date, period_return, benchmark, options)` | return series | Benchmark report; the benchmark is a **list passed in once**. |
+| `duckfn_quantstats_html_prices(date, price, options)` | price series | Single-series report; returns are derived inside the function. |
+| `duckfn_quantstats_html_prices(date, price, benchmark, options)` | price series | Benchmark report; both sides are prices. |
 
-Both are registered as one function set via `overloads_name`, so they occupy a single SQL name and are
-dispatched by argument count.
+The first pair is registered as one function set via `overloads_name` and the second pair as another, so SQL
+sees exactly two names.
 
 - The options argument always comes **last** (data columns first, options last). It is a **nullable** config
   whose type is the named STRUCT `duckfn_quantstats_html_options`, created at load time; `NULL` means "all
   defaults".
-- `date` is a `DATE` and `period_return` is the return per period (`DOUBLE`). A row whose `date` or
-  `period_return` is `NULL` is **skipped entirely**, like any other SQL aggregate.
-- `benchmark` is `STRUCT(date DATE, period_return DOUBLE)[]`. A `NULL` benchmark, an empty one, or one without
-  a single valid point is an **error** — that overload exists for the benchmark case, so a single-series
-  report should simply omit the argument.
+- `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and `price` is that day's price or
+  NAV (`DOUBLE`). A row whose `date` or value is `NULL` is **skipped entirely**, like any other SQL
+  aggregate.
+- `benchmark` is `STRUCT(date DATE, <value field> DOUBLE)[]` (`period_return` or `price`). A `NULL` benchmark,
+  an empty one, or one without a single valid point is an **error** — that overload exists for the benchmark
+  case, so a single-series report should simply omit the argument.
+- The price branch **needs its own name**: `(date, price, options)` and `(date, period_return, options)` have
+  exactly the same type sequence (`DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
 - Both `options` and `benchmark` are read through `DuckLazy`: every row only builds an O(1) token, and the
   single real parse happens on the **first row of each group**. This is not a nicety — duckfn's adapter reads
   arguments per row, so a bare `Vec<...>` would copy the whole benchmark series once per row, degrading to
@@ -40,6 +45,42 @@ dispatched by argument count.
   every group also holds its own parsed copy of the benchmark points (aggregate states are not shared across
   groups, so that part cannot be avoided — what this design removes is DuckDB's row expansion and scanning).
 - No `ORDER BY` is needed: the aggregate only concatenates and lets `ReturnSeries::new` sort by date.
+
+### Price (or NAV) series
+
+`duckfn_quantstats_html_prices` takes **prices** — NAVs count too — not percentage changes. The value column
+is called `price`, borrowing Python quantstats' vocabulary: it lumps this kind of input under "prices" and
+runs `pct_change` on anything that looks like a price series. **A NAV is not strictly a price**, but
+quantstats does not distinguish either, so one key takes in all of these level values and users never have to
+wonder which one to fill. The conversion rules:
+
+- the points of a group are sorted by `date`, then each becomes `price_t / price_{t-1} - 1`;
+- the first point of a group has no predecessor and is dropped;
+- a point whose predecessor is missing, zero or not finite is **skipped** (the same "skip it" semantics as a
+  NULL row: no error and no `inf`/`NaN` inside the series); skipping affects only that point, the next one is
+  still compared with its own predecessor;
+- if nothing survives the differencing the result is `NULL` (e.g. a group with a single point);
+- a group should hold one point per date, otherwise the difference describes the movement within that date.
+
+Writing the equivalent in SQL is noticeably clumsier: a window function **cannot** appear inside an aggregate
+call (DuckDB reports `aggregate function calls cannot contain window function calls`), so the returns have to
+be computed in a subquery first:
+
+```sql
+-- By hand: an extra subquery, and it is easy to get PARTITION BY / ORDER BY wrong
+SELECT fund, duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+FROM (
+    SELECT fund, trade_date,
+           nav / lag(nav) OVER (PARTITION BY fund ORDER BY trade_date) - 1.0 AS period_return
+    FROM nav_table
+)
+GROUP BY fund;
+
+-- With the shortcut: prices go straight in, grouping is plain GROUP BY
+SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html
+FROM nav_table
+GROUP BY fund;
+```
 
 ### Why the benchmark is a list argument
 
@@ -100,6 +141,13 @@ SELECT s.fund,
 FROM strategy_returns s, benchmark
 GROUP BY s.fund;
 
+-- A price (or NAV) series: the shortcut saves writing the pct_change window
+SELECT fund,
+       duckfn_quantstats_html_prices(
+           trade_date, nav, {'title': 'My Fund'}::duckfn_quantstats_html_options) AS html
+FROM nav_table
+GROUP BY fund;
+
 -- Also write the report to a file
 SELECT duckfn_quantstats_html(
            trade_date, daily_return,
@@ -139,6 +187,7 @@ GROUP BY fund;
 | The benchmark argument is `NULL` | Error `the benchmark list must not be NULL` |
 | The benchmark is an empty list, or holds no valid point | Error `the benchmark list is empty` |
 | The benchmark list contains a whole-NULL element | Error `cannot read the benchmark list` |
+| `duckfn_quantstats_html_prices`: fewer than two benchmark prices, so no return can be derived | Error `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output = ''` | Error `output must not be an empty string` |
 
@@ -219,7 +268,7 @@ They come in two kinds, and the split is deliberate:
 
 | File | Covers | Extra dependency |
 | --- | --- | --- |
-| `test/sql/quantstats/html_report.test`, `html_report_benchmark.test` | **Behaviour**: option parsing and defaults, `NULL` rows skipped, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), error paths | none |
+| `test/sql/quantstats/html_report.test`, `html_report_benchmark.test`, `html_report_prices.test` | **Behaviour**: option parsing and defaults, `NULL` rows skipped, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), the price path byte-identical to `lag()`-derived returns, error paths | none |
 | `test/sql/quantstats/html_report_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts and the extra benchmark column | the `webbed` community extension |
 
 `webbed` is installed from inside the test file (`INSTALL webbed FROM community;`), which needs **network on the
