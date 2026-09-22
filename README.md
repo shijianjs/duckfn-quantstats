@@ -291,6 +291,64 @@ SELECT ...;
 "
 ```
 
+## Quick start on real data
+
+`demo/prices.csv` is a fixed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):
+1435 trading days each, 2021-01-04 … 2026-09-21, one calendar shared by all three. It is a long table
+(`date`, `symbol`, `price`) committed on purpose, so that the following can be copied and run as-is;
+`read_csv` fetches it over HTTP (DuckDB 1.5 reads `https://` URLs by itself — no `httpfs`, no API key):
+
+```sql
+LOAD './target/debug/duckfn_quantstats.duckdb_extension';
+
+CREATE TABLE prices AS
+SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
+-- unavailable (mainland China, for instance)? the same file is mirrored by jsDelivr:
+--   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
+-- cloned the repo? then simply read_csv('demo/prices.csv')
+```
+
+```sql
+-- One report per symbol: the price overload differences the prices itself
+SELECT symbol,
+       qs_html_report_by_prices(date, price, {'title': symbol, 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices
+GROUP BY symbol;
+
+-- Microsoft against the index: the benchmark enters as a list of price points
+WITH benchmark AS (
+    SELECT list({'date': date, 'price': price}) AS series FROM prices WHERE symbol = 'SPX'
+)
+SELECT qs_html_report_by_prices(
+           p.date, p.price, b.series,
+           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices p, benchmark b
+WHERE p.symbol = 'MSFT';
+
+-- Already have returns? The other overload; the pct_change has to sit in a subquery
+SELECT qs_html_report(date, period_return, {'title': 'Microsoft', 'rf': 0.04}::qs_html_report_options)
+FROM (SELECT date, price / lag(price) OVER (ORDER BY date) - 1.0 AS period_return
+      FROM prices WHERE symbol = 'MSFT');
+
+-- Write it out instead of reading HTML off the terminal (the directory must already exist)
+SELECT qs_html_report_by_prices(date, price,
+           {'title': 'Microsoft', 'output': 'msft.html'}::qs_html_report_options)
+FROM prices WHERE symbol = 'MSFT';
+```
+
+A report is a few hundred KB of HTML (a dozen inline SVGs), so in a terminal `output` is the friendlier
+route: write the file, then open it in a browser.
+
+**Why a snapshot and not a live URL.** When this was written there was no free, key-less *and* stable HTTP
+endpoint for the daily closes of individual tickers: stooq puts a JavaScript challenge in front of its CSV
+download, Yahoo's endpoint answers with region redirects, and EODHD's public `demo` token dies on quota
+after a handful of requests. FRED does export the index as CSV
+(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500`), but it rejects the `HEAD` probe `read_csv`
+sends first, so that one cannot be read directly either. `demo/prices.csv` is therefore a snapshot taken
+on 2026-09-22 — the index from that FRED CSV, the stocks from Nasdaq's public quote API
+(`https://api.nasdaq.com/api/quote/MSFT/historical?assetclass=stocks&fromdate=2021-01-01&todate=2026-09-21&limit=2000`),
+close prices as served.
+
 ## Testing
 
 Tests are written in the SQLLogicTest format under `test/sql/`:

@@ -265,6 +265,61 @@ SELECT ...;
 "
 ```
 
+## 用真实数据跑一遍
+
+`demo/prices.csv` 是一份固定快照：`GOOGL`、`MSFT` 与标普 500 指数（`SPX`）的日收盘价，各 1435 个
+交易日，区间 2021-01-04 … 2026-09-21，三者的交易日历完全一致。它是一张长表（`date`、`symbol`、
+`price`），提交进仓库就是为了下面这些 SQL 可以原样复制运行 —— `read_csv` 自己走 HTTP 取回
+（DuckDB 1.5 自带 `https://` 读取，不需要 `httpfs`，也不需要 API key）：
+
+```sql
+LOAD './target/debug/duckfn_quantstats.duckdb_extension';
+
+CREATE TABLE prices AS
+SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
+-- 拉不动（比如国内网络）？同一个文件有 jsDelivr 镜像：
+--   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
+-- 已经 clone 了仓库？直接 read_csv('demo/prices.csv')
+```
+
+```sql
+-- 每个标的出一份报告：价格这一支自己内部差分收益率
+SELECT symbol,
+       qs_html_report_by_prices(date, price, {'title': symbol, 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices
+GROUP BY symbol;
+
+-- 微软对指数：基准以「价格点列表」的形式一次性传入
+WITH benchmark AS (
+    SELECT list({'date': date, 'price': price}) AS series FROM prices WHERE symbol = 'SPX'
+)
+SELECT qs_html_report_by_prices(
+           p.date, p.price, b.series,
+           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices p, benchmark b
+WHERE p.symbol = 'MSFT';
+
+-- 手上已经是收益率？走另一个重载；pct_change 得放在子查询里
+SELECT qs_html_report(date, period_return, {'title': 'Microsoft', 'rf': 0.04}::qs_html_report_options)
+FROM (SELECT date, price / lag(price) OVER (ORDER BY date) - 1.0 AS period_return
+      FROM prices WHERE symbol = 'MSFT');
+
+-- 想落盘而不是在终端里看一坨 HTML（目录必须已存在）
+SELECT qs_html_report_by_prices(date, price,
+           {'title': 'Microsoft', 'output': 'msft.html'}::qs_html_report_options)
+FROM prices WHERE symbol = 'MSFT';
+```
+
+一份报告是几百 KB 的 HTML（内嵌十几张 SVG），所以终端里更适合让 `output` 落盘，再用浏览器打开。
+
+**为什么是快照、而不是实时 URL。** 写这份文档时，个股日线没有「免费 + 免 key + 稳定」的 HTTP 端点：
+stooq 的 CSV 下载被套上了 JavaScript 校验，Yahoo 的接口回的是地区跳转页，EODHD 的公开 `demo` token
+几次请求就用完配额。FRED 确实提供指数的 CSV（`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500`），
+但它会拒绝 `read_csv` 先发的那个 `HEAD` 探测，所以也读不了。于是 `demo/prices.csv` 取的是 2026-09-22 的
+快照 —— 指数来自上面那份 FRED CSV，两只个股来自 Nasdaq 的公开行情接口
+（`https://api.nasdaq.com/api/quote/MSFT/historical?assetclass=stocks&fromdate=2021-01-01&todate=2026-09-21&limit=2000`），
+价格为接口给出的收盘价。
+
 ## 测试
 
 测试用 SQLLogicTest 格式写在 `test/sql/` 下：
