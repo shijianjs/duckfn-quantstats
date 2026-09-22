@@ -23,18 +23,17 @@ src/extension/mod.rs  ->  duckfn_entrypoint!("duckfn_quantstats");
 
 src/extension/functions/mod.rs  ->  mod aggregate_html;
 src/extension/functions/aggregate_html/
-    mod.rs            the two SQL names / four overloads, and the mod list
-    html_returns.rs   qs_html_report            (single series, with a benchmark)
-    html_prices.rs    qs_html_report_by_prices  (single series, with a benchmark)
-    kind.rs           one branch's SQL-side names: the macro-generated `SQL_NAME` plus the value field
+    mod.rs            the two SQL names / one signature each, and the mod list
+    html_returns.rs   qs_html_reports            (the return branch)
+    html_prices.rs    qs_html_reports_by_prices  (the price/NAV branch, differenced in the tail)
+    kind.rs           one path's SQL-side name: the macro-generated `SQL_NAME`
     series.rs         the internal point type, series building, price differencing
-    slots.rs          the argument slots: how DuckLazySlot is used, plus the benchmark errors/normalisation
-    report.rs         the tail: points -> ReturnSeries -> HTML, persistence, opening the browser
+    slots.rs          the argument slots: the symbol table plus "parse each symbol's options once"
+    report.rs         the tail: render one report per symbol, persist, open the browser, fill the paths in
     browser.rs        opening in the system default browser (the whole feature is ignored on wasm)
 src/extension/types/
     html_report_options.rs  the named STRUCT type `qs_html_report_options`
-    return_point.rs         one point of the return-side benchmark list
-    price_point.rs          one point of the price-side benchmark list
+    html_report.rs          the result row type `QuantstatsHtmlReport` (no named type registered)
 ```
 
 The extension name `duckfn_quantstats` must match `EXTENSION_NAME` in the `Makefile` and the artifact file
@@ -44,67 +43,91 @@ following duckfn's module layout.
 
 ## Design notes
 
-### Two SQL names, four overloads
+### Two SQL names, one signature each
 
-Each name carries two signatures that differ only by the `benchmark` argument, so `overloads_name`
-registers each pair as **one function set**, dispatched by argument count
-(`register_all_aggregate_overload` groups by name and every overload keeps its own parameter list and
-return type). SQL therefore sees exactly two names, and the argument order is always "data columns first,
-options last".
+The `symbol` column is the grouping key, so there is **no `GROUP BY` in SQL**: the function groups inside
+the aggregate state itself (see "the symbol table" below) and a single call produces the whole set of
+reports. Each name therefore has exactly one signature, with the argument order fixed to "data columns first
+(`symbol`, `date`, value), options last".
 
-The price branch **needs its own name**: `(date, price, options)` and `(date, period_return, options)` have
-exactly the same type sequence (`DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
+The price branch **needs its own name**: `(symbol, date, price, options)` and
+`(symbol, date, period_return, options)` have exactly the same type sequence
+(`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
 
 The registered name is never written by hand: the attribute macro generates a `SQL_NAME` constant per
-signature (the function-set name when `overloads_name` is set), and error prefixes read it — `kind.rs`
-points at it instead of repeating the literal. The price of that is that such functions have to be
+signature (the function name itself, now that there is a single signature), and error prefixes read it —
+`kind.rs` points at it instead of repeating the literal. The price of that is that such functions have to be
 `pub(super)`, because the generated module inherits the function's visibility.
 
-### The argument slots are lazy
+### The symbol table: the function does its own grouping
 
-Both `options` and `benchmark` are read through `DuckLazy`: every row only builds an O(1) token, and the
-single real parse happens on the **first row of each group**. This is not a nicety — duckfn's adapter reads
-arguments per row, so a bare `Vec<...>` would copy the whole benchmark series once per row, degrading to
-O(rows × benchmark length). The parsed values are cached in the aggregate state through duckfn's
-`DuckLazySlot`, which exists for exactly this shape: a `DuckLazy` token is only valid inside the callback
-that produced it, so the state can hold the parse result and nothing else.
+The aggregate state is not "one point array" but a `HashMap<String, SymbolSlot>`, one slot per symbol: that
+symbol's points plus that symbol's copy of the options. Three things come out of that:
 
-### One report per group
+- **the caller writes no `GROUP BY`** — one `SELECT` yields the whole set of reports;
+- **the benchmark is in the same state** — it is another symbol of the table, so it is right there to pair up
+  (see below);
+- **the options' granularity drops to the symbol** — reports are per instrument (each with its own title,
+  display name and output path), so the options are too.
 
-The report is rendered in `result()`, i.e. **once per group**. `GROUP BY` over 100 instruments renders 100
-full reports (each with a dozen inline SVGs); time and memory grow linearly with the number of groups, and
-every group also holds its own parsed copy of the benchmark points (aggregate states are not shared across
-groups, so that part cannot be avoided — what this design removes is DuckDB's row expansion and scanning).
+The price is an aggregate state holding the whole table's points (the same order as one point array per
+group), while the number of reports rendered in `result()` is still the number of instruments.
 
-No `ORDER BY` is needed: the aggregate only concatenates and lets `ReturnSeries::new` sort by date.
+### The argument slots: options are lazy per symbol
 
-### Why the benchmark is a list argument
+`options` is read through `DuckLazy`: every row only builds an O(1) token, and the single real parse happens
+the **first time a symbol appears** (once the table holds it, later rows merely append a point). This is not
+a nicety — duckfn's adapter reads arguments per row, so parsing the struct on every row would be O(rows)
+parses, whereas parses = number of symbols is what this API should cost.
 
-Representing the benchmark as rows of the same long table would force the benchmark rows to appear once per
-group: 100 instruments × 1000 days = 100k rows materialised and scanned, while the benchmark itself is only
-1000 rows — plus a "which label is the benchmark" config key. With a list passed in once, the benchmark is
-written once and evaluated once, and the strategy side still gets its grouping from `GROUP BY`.
+The parse result is cached in the slot through duckfn's `DuckLazySlot`: a `DuckLazy` token is only valid
+inside the callback that produced it, so the state can hold the parse result and nothing else. "Is this the
+symbol's first row?" needs no extra flag — the key of the table *is* that marker, because only the path that
+inserts a fresh slot reads the options column.
 
-The price is that the list has to be aggregated in a subquery first: `list(...)` is itself an aggregate and
-**cannot be inlined into an aggregate call** (DuckDB reports `aggregate function calls cannot be nested`), so
-it must be reduced to a single row and then cross-joined in.
+### One report per symbol
 
-### The benchmark point type registers no named type
+The report is rendered in `result()`, one per instrument per call. 100 instruments render 100 full reports
+(each with a dozen inline SVGs), so time and memory grow linearly with the number of instruments — the same
+order as the old "one report per `GROUP BY` group", only with the grouping moved from SQL into the function.
+The result order is settled in `result()` by sorting on the symbol; it does not follow HashMap iteration or
+DuckDB's merge order.
 
-`return_point.rs` / `price_point.rs` deliberately leave `create_type` off: the anonymous
-`STRUCT(date DATE, period_return DOUBLE)[]` produced by `list({'date': ..., 'period_return': ...})` has
-exactly the same field names, order and types, so it matches directly — the caller writes no cast, and the
-SQL surface only gains one type (the options one). Verified: without `create_type`,
-`#[derive(DuckStruct)]` submits no registration item.
+No `ORDER BY` is needed: the aggregate only concatenates and lets `ReturnSeries::new` sort by date (the price
+branch sorts by date first, to difference).
 
-The field names are fixed to `date` / `period_return` (`price` on the price side): duckfn's `DuckStruct`
-derive has no field-level renaming, the SQL field name is the Rust field name verbatim. They also avoid SQL
-keywords — `return` renders fine but `returns` and `value` get quoted by DuckDB, while `period_return` never
-needs quotes.
+### Why the benchmark is a symbol in the table
 
-The fields are `Option<...>` so that an element missing its date or its value reads as `None` and the
-aggregate skips it — the same semantics as the strategy side, where a row with a NULL `date` or value is
-skipped entirely. `Option<T>` has the same logical type as `T`, so the type shape is unchanged.
+The benchmark is already in the same long table (it is a symbol like any other), so naming it in the
+`benchmark` option and letting the function look it up is the shortest path: one `SELECT`, no `GROUP BY`, no
+`cross join`, and with/without a benchmark differs by a single key.
+
+The earlier design passed the benchmark in as a **list argument** (`list(...)` plus `cross join` plus
+`GROUP BY`, a three-step dance). It did evaluate the benchmark exactly once, but the price was a "with a
+benchmark" case that — the norm rather than the exception — needed an extra argument, an extra overload and
+two extra SQL steps. With the benchmark being a symbol, the "N strategies × M benchmarks" cartesian product
+also stays out of the API: whoever wants it groups/filters and calls again.
+
+The symbol named as the benchmark is **input only and gets no report**; its series is converted once
+(differenced first, on the price branch) and shared by every instrument. The `benchmark` option additionally
+has to agree across the whole call — otherwise "which one is the benchmark" would have no single answer, so a
+disagreement is an error.
+
+### The result row type registers no named type
+
+`QuantstatsHtmlReport` in `html_report.rs` deliberately leaves `create_type` off: the aggregate's return type
+already carries the full anonymous `STRUCT(symbol VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path
+VARCHAR)[]`, so SQL can read it by field name (`unnest` / `list_transform` / `[1].html`) — a type name on top
+would only add another surface to maintain.
+
+The field names are the Rust field names verbatim (duckfn's `DuckStruct` derive has no field-level renaming)
+and none of the four is an SQL keyword, so DuckDB renders `typeof` without quotes. `file_path` is the only
+`Option<String>`: it is NULL when nothing was written, while the other three are always there.
+
+The same type doubles as `DuckAggregateState::Output = Vec<QuantstatsHtmlReport>` — duckfn's list write path
+(`create_writer_batch` / `write_valid` / `write_finish` in `duck_list.rs`) attaches a child writer and the
+elements go into the child vector through the write path `#[derive(DuckStruct)]` generates, so "an aggregate
+returning an array of structs" needs no extra machinery at all.
 
 ### The options type
 
@@ -116,13 +139,23 @@ Every field is an `Option<T>` on purpose: DuckDB fills the missing keys of a str
 duckfn turns the **whole struct** into NULL when a non-Option field reads NULL — so a user's `{'rf': 0.1}`
 would silently fall back to all defaults and their `rf` would be dropped.
 
-`to_report_options()` converts by starting from quantstats-rs' `HtmlReportOptions::default()` and overriding
-only the fields the user actually wrote, so the defaults have a single source of truth. `output` is
-deliberately not forwarded: quantstats-rs writes with `std::fs`, while this extension wants DuckDB's VFS
-(see below) — the path is handled by `report.rs` after the report has been rendered.
+`to_report_options(symbol, benchmark)` converts by starting from quantstats-rs'
+`HtmlReportOptions::default()` and overriding only the fields the user actually wrote, so the defaults have a
+single source of truth. The two arguments only serve the display-name fallbacks: `strategy_title` falls back
+to the symbol and `benchmark_title` to the benchmark symbol (one rule each, in `strategy_title_or` /
+`benchmark_title_or`). That is not cosmetics — with dozens of reports out of one call, the default
+`'Strategy'` is identical for every one of them, so the legend, the temporary file name and the returned
+display name would all lose their distinguishing power.
 
-`periods_per_year = 0` and `output = ''` are configuration errors and are reported here rather than turning
-into a broken file-system call later.
+`output` is deliberately not forwarded: quantstats-rs writes with `std::fs`, while this extension wants
+DuckDB's VFS (see below) — the path is handled by `report.rs` after the report has been rendered.
+
+The options are a **per-row column**, and each symbol uses the copy from its first row (see "the symbol
+table"); `benchmark` additionally has to agree across the whole call, which `benchmark_symbol()` in
+`report.rs` enforces.
+
+`periods_per_year = 0`, `output = ''` and `benchmark = ''` are configuration errors and are reported here
+rather than turning into a broken file-system call or a puzzling "the benchmark symbol has no rows" later.
 
 ## Persisting the report
 
@@ -141,6 +174,13 @@ something longer. That is duckfn's job — DuckDB's C API has no truncate (`DUCK
 `duck_vfs` layer zeroes a longer file before writing; this extension just calls `duck_vfs::write_string`.
 `read_text()` therefore returns exactly what the function returned — the test suite pins that with `md5`,
 including the "existing file is longer" case.
+
+Each symbol has its own `output` (the options are per row), so one call may write several files. The tail in
+`report.rs` runs in two passes: it first settles every instrument's `ReportTarget` (validating `output` and
+`open_in_browser` on the way) and **reports an error if two instruments write to the same path** (a silent
+overwrite is the hardest kind of "success" to debug), and only then renders, writes and opens each one,
+filling the path that was actually written into the result row. Paths are compared verbatim, with no
+normalisation — `a/../b.html` and `b.html` count as two paths.
 
 ## Opening the report in a browser
 
@@ -170,8 +210,8 @@ with the file. On Windows that is a single `ShellExecute` call (the `shellexecut
 than the crate's PowerShell-based default); on macOS and elsewhere it is `open` / `xdg-open` plus the crate's
 fallback list. The only failure reported is the launcher itself not starting.
 
-The option is meant for a single report. Under `GROUP BY` every group is opened in turn — and, without
-`output`, each group gets its own temporary file, so at least nothing overwrites anything.
+One call opens one tab per instrument — and, without `output`, each instrument gets its own temporary file,
+so at least nothing overwrites anything.
 
 ## WebAssembly
 
@@ -198,7 +238,7 @@ compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
   (`duckfn::duck_vfs`) used by `output`, and `chrono`, which converts the time wrapper types
   (`DuckDate::to_naive_date` and friends). The macros also generate a `SQL_NAME` constant per signature —
   the name the function is really registered under — so error prefixes read that instead of a hand-written
-  copy of the `overloads_name` literal.
+  copy of the function-name literal.
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension` enabled —
@@ -207,7 +247,7 @@ compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
   client-context / file-system part of the C API is 1.5-only.
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes only
   `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is unreachable),
-  so both overloads are built on it instead of recomputing metrics — that would create a second source of
+  so both paths are built on it instead of recomputing metrics — that would create a second source of
   truth for numbers the report already prints.
 - [chrono](https://crates.io/crates/chrono): used directly for **local time** — the temporary file name
   `open_in_browser` builds starts with a `%Y%m%d-%H%M%S` stamp (`chrono::Local`). The date side is duckfn's
@@ -254,8 +294,10 @@ They come in two kinds, and the split is deliberate:
 
 | File | Covers | Extra dependency |
 | --- | --- | --- |
-| `test/sql/quantstats/html_report.test`, `html_report_benchmark.test`, `html_report_prices.test` | **Behaviour**: option parsing and defaults, `NULL` rows skipped, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), the price path byte-identical to `lag()`-derived returns, error paths | none |
-| `test/sql/quantstats/html_report_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts and the extra benchmark column | the `webbed` community extension |
+| `test/sql/quantstats/html_reports.test` | **Return-path behaviour**: the registration surface (two names, one signature each), the result shape and its symbol ordering, display names falling back to the symbol, `NULL` rows skipped and instruments dropped with them, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), per-symbol options and `output` persistence (path filled in, replace, NUL path) | none |
+| `test/sql/quantstats/html_reports_by_prices.test` | **Price-path behaviour**: byte-identical to `lag()`-derived returns, the benchmark side differenced too, points with a zero predecessor skipped, single-point instruments dropped, benchmark symbol missing / too few points | none |
+| `test/sql/quantstats/html_reports_errors.test` | **Error paths**: benchmark symbol missing, benchmark disagreeing across symbols, `benchmark = ''`, two instruments writing to one `output`, `periods_per_year = 0`, `output = ''`, a NUL path, `open_in_browser` with a non-local path, an uncast options literal, the old API being gone | none |
+| `test/sql/quantstats/html_reports_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts, the extra benchmark column, and each symbol's own title and written path | the `webbed` community extension |
 
 `webbed` is installed from inside the test file (`INSTALL webbed FROM community;`), which needs **network on the
 first run** and then goes through the local DuckDB extension cache. Delete that file if you do not want the

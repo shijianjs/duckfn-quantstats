@@ -31,7 +31,7 @@ crate-type = ["staticlib"]
 #     所以 `output` 落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs；
 #   - `chrono` feature：时间包装类型与 chrono 的双向转换（`DuckDate::to_naive_date`、`from_naive_date`
 #     等），越界（含 `DATE 'infinity'`）返回错误而不是 panic，单位换算由方法负责；
-#   - 属性宏生成的 `SQL_NAME` 常量：注册进 DuckDB 时真正的函数名（设了 `overloads_name` 就是函数集名）。
+#   - 属性宏生成的 `SQL_NAME` 常量：注册进 DuckDB 时真正的函数名（单签名时就是 Rust 函数名）。
 #     错误信息前缀因此不必手写第二份字面量，而是从 `kind.rs` 指过去。
 #
 # Since 0.0.8 duckfn provides everything this project uses:
@@ -44,8 +44,8 @@ crate-type = ["staticlib"]
 #     (`DuckDate::to_naive_date`, `from_naive_date`, …), where out-of-range values (including
 #     `DATE 'infinity'`) are errors rather than panics and the unit conversion is the method's job;
 #   - the `SQL_NAME` constant each attribute macro generates: the name the function is really
-#     registered under (the function-set name when `overloads_name` is set). Error prefixes therefore
-#     read that constant — `kind.rs` points at it — instead of repeating the literal.
+#     registered under (the Rust function name, since each name carries one signature). Error prefixes
+#     therefore read that constant — `kind.rs` points at it — instead of repeating the literal.
 duckfn = { version = "0.0.8", features = ["duckdb-1-5", "chrono"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。

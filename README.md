@@ -3,8 +3,10 @@
 # duckfn_quantstats
 
 A DuckDB extension (loadable extension) that wraps
-[quantstats-rs](https://crates.io/crates/quantstats-rs): it folds a date-ordered series, grouped by your own
-`GROUP BY`, into one complete quantstats HTML report per group — straight from SQL.
+[quantstats-rs](https://crates.io/crates/quantstats-rs): hand it one date-ordered long table and it groups it by
+`symbol` internally, produces **one complete quantstats HTML report per instrument**, and returns those reports
+— together with each one's display name and the path it was actually written to — as **a single list**. All in
+SQL.
 
 **Requires DuckDB 1.5 or newer.** The host file system used to write the report (`output`) only reached
 DuckDB's C API in 1.5, so there is no 1.4 compatibility path; the extension is built and tested against
@@ -32,79 +34,110 @@ SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quant
 ```
 
 ```sql
--- 1. One report: written to a file, then opened in your browser
-SELECT qs_html_report_by_prices(date, price,
-           {'title': 'Microsoft', 'output': 'msft.html', 'open_in_browser': true}::qs_html_report_options)
-FROM prices WHERE symbol = 'MSFT';
+-- 1. The whole table in one call: one report per instrument, each written to its own file,
+--    with the paths coming back in the result
+SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'title': symbol,
+                'strategy_title': symbol,
+                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM prices
+);
 
--- 2. Against the index: the benchmark enters as a list of points
-WITH benchmark AS (
-    SELECT list({'date': date, 'price': price}) AS series FROM prices WHERE symbol = 'SPX'
-)
-SELECT qs_html_report_by_prices(
-           p.date, p.price, b.series,
-           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04, 'open_in_browser': true}::qs_html_report_options) AS html
-FROM prices p, benchmark b
-WHERE p.symbol = 'MSFT';
+-- 2. With a benchmark: SPX is just another symbol in the table (name it in the options),
+--    and it gets no report of its own
+SELECT (r).symbol, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': 'SPX',
+                'benchmark_title': 'S&P 500',
+                'title': symbol,
+                'strategy_title': symbol,
+                'rf': 0.04,
+                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM prices
+);
 
 -- 3. Already have returns? The other function; the pct_change has to sit in a subquery
-SELECT qs_html_report(date, period_return, {'title': 'Microsoft', 'rf': 0.04}::qs_html_report_options)
-FROM (SELECT date, price / lag(price) OVER (ORDER BY date) - 1.0 AS period_return
-      FROM prices WHERE symbol = 'MSFT');
-
--- 4. One report per symbol
-SELECT symbol,
-       qs_html_report_by_prices(date, price, {'title': symbol, 'rf': 0.04}::qs_html_report_options) AS html
-FROM prices
-GROUP BY symbol;
+SELECT (r).symbol, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports(
+               symbol, date, period_return,
+               {'benchmark': 'SPX'}::qs_html_report_options)) AS r
+    FROM (SELECT symbol, date,
+                 price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
+          FROM prices)
+);
 ```
 
-A report is a few hundred KB of HTML (a dozen inline SVGs) and query 4 prints one per symbol, so in a
-terminal `output` — or `open_in_browser` — is the friendlier route.
+A report is a few hundred KB of HTML (a dozen inline SVGs) and `unnest(...)` spreads them into rows, so in a
+terminal `output` (write to a file) or `open_in_browser` (open it) is the friendlier route. When all you want
+is the list of reports, `list_transform` picks just the fields you need:
+
+```sql
+-- The report list: symbol and written path only
+SELECT list_transform(
+           qs_html_reports_by_prices(symbol, date, price,
+               {'benchmark': 'SPX', 'output': 'report-' || symbol || '.html'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+FROM prices;
+```
 
 ## Functions
 
-Two aggregate function names, each with **two overloads** (dispatched by argument count), folding a
-date-ordered series into one complete quantstats HTML report (`VARCHAR`):
+Two aggregate function names, **one signature each**, folding one long table into a whole set of reports:
 
-| Signature | Input | Description |
+| Signature | Input | Returns |
 | --- | --- | --- |
-| `qs_html_report(date, period_return, options)` | return series | Single-series report; one row per period. |
-| `qs_html_report(date, period_return, benchmark, options)` | return series | Benchmark report; the benchmark is a **list passed in once**. |
-| `qs_html_report_by_prices(date, price, options)` | price series | Single-series report; returns are derived inside the function. |
-| `qs_html_report_by_prices(date, price, benchmark, options)` | price series | Benchmark report; both sides are prices. |
+| `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, strategy_title, html, file_path)[]` |
+| `qs_html_reports_by_prices(symbol, date, price, options)` | price/NAV series | the same; returns are derived inside the function |
 
-SQL sees exactly two names (the two overloads of each are one function set):
+The essentials:
 
-- The options argument always comes **last** (data columns first, options last). It is a **nullable** config
-  whose type is the named STRUCT `qs_html_report_options`, created at load time; `NULL` means "all
-  defaults".
-- `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and `price` is that day's price or
-  NAV (`DOUBLE`). A row whose `date` or value is `NULL` is **skipped entirely**, like any other SQL
-  aggregate.
-- `benchmark` is `STRUCT(date DATE, <value field> DOUBLE)[]` (`period_return` or `price`). A `NULL` benchmark,
-  an empty one, or one without a single valid point is an **error** — that overload exists for the benchmark
-  case, so a single-series report should simply omit the argument.
-- A group without any valid row returns `NULL` (not an empty string, not an error).
-- **One report per group.** `GROUP BY` over 100 instruments renders 100 full reports (each with a dozen
-  inline SVGs), so time and memory grow linearly with the number of groups.
-- No `ORDER BY` is needed: the aggregate only concatenates and lets the report sort by date.
+- **One call produces the whole set of reports.** There is **no `GROUP BY`** in SQL: the `symbol` column is
+  the grouping key, the function splits by it internally and renders one full report per symbol. A hundred
+  instruments mean a hundred full reports (each with a dozen inline SVGs), so time and memory grow linearly
+  with the number of instruments — that is expected, not a performance bug.
+- **The result is a list**, each element being `{symbol, strategy_title, html, file_path}`: `unnest(...)`
+  spreads it into rows, `list_transform(...)` picks fields, or `(qs_html_reports(...))[1].html` grabs one
+  report directly.
+- **The order is ascending by `symbol`**, independent of input order and thread count.
+- **The benchmark is an ordinary symbol in the table**: put its name in the `benchmark` option (**a single
+  name**, not a list) and that symbol's data becomes the benchmark while **it does not appear in the result**
+  (one benchmark among 100 instruments → 99 rows back). Wanting a different benchmark per instrument, or a
+  report for the benchmark itself, is expressed by filtering and calling again.
+- `symbol` is a `VARCHAR`, `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and `price`
+  is that day's price or NAV (`DOUBLE`). A row whose value is `NULL` in any of the four is **skipped
+  entirely** (an empty-string `symbol` too), like any other SQL aggregate.
+- The options argument always comes **last** and is **required** — pass `NULL` when you need no options. It is
+  a **nullable** config whose type is the named STRUCT `qs_html_report_options`, created at load time.
+- The options are **evaluated per row** (see [Config fields](#config-fields)), which is exactly how "each
+  instrument gets its own title, display name and output path" works: build the struct out of the `symbol`
+  column, e.g. `{'title': symbol, 'output': 'report-' || symbol || '.html'}`.
+- **No `ORDER BY` is needed**: the aggregate only concatenates and lets the report sort by date.
+- Why two names: `(symbol, date, price, options)` and `(symbol, date, period_return, options)` have exactly
+  the same type sequence (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
 
 ## Price (or NAV) series
 
-`qs_html_report_by_prices` takes **prices** — NAVs count too — not percentage changes. The value column
+`qs_html_reports_by_prices` takes **prices** — NAVs count too — not percentage changes. The value column
 is called `price`, borrowing Python quantstats' vocabulary: it lumps this kind of input under "prices" and
 runs `pct_change` on anything that looks like a price series. **A NAV is not strictly a price**, but
 quantstats does not distinguish either, so one key takes in all of these level values and users never have to
 wonder which one to fill. The conversion rules:
 
-- the points of a group are sorted by `date`, then each becomes `price_t / price_{t-1} - 1`;
-- the first point of a group has no predecessor and is dropped;
+- the points of each symbol are sorted by `date`, then each becomes `price_t / price_{t-1} - 1`;
+- the first point of a symbol has no predecessor and is dropped;
 - a point whose predecessor is missing, zero or not finite is **skipped** (the same "skip it" semantics as a
   NULL row: no error and no `inf`/`NaN` inside the series); skipping affects only that point, the next one is
   still compared with its own predecessor;
-- if nothing survives the differencing the result is `NULL` (e.g. a group with a single point);
-- a group should hold one point per date, otherwise the difference describes the movement within that date.
+- an instrument with nothing left after the differencing simply **does not appear in the result**;
+- the benchmark side goes through the same differing, except that an empty result is an **error** there (the
+  benchmark was explicitly configured);
+- a symbol should hold one point per date, otherwise the difference describes the movement within that date.
 
 Writing the equivalent in SQL is noticeably clumsier: a window function **cannot** appear inside an aggregate
 call (DuckDB reports `aggregate function calls cannot contain window function calls`), so the returns have to
@@ -112,18 +145,14 @@ be computed in a subquery first:
 
 ```sql
 -- By hand: an extra subquery, and it is easy to get PARTITION BY / ORDER BY wrong
-SELECT fund, qs_html_report(trade_date, period_return, NULL) AS html
-FROM (
-    SELECT fund, trade_date,
-           nav / lag(nav) OVER (PARTITION BY fund ORDER BY trade_date) - 1.0 AS period_return
-    FROM nav_table
-)
-GROUP BY fund;
+SELECT unnest(qs_html_reports(symbol, trade_date, period_return, NULL)) AS report
+FROM (SELECT symbol, trade_date,
+             nav / lag(nav) OVER (PARTITION BY symbol ORDER BY trade_date) - 1.0 AS period_return
+      FROM nav_table);
 
--- With the shortcut: prices go straight in, grouping is plain GROUP BY
-SELECT fund, qs_html_report_by_prices(trade_date, nav, NULL) AS html
-FROM nav_table
-GROUP BY fund;
+-- With the shortcut: prices go straight in, the symbol column does the grouping
+SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS report
+FROM nav_table;
 ```
 
 ## Config fields
@@ -133,16 +162,38 @@ Every field of `qs_html_report_options` is **nullable**; keys you omit take thei
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | Report title |
-| `strategy_title` | `VARCHAR` | `'Strategy'` | Strategy display name |
-| `benchmark_title` | `VARCHAR` | `NULL` | Benchmark display name (presentation only) |
+| `strategy_title` | `VARCHAR` | the symbol | Strategy display name; falls back to the `symbol` |
+| `benchmark_title` | `VARCHAR` | the benchmark symbol | Benchmark display name (presentation only); falls back to the `benchmark` symbol |
+| `benchmark` | `VARCHAR` | `NULL` | Which **symbol** is the benchmark; it is input only and gets no report |
 | `rf` | `DOUBLE` | `0.0` | Risk-free rate, **annualized** (`0.04` = 4%), matching quantstats' `rf` convention |
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
 | `match_dates` | `BOOLEAN` | `true` | Whether to align the start dates of strategy and benchmark |
 | `output` | `VARCHAR` | `NULL` | Also write the HTML to this path, through DuckDB's VFS (see below) |
 | `open_in_browser` | `BOOLEAN` | `false` | Open the report in the system default browser; with no `output` it writes a temporary file first (see below) |
 
-Defaults come straight from quantstats-rs' `HtmlReportOptions::default()`; this extension does not invent a
-second set.
+Apart from the two display names, the defaults come straight from quantstats-rs'
+`HtmlReportOptions::default()`; this extension does not invent a second set.
+
+The two display names are the exception, and they are what makes dozens of reports out of one call usable: the
+default `'Strategy'` is identical for every one of them, so the legend could not tell them apart and the
+temporary file names would share one useless prefix. They therefore fall back to a name that comes from the
+data (the symbol, the benchmark symbol), which keeps the report legend, the temporary file name and the
+returned `strategy_title` in agreement.
+
+**The options are a per-row column** and each symbol uses the copy from its first row, hence:
+
+```sql
+-- Every instrument's own title, display name and output path, all built out of the symbol column
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'title': symbol,
+            'strategy_title': symbol,
+            'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+One symbol's options have to agree row by row; `benchmark` additionally has to **agree across the whole call**
+(a disagreement is an error).
 
 `rf` is **annualized** (`0.04` = 4%) and converted to a per-period rate inside the report; the crate has two
 conversions that differ slightly — Sharpe (and rolling Sharpe / Sortino) uses
@@ -152,62 +203,43 @@ Both collapse to 0 when `rf = 0` (the default).
 ## Usage
 
 ```sql
--- Single series, all-default options
-SELECT qs_html_report(trade_date, daily_return, NULL) FROM daily_returns;
+-- One instrument, no benchmark: just pick its rows before aggregating
+SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
+FROM daily_returns WHERE symbol = 'FUND';
 
--- Single series, only the keys you care about; a struct literal must be cast to the options type
-SELECT symbol,
-       qs_html_report(
-           trade_date, daily_return,
-           {'title': 'My Fund', 'rf': 0.02}::qs_html_report_options) AS html
-FROM daily_returns
-GROUP BY symbol;
-
--- With a benchmark: it is aggregated into a single row once, then cross-joined in
-WITH benchmark AS (
-    SELECT list({'date': trade_date, 'period_return': daily_return}) AS series
-    FROM benchmark_returns
-)
-SELECT s.fund,
-       qs_html_report(
-           s.trade_date, s.daily_return, benchmark.series,
-           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::qs_html_report_options) AS html
-FROM strategy_returns s, benchmark
-GROUP BY s.fund;
+-- The whole table with a benchmark: the benchmark is an ordinary symbol in it
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'benchmark': 'SPX',
+            'title': symbol,
+            'strategy_title': symbol,
+            'benchmark_title': 'S&P 500'}::qs_html_report_options)) AS report
+FROM daily_returns;
 
 -- A price (or NAV) series: the shortcut saves writing the pct_change window
-SELECT fund,
-       qs_html_report_by_prices(
-           trade_date, nav, {'title': 'My Fund'}::qs_html_report_options) AS html
-FROM nav_table
-GROUP BY fund;
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, trade_date, nav, {'title': symbol}::qs_html_report_options)) AS report
+FROM nav_table;
 
--- Also write the report to a file (through DuckDB's VFS, so this works on wasm too)
-SELECT qs_html_report(
-           trade_date, daily_return,
-           {'title': 'My Fund', 'output': 'fund.html'}::qs_html_report_options)
+-- Also write each report to a file (through DuckDB's VFS, so this works on wasm too)
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'title': symbol, 'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
 FROM daily_returns;
 
--- Write it and open it in your browser (with no 'output' the report goes to a temp file first)
-SELECT qs_html_report(
-           trade_date, daily_return,
-           {'title': 'My Fund', 'open_in_browser': true}::qs_html_report_options)
+-- Write it and open it in your browser (with no 'output' the report goes to a temp file first;
+-- one tab per instrument)
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
 FROM daily_returns;
-```
 
-The benchmark argument is one single list, so it has to be aggregated into one row first: `list(...)` is
-itself an aggregate and **cannot be inlined into an aggregate call** (DuckDB reports
-`aggregate function calls cannot be nested`). A scalar subquery works just as well as the cross join
-(verified), with the same effect:
-
-```sql
-SELECT fund,
-       qs_html_report(
-           trade_date, daily_return,
-           (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
-           NULL)
-FROM strategy_returns
-GROUP BY fund;
+-- Just the list, no HTML (a report is a few hundred KB, spreading them into rows gets noisy)
+SELECT list_transform(
+           qs_html_reports(symbol, trade_date, daily_return,
+               {'output': 'report-' || symbol || '.html'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+FROM daily_returns;
 ```
 
 ## Behaviours worth knowing
@@ -215,27 +247,32 @@ GROUP BY fund;
 - **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
   anonymous `STRUCT(title VARCHAR)` whose field count differs from the options type, and DuckDB reports that
   no function matches.
-- **`'...'::JSON::qs_html_report_options` must spell out all 8 keys** (DuckDB's JSON→STRUCT
+- **`'...'::JSON::qs_html_report_options` must spell out all 9 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
-- **The benchmark point keys are fixed to `date` / `period_return`** (`price` on the price side). They match
-  the anonymous `STRUCT(date DATE, period_return DOUBLE)` exactly, so **no cast is needed**; only when the
-  source columns are not `DATE` / `DOUBLE` do you add one:
-  `{'date': trade_date::DATE, 'period_return': daily_return::DOUBLE}`.
+- **`benchmark` names a symbol, not a value series.** It has to be one of the values in the `symbol` column
+  and identical across the whole call; the symbol it names acts as the benchmark only and never shows up in
+  the returned list.
+- **The result is ordered ascending by `symbol`**, regardless of input order or thread count.
 
 ## Error paths
 
 | Situation | Behaviour |
 | --- | --- |
-| The group has no valid row | `NULL` |
-| The benchmark argument is `NULL` | Error `the benchmark list must not be NULL` |
-| The benchmark is an empty list, or holds no valid point | Error `the benchmark list is empty` |
-| The benchmark list contains a whole-NULL element | Error `cannot read the benchmark list` |
-| `qs_html_report_by_prices`: fewer than two benchmark prices, so no return can be derived | Error `the benchmark prices produced no returns` |
+| Not a single row, or no instrument able to produce a report | `NULL` |
+| An instrument has no valid point left after conversion | that instrument is left out of the result |
+| The `benchmark` symbol has no row in the table | Error `no row for the benchmark symbol '…'` |
+| `benchmark` disagrees between instruments | Error `every symbol must use the same benchmark` |
+| `benchmark = ''` | Error `benchmark must not be an empty string` |
+| Price branch: the benchmark yields no return (fewer than two valid points) | Error `produced no returns` |
+| Two instruments writing to the same `output` path | Error `both write to '…'` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output = ''` | Error `output must not be an empty string` |
 | The `output` path contains a NUL byte | Error `contains a NUL byte` |
 | The `output` path cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
 | `open_in_browser` with an `output` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
+
+Every error message starts with the registered function name (`qs_html_reports: …`), so it is obvious which
+function reported it.
 
 ## Writing the report to a file
 
@@ -246,8 +283,20 @@ all go through the same path with the same semantics.
 `output` **replaces** the target: afterwards the file holds exactly the report, even when it previously held
 something longer.
 
-The path is part of the configuration, so under `GROUP BY` give each group its own file
-(`'report-' || symbol || '.html'`) instead of pointing every group at one path.
+The options are evaluated per row, so "one file per instrument" is a path built from the `symbol` column
+(`'report-' || symbol || '.html'`). **Two instruments pointing at the same path is an error** rather than a
+silent overwrite. Directories are not created for you, so any directory in the path has to exist already.
+
+The `file_path` in each returned row is the path that very call wrote to (`NULL` when nothing was written), so
+"which files were written" can be read off the result instead of guessed:
+
+```sql
+SELECT (r).symbol, (r).file_path FROM (
+    SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
+               {'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM prices
+);
+```
 
 ## Opening the report in a browser
 
@@ -258,8 +307,9 @@ file that actually exists, which decides the rest:
 - with `output` set, the report is written there and that file is opened;
 - without it, the report is written to a temporary file first —
   `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time, then
-  `strategy_title` (falling back to `title`) and `benchmark_title`, with characters a file name cannot hold
-  replaced by `_`. Nothing existing is ever overwritten, and two reports from the same second cannot collide;
+  `strategy_title` (falling back to `title`) and `benchmark_title` (falling back to the benchmark symbol),
+  with characters a file name cannot hold replaced by `_`. Nothing existing is ever overwritten, and two
+  reports from the same second cannot collide;
 - an `output` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op, since
   no browser can open it. That is checked **before** the report is rendered.
 
@@ -267,8 +317,8 @@ The browser is started in a non-blocking way: the report is already on disk, so 
 the browser nor looks at what the browser does with the file. The only failure reported is the launcher
 itself not starting.
 
-The option is meant for a single report. Under `GROUP BY` every group is opened in turn — and, without
-`output`, each group gets its own temporary file, so at least nothing overwrites anything.
+One call opens one tab per instrument (and, without `output`, writes one temporary file each, so at least
+nothing overwrites anything).
 
 ## WebAssembly
 

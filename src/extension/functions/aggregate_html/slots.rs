@@ -1,168 +1,250 @@
 // ============================================================================
-// 两个参数槽：配置与基准
+// 参数槽：按 symbol 各留一份配置，外加一整张 symbol 表
 //
-// 它们的共同点是「多行不变，却比被聚合的值贵」—— 配置是一个结构体，基准是一整条序列。duckfn 的适配层是
-// **逐行**读参数的（`aggregate_function_adapter.rs` 的 `read_columns` 坐在行循环里），而
-// `Vec<T>::read_valid` 每次调用都会新建 Vec 并逐元素复制整个列表，所以两者都写成 `DuckLazy<T>`：
-// 每行只构造一个 O(1) 的凭证，把真正的解析推迟到我们自己选定的时刻。
+// # 为什么是「一张 symbol 表」而不是「一个参数一个槽」
 //
-// 推迟到哪一刻？只在本行回调里。`DuckLazy<T>` 的契约是「凭证只在产生它的那次回调内有效」，把它存进聚合
-// 状态、跨 chunk / 跨线程再解析会被运行时守卫拦下（报 "DuckLazy<T> is stale"，是查询报错而不是 UB），
-// 能活下来的只有**解析结果**。而「每行都读、只真正解析第一行、combine 时搬运、result 里取值」正是这条
-// 路径的固定形状，0.0.6 起由 duckfn 的 `DuckLazySlot<T>` 直接提供，本文件不再自己写三态枚举：
+// 报告函数一次处理整张长表（SQL 里不写 GROUP BY），所以它必须自己把行按 symbol 分开 —— 这张表
+// 就是那个分组：symbol -> { 该 symbol 的配置, 该 symbol 的点 }。调用方本来要写的 GROUP BY 由函数
+// 内部完成，于是基准（表里另一个 symbol）也在同一个聚合状态里，随时可以取来配对。
 //
-//   update 回调    slot.resolve_optional(arg.as_ref())?   首行解析一次，其余行只加一次引用计数
+// # 配置为什么也按 symbol 分槽
+//
+// 配置是逐行求值的一列（`DuckLazy<T>`），而报告是按 symbol 一份（标题、显示名、落盘路径都各不
+// 相同），所以「解析一次」这条路径的粒度从「整个聚合」下沉到「每个 symbol」：某个 symbol 第一次
+// 出现时把它的配置解析出来，之后同一个 symbol 的行不再碰这一列。代价是配置解析次数 = distinct
+// symbol 数而不是 1 —— 这正是「每个标的一套配置」要付的钱，与行数无关。
+//
+// 槽本身仍是 `DuckLazySlot<T>`（0.0.6 起由 duckfn 提供，本文件不再自己写三态枚举）：
+//
+//   update 回调    slot.resolve_optional(arg.as_ref())?   该 symbol 首次出现时解析一次
 //   simple_combine slot.combine(&other.slot)              搬运已解析的值，不重新解析
-//   result         slot.get()                            `Option<Arc<T>>`；未解析与「解析为 NULL」都是 None
+//   result         slot.get()                             `Option<Arc<T>>`；未解析与「解析为 NULL」都是 None
 //
-// 留在这里的是 duckfn 管不到的两件事：
+// 「这个 symbol 是不是第一次出现」不需要额外的标志位：表的键本身就是那个标记 —— 只有 insert
+// 新槽位的那条路径会读配置列，命中已有槽位的那条路径只追加点（见 `push`）。
 //
-//   1. 基准列表的**报错**：`try_get` 的原始错误是写给 duckfn 使用者看的，SQL 调用方需要的是「哪个函数、
-//      该写哪个键、不想带基准该怎么办」；
-//   2. 基准列表的**归一化**：把 `Vec<点>` 折叠成内部的 [`SeriesPoint`]，顺便丢掉缺日期 / 缺值的点。
+// # 为什么基准是表里的一个 symbol，而不是列表参数
 //
-// 配置侧没有这两件事（它的类型是具名 STRUCT，读不出来就是用户写错了），所以配置槽只用到上面那三行调用，
-// 没有别的适配代码。`NULL` 配置退化成全默认的处理在 report.rs 里（那儿才知道要交给哪个渲染函数）。
+// 聚合函数只看得到自己组内的行。把基准做成一次性传入的列表参数（`list(...)` + cross join）确实能
+// 让基准只求值一次，但代价是 SQL 侧的三步走（CTE 聚成单行 → cross join → GROUP BY），而且「带基准」
+// 这个常态反而比不带基准多一个参数、多一个重载。
 //
-// # 为什么基准是「列表参数」而不是「同组里的标签行」
+// 基准本来就在同一张长表里（它也是一个 symbol），所以让函数自己按 symbol 分组、自己去表里取基准更
+// 直接：SQL 一句 SELECT，没有 GROUP BY、没有 cross join，带不带基准只差配置里一个 `benchmark` 键。
+// 代价是聚合状态持有全表点（与「每组一份点数组」同阶），换来的是「一次调用出全套报告」。被指为基准
+// 的 symbol 只作输入、不出报告 —— 「N 个策略 × M 个基准」那种笛卡尔积不是插件要做的事。
 //
-// 聚合函数只看得到自己组内的行。若把基准写成同组内的行（长表 + 一个「哪个标签是基准」的配置项），
-// 那么为了让每个分组都拿得到基准，基准行就必须在**每个分组里各出现一遍**：100 个标的 × 1000 天
-// = 10 万行被物化/扫描，而基准本身只有 1000 行。改成一次性传入的列表后，基准只写一次、只求值一次，
-// 策略侧仍然靠 GROUP BY 自然分组，也不再需要「哪个标签是基准」这类配置。
+// # 确定性与 combine
 //
-// 顺带消失的还有两条护栏：分组内不会再混进别的标的，也不会出现「只有基准行、没有策略行」的组。
+// DuckDB 会并行/分块执行，`combine` 的调用顺序不保证，所以：`combine` 只做合并（同 symbol 合并槽
+// 与点、新 symbol 插入），点的排序仍交给 `ReturnSeries::new` / `prices_to_returns`，而**输出顺序**
+// 由 `result()` 里按 symbol 排序的遍历定下（`iter_sorted`），不依赖 HashMap 的迭代顺序。
 //
-// Two argument slots: the configuration and the benchmark.
+// 同一个 symbol 的配置取「该份状态里首次出现的那一行」；并行下是哪一行不保证，所以调用方要保证同一个
+// symbol 的配置逐行一致（文档与测试都按这个前提写）。
 //
-// Both of them are "constant across rows and more expensive than the aggregated values" — one is a struct,
-// the other a whole series. duckfn's adapter reads arguments **per row** (`read_columns` sits inside the
-// row loop of `aggregate_function_adapter.rs`) and `Vec<T>::read_valid` allocates a fresh Vec and copies
-// every element on each call, so both are written as `DuckLazy<T>`: every row only builds an O(1) token,
-// and the real parse is deferred to the moment we choose.
+// One slot per symbol, plus one table of all symbols.
 //
-// That moment is inside the row callback, and only there: a `DuckLazy<T>` token is only valid inside the
-// callback that produced it, so storing it in the aggregate state and consuming it past the chunk or on
-// another thread is rejected by the runtime guard ("DuckLazy<T> is stale" — a query error, not UB). Only
-// the *parsed value* can survive. "Read every row, really parse only the first one, carry the result over
-// in `combine`, read it back in `result`" is exactly the shape duckfn's `DuckLazySlot<T>` provides since
-// 0.0.6, so this file no longer hand-rolls the three-state enum.
+// # Why a table of symbols rather than one slot per argument
 //
-// What is left here are the two things duckfn cannot know about:
+// The report function handles a whole long table in one call (no GROUP BY in SQL), so it has to split
+// the rows by symbol itself — that split *is* this table: symbol -> { its options, its points }. The
+// GROUP BY an SQL caller would have written happens inside the function, so the benchmark (another
+// symbol of the same table) is right there in the same aggregate state, ready to be paired up.
 //
-//   1. the benchmark list **errors** (the raw `try_get` message is written for a duckfn user, while a SQL
-//      caller needs "which function, which key, and what to do instead");
-//   2. the benchmark list **normalisation** — folding `Vec<point>` into the internal [`SeriesPoint`] and
-//      dropping the points that miss their date or their value.
+// # Why the options are per symbol too
 //
-// The options side needs neither (it is a named STRUCT: if it cannot be read, the user wrote it wrong), so
-// the options slot is used through nothing but the three calls above. Falling back to all defaults when
-// the options column is NULL happens in report.rs, where the target renderer is known.
+// The options are a per-row column (`DuckLazy<T>`) while the reports are per symbol (each with its own
+// title, display name and output path), so "parse it once" moves from the whole aggregate down to each
+// symbol: the first time a symbol shows up its options are parsed and the rows after that never touch
+// that column again. The price is options parses = distinct symbols instead of 1 — exactly what
+// per-instrument options cost, and it does not grow with the row count.
 //
-// # Why the benchmark is a list argument rather than labelled rows in the same group
+// The slot itself is still `DuckLazySlot<T>` (duckfn's since 0.0.6, so this file no longer hand-rolls
+// the three-state enum):
 //
-// An aggregate only sees the rows of its own group. Representing the benchmark as rows in the same group
-// (a long table plus a config key saying which label is the benchmark) forces the benchmark rows to appear
-// **once per group**: 100 instruments × 1000 days = 100k rows materialised and scanned, while the
-// benchmark itself is only 1000 rows. With a list passed in once, the benchmark is written once and
-// evaluated once, the strategy side still gets its grouping from GROUP BY, and the "which label is the
-// benchmark" config key disappears.
+//   update callback   slot.resolve_optional(arg.as_ref())?   parsed once, on the symbol's first row
+//   simple_combine    slot.combine(&other.slot)              carries the parsed value, never re-parses
+//   result            slot.get()                             `Option<Arc<T>>`; "never parsed" and "parsed as NULL" are both None
 //
-// Two guards disappear with it: a group can no longer mix several instruments, and a group can no longer
-// hold only benchmark rows.
+// "Is this the symbol's first row?" needs no extra flag: the key of the table *is* that marker — only
+// the path that inserts a fresh slot reads the options column, while a hit on an existing slot merely
+// appends a point (see `push`).
+//
+// # Why the benchmark is a symbol in the table rather than a list argument
+//
+// An aggregate only sees the rows of its own group. Making the benchmark a list passed in once
+// (`list(...)` plus a cross join) does evaluate it exactly once, but the price is a three-step SQL
+// dance (CTE into one row → cross join → GROUP BY) and a "with a benchmark" case that — as the norm
+// rather than the exception — needs an extra argument and an extra overload.
+//
+// The benchmark is already in the same long table (it is a symbol like any other), so having the
+// function group by symbol itself and look the benchmark up in that same table is more direct: one
+// SELECT, no GROUP BY, no cross join, and with/without a benchmark differs by a single `benchmark` key
+// in the options. The price is an aggregate state holding the whole table's points (the same order as
+// one point array per group); what it buys is "one call, the whole set of reports". The symbol named as
+// the benchmark is input only and gets no report — the "N strategies × M benchmarks" cartesian product
+// is not this extension's job.
+//
+// # Determinism and combine
+//
+// DuckDB runs in parallel and in chunks and does not promise a combine order, so: `combine` only merges
+// (same symbol → merge slots and points, new symbol → insert), the point ordering stays with
+// `ReturnSeries::new` / `prices_to_returns`, and the **output order** is settled in `result()` by
+// iterating symbols in ascending order (`iter_sorted`) instead of following HashMap iteration order.
+//
+// One symbol's options come from "the first row of that symbol seen by that state", which under
+// parallelism is whichever row a thread got first, so callers must keep one symbol's options identical
+// row by row (the documentation and the tests assume exactly that).
 // ============================================================================
 
-use duckfn::{DuckLazy, DuckLazySlot, DuckResult, DuckValueType, duck_error};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-use super::kind::SeriesKind;
-use super::series::{IntoSeriesPoint, SeriesPoint};
+use duckfn::{DuckLazy, DuckLazySlot, DuckResult};
 
-/// 行回调里解析基准列表：首行解析一次并缓存，其余行只付 O(1) 的成本。
-///
-/// 解析失败时把错误换成对 SQL 调用方有意义的说法，并**保持槽原样**（`DuckLazySlot` 的语义），
-/// 于是下一行还会再试一次；当然，这里返回的错误会立刻让整条查询失败。
-///
-/// Parses the benchmark list in the row callback: once on the first row, O(1) afterwards.
-///
-/// A failed parse is turned into a message that means something to a SQL caller and leaves the slot
-/// untouched (that is `DuckLazySlot`'s own semantics), so the next row would try again — although the
-/// error returned here fails the whole query straight away.
-pub(super) fn resolve_benchmark<T: DuckValueType>(
-    slot: &mut DuckLazySlot<Vec<T>>,
-    benchmark: Option<&DuckLazy<Vec<T>>>,
-    kind: SeriesKind,
-) -> DuckResult<()> {
-    let SeriesKind {
-        function,
-        value_field,
-    } = kind;
+use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 
-    // 上游的错误信息是写给 duckfn 使用者的（会提到 `try_get()`），这里换成对 SQL 调用方有意义的说法：
-    // 列表里出现了整体为 NULL 的元素（例如字面量 `[NULL, ...]`）时就会走到这里。
-    //
-    // The upstream message is written for a duckfn user (it mentions `try_get()`), so it is replaced with
-    // something meaningful to a SQL caller: this is reached when the list contains a whole-NULL element
-    // (e.g. a literal `[NULL, ...]`).
-    slot.resolve_optional(benchmark).map_err(|err| {
-        duck_error(format!(
-            "{function}: cannot read the benchmark list — every element must be a \
-             STRUCT(date DATE, {value_field} DOUBLE) and must not be NULL ({err})"
-        ))
-    })?;
-    Ok(())
+use super::series::SeriesPoint;
+
+/// 一个 symbol 的槽位：它的配置，和它的点。
+///
+/// The slot of one symbol: its options and its points.
+#[derive(Default, Debug, Clone)]
+pub(super) struct SymbolSlot {
+    /// 该 symbol 的配置：只在该 symbol 第一次出现时解析一次，之后 combine 只搬引用计数。
+    ///
+    /// This symbol's options: parsed once, on its first row, and carried over by a refcount bump in
+    /// every later `combine`.
+    options: DuckLazySlot<QuantstatsHtmlOptions>,
+
+    /// 该 symbol 的点：收益率路径下就是收益率，价格路径下是价格/净值（差分留到 `result()`）。
+    ///
+    /// The points of this symbol: returns on the return branch, prices/NAVs on the price branch
+    /// (differencing is left to `result()`).
+    points: Vec<SeriesPoint>,
 }
 
-/// 把基准列表从槽里取出来，归一化成内部的点数组。
-///
-/// 只在 `result()` 里调用（每组一次）：归一化要遍历整条列表，放在逐行的 `resolve_benchmark` 里就成了
-/// O(行数 × 基准长度)，正是 `DuckLazy` / `DuckLazySlot` 要消掉的那笔开销。
-///
-/// Reads the benchmark list out of the slot and normalises it into the internal point array.
-///
-/// Called from `result()` only (once per group): normalising walks the whole list, and doing that in the
-/// per-row `resolve_benchmark` would be O(rows × benchmark length) — exactly the cost `DuckLazy` and
-/// `DuckLazySlot` exist to remove.
-pub(super) fn benchmark_points<T: IntoSeriesPoint>(
-    slot: &DuckLazySlot<Vec<T>>,
-    kind: SeriesKind,
-) -> DuckResult<Vec<SeriesPoint>> {
-    let SeriesKind {
-        function,
-        value_field,
-    } = kind;
-
-    // `get()` 的 `None` 同时覆盖「没解析过」与「解析成 NULL」。前者在这儿不可达：一组一行都没有时
-    // `result()` 已经提前返回 NULL，而只要 update 跑过一次，槽里就一定有解析结果。所以走到这里的就是
-    // 「整列基准都是 NULL」那种情况。
-    //
-    // `get()` yields `None` for both "never parsed" and "parsed as NULL". The former is unreachable here:
-    // `result()` already returns NULL when a group has no row at all, and a single update call is enough to
-    // put a parse result in the slot. So what lands here is a benchmark column that is NULL throughout.
-    let Some(parsed) = slot.get() else {
-        return Err(duck_error(format!(
-            "{function}: the benchmark list must not be NULL — pass the benchmark series as \
-             list({{'date': ..., '{value_field}': ...}}), or omit the benchmark argument for a \
-             single-series report"
-        )));
-    };
-
-    let points: Vec<SeriesPoint> = parsed
-        .iter()
-        .filter_map(IntoSeriesPoint::to_series_point)
-        .collect();
-
-    // 空列表，或列表里每个点都缺日期/缺值 —— 两者对报告来说一样：没有基准可用。这一支重载就是为带基准
-    // 的场景存在的，所以报错而不是静默出一份没有基准的报告。
-    //
-    // An empty list, or a list whose every point misses its date or its value — both mean the same to the
-    // report: there is no benchmark to use. This overload exists for the benchmark case, so it errors out
-    // instead of silently producing a benchmark-less report.
-    if points.is_empty() {
-        return Err(duck_error(format!(
-            "{function}: the benchmark list is empty (or every point is missing its date or its \
-             value) — omit the benchmark argument for a single-series report"
-        )));
+impl SymbolSlot {
+    /// 该 symbol 的配置；没有解析结果（整列是 NULL，或这份状态没见过它）时给全默认。
+    ///
+    /// 返回 `Arc` 而不是引用：调用方（report.rs）要把配置和这份状态活着一样久地一起拿着，而
+    /// `DuckLazySlot` 只借得出 `&T`。克隆 `Arc` 只是引用计数，不复制配置。
+    ///
+    /// This symbol's options, or all defaults when there is no parse result (the column was NULL
+    /// throughout, or this state never saw the symbol).
+    ///
+    /// It hands out an `Arc` rather than a reference because the caller (report.rs) has to hold the
+    /// options for as long as the state lives, and `DuckLazySlot` only lends `&T`. Cloning the `Arc`
+    /// is a refcount bump, not a copy of the options.
+    pub(super) fn options_or_default(&self) -> Arc<QuantstatsHtmlOptions> {
+        self.options.get().unwrap_or_default()
     }
 
-    Ok(points)
+    /// 该 symbol 的点。
+    ///
+    /// The points of this symbol.
+    pub(super) fn points(&self) -> &[SeriesPoint] {
+        &self.points
+    }
+}
+
+/// 整张长表按 symbol 分好的组。
+///
+/// The whole long table, already split by symbol.
+#[derive(Default, Debug, Clone)]
+pub(super) struct SymbolTable {
+    slots: HashMap<String, SymbolSlot>,
+}
+
+impl SymbolTable {
+    /// 一行数据进表：symbol 第一次出现时把它的配置解析出来，点则一直往后追加。
+    ///
+    /// 空 symbol 直接丢掉：它既当不了文件名、也当不了显示名（显示名缺省时就退回它），属于「这一行
+    /// 没有标的」，与 `symbol` 列本身是 NULL 时 duckfn 整行跳过的既有语义一致。
+    ///
+    /// Push one data row: the first time a symbol appears its options are parsed, and its points keep
+    /// accumulating afterwards.
+    ///
+    /// An empty symbol is dropped outright: it can be neither a file name nor a display name (the
+    /// display name falls back to it), so such a row has no instrument — consistent with duckfn's
+    /// existing "skip the whole row" semantics for a NULL `symbol` column.
+    pub(super) fn push(
+        &mut self,
+        symbol: &str,
+        options: Option<&DuckLazy<QuantstatsHtmlOptions>>,
+        point: SeriesPoint,
+    ) -> DuckResult<()> {
+        if symbol.is_empty() {
+            return Ok(());
+        }
+
+        match self.slots.get_mut(symbol) {
+            // 已经见过这个 symbol：配置不动（首行那份说了算），只追加点。
+            //
+            // Seen before: the options stay put (the first row's copy wins) and only a point is added.
+            Some(slot) => slot.points.push(point),
+            None => {
+                let mut slot = SymbolSlot::default();
+                slot.options.resolve_optional(options)?;
+                slot.points.push(point);
+                self.slots.insert(symbol.to_owned(), slot);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 合并两份状态（DuckDB 并行/分块时会各建一份，最后合起来）。
+    ///
+    /// 同 symbol 的两份槽位合并：配置走 `DuckLazySlot::combine`（搬运已解析的值，不重新解析），
+    /// 点则拼接 —— 真正的按日期排序不在这里做，也不需要（见模块头）。
+    ///
+    /// Merge two states (DuckDB creates one per thread/chunk and merges them at the end).
+    ///
+    /// A symbol present on both sides merges its slots: the options go through
+    /// `DuckLazySlot::combine` (carrying the parsed value over rather than parsing again) and the
+    /// points are concatenated — the real date ordering neither happens here nor is needed (see the
+    /// module header).
+    pub(super) fn combine(&mut self, other: &Self) {
+        for (symbol, other_slot) in &other.slots {
+            match self.slots.get_mut(symbol.as_str()) {
+                Some(slot) => {
+                    slot.options.combine(&other_slot.options);
+                    slot.points.extend_from_slice(&other_slot.points);
+                }
+                None => {
+                    self.slots.insert(symbol.clone(), other_slot.clone());
+                }
+            }
+        }
+    }
+
+    /// 表里一个 symbol 都没有（`result()` 据此返回 SQL NULL）。
+    ///
+    /// Whether the table holds no symbol at all (`result()` turns that into SQL NULL).
+    pub(super) fn is_empty(&self) -> bool {
+        self.slots.is_empty()
+    }
+
+    /// 按名字取一个 symbol 的槽位（取基准用它）。
+    ///
+    /// Look one symbol up by name (that is how the benchmark is fetched).
+    pub(super) fn get(&self, symbol: &str) -> Option<&SymbolSlot> {
+        self.slots.get(symbol)
+    }
+
+    /// 按 symbol 升序遍历：结果 LIST 的顺序由它定下，不依赖 HashMap 的迭代顺序与 combine 的顺序。
+    ///
+    /// Iterate in ascending symbol order: this is what fixes the order of the returned LIST instead of
+    /// leaving it to HashMap iteration or the combine order.
+    pub(super) fn iter_sorted(&self) -> impl Iterator<Item = (&str, &SymbolSlot)> {
+        let mut symbols: Vec<&str> = self.slots.keys().map(String::as_str).collect();
+        symbols.sort_unstable();
+
+        // 下标取槽位不可能失败：这些键就是从这张表里取的。
+        //
+        // Indexing cannot fail here: those keys were taken from this very table.
+        symbols.into_iter().map(move |symbol| (symbol, &self.slots[symbol]))
+    }
 }

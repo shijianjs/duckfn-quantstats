@@ -64,7 +64,7 @@ git clone https://github.com/shijianjs/duckfn
 
 ### 注册到 DuckDB 的函数名统一加 `qs_` 前缀
 
-所有注册到 DuckDB 的函数名一律以 `qs_`（quantstats）开头，例如 `qs_html_report(...)`。
+所有注册到 DuckDB 的函数名一律以 `qs_`（quantstats）开头，例如 `qs_html_reports(...)`。
 范围包括标量函数、聚合函数、表函数、COPY 格式、cast、SQL 宏、replacement scan
 —— 凡是出现在 SQL 里的名字都要带前缀。
 
@@ -73,17 +73,20 @@ git clone https://github.com/shijianjs/duckfn
 这样的全名在每个调用点上都是纯噪声，而 `qs_` 短到可以忽略，又足以在 `duckdb_functions()` 里
 按前缀检索。**前缀只是命名空间，不再是扩展名的缩写**，不要因为扩展名变了就跟着改。
 
-前缀之后的部分要能读懂，不要拿缩写堆砌。同一分支的两个重载共用同一个名字、靠参数个数分派：
+前缀之后的部分要能读懂，不要拿缩写堆砌。当前的两个名字各只有**一个**签名：
 
 ```text
-qs_html_report(date, period_return, options)              / (..., benchmark, options)
-qs_html_report_by_prices(date, price, options)            / (..., benchmark, options)
+qs_html_reports(symbol, date, period_return, options)
+qs_html_reports_by_prices(symbol, date, price, options)
 ```
 
+基准是配置里的一个键（表里的一个 symbol），不占参数位，所以也不需要 `overloads_name` 去把重载并成
+函数集；真需要「同一名字下按参数个数分派」时它仍然可用（见 duckfn 的文档）。
+
 duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函数定义成 `fn qs_xxx(...)` 即可。
-`overloads_name` 的函数集名只写在属性字面量里，但宏会为每个签名生成 `SQL_NAME` 常量：代码里要引用
-注册名（错误信息前缀、日志）就读它 —— `functions/aggregate_html/kind.rs` 就是这么做的 —— 不要再抄
-一份字面量。代价是这类函数得写成 `pub(super)`，因为生成的模块沿用函数的可见性。
+宏还会为每个签名生成 `SQL_NAME` 常量：代码里要引用注册名（错误信息前缀、日志）就读它 ——
+`functions/aggregate_html/kind.rs` 就是这么做的 —— 不要再抄一份字面量。代价是这类函数得写成
+`pub(super)`，因为生成的模块沿用函数的可见性。
 
 ### 临时文件放到 target/
 

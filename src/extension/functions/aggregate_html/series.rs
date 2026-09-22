@@ -13,11 +13,6 @@
 // 真正的按日期排序交给 `ReturnSeries::new`（它内部会 sort）。因此 SQL 侧**不需要 ORDER BY**；
 // 只有价格那一支要先按日期排好才能差分，见 `prices_to_returns`。
 //
-// # 两个分支的点结构体
-//
-// `QuantstatsReturnPoint`（字段 `period_return`）与 `QuantstatsPricePoint`（字段 `price`）只差一个
-// 字段名，聚合对它们做的事完全一样，所以用 [`IntoSeriesPoint`] 把它们归一成 [`SeriesPoint`]。
-//
 // The internal representation: one point, and a list of points → a series.
 //
 // # Price/NAV → returns
@@ -34,19 +29,10 @@
 // concatenates; the real date ordering is done by `ReturnSeries::new` (which sorts internally). SQL
 // therefore does **not** need an ORDER BY. Only the price branch has to sort before differencing, see
 // `prices_to_returns`.
-//
-// # The point structs of the two branches
-//
-// `QuantstatsReturnPoint` (field `period_return`) and `QuantstatsPricePoint` (field `price`) differ only
-// in one field name and the aggregate does exactly the same with both, so [`IntoSeriesPoint`] normalises
-// them into [`SeriesPoint`].
 // ============================================================================
 
 use duckfn::{DuckDate, DuckResult, duck_error};
 use quantstats_rs::ReturnSeries;
-
-use crate::extension::types::price_point::QuantstatsPricePoint;
-use crate::extension::types::return_point::QuantstatsReturnPoint;
 
 /// 序列里的一个点：**推迟**日期换算，只留自 1970-01-01 起的天数。
 ///
@@ -140,52 +126,4 @@ pub(super) fn prices_to_returns(prices: &[SeriesPoint]) -> Vec<SeriesPoint> {
         });
     }
     returns
-}
-
-/// 基准点「归一化」成内部表示。
-///
-/// 收益率路径与价格路径的点结构体只差一个字段名（`period_return` / `price`），聚合对它们要做的事完全
-/// 一样，所以抽一层把它们统一成 [`SeriesPoint`]。
-///
-/// 取 `&self` 而不是消耗 `self`：基准列表由 `DuckLazySlot` 交出来的是 `Arc<Vec<T>>`（好让 combine 只
-/// 做一次引用计数复制），借出去的那份没法被消耗。两个点结构体都是纯数据，读一遍就够了。
-///
-/// Normalising a benchmark point into the internal representation.
-///
-/// The point structs of the two branches differ only in one field name (`period_return` / `price`) and the
-/// aggregate does exactly the same with both, so this trait normalises them into [`SeriesPoint`].
-///
-/// It takes `&self` rather than consuming `self` because `DuckLazySlot` hands the benchmark list out as an
-/// `Arc<Vec<T>>` (which is what keeps `combine` at a refcount bump), and a shared list cannot be consumed.
-/// Both point structs are plain data, so reading them once is enough.
-pub(super) trait IntoSeriesPoint {
-    /// 缺日期或缺失值的点返回 `None` —— 跳过该点，而不是让整条查询失败。
-    ///
-    /// A point missing its date or its value yields `None` — the point is skipped rather than failing the
-    /// whole query.
-    fn to_series_point(&self) -> Option<SeriesPoint>;
-}
-
-impl IntoSeriesPoint for QuantstatsReturnPoint {
-    fn to_series_point(&self) -> Option<SeriesPoint> {
-        let (Some(date), Some(value)) = (self.date, self.period_return) else {
-            return None;
-        };
-        Some(SeriesPoint {
-            days_since_epoch: date.days_since_epoch,
-            value,
-        })
-    }
-}
-
-impl IntoSeriesPoint for QuantstatsPricePoint {
-    fn to_series_point(&self) -> Option<SeriesPoint> {
-        let (Some(date), Some(value)) = (self.date, self.price) else {
-            return None;
-        };
-        Some(SeriesPoint {
-            days_since_epoch: date.days_since_epoch,
-            value,
-        })
-    }
 }

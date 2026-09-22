@@ -1,0 +1,315 @@
+# name: test/sql/quantstats/html_reports.test
+# description: qs_html_reports 收益率路径：单签名（4 参，不再有重载）、命名配置类型（9 字段，含 benchmark）、一次调用按 symbol 分组出整套 list<struct>、结果形状与排序、显示名退回 symbol、NULL 行跳过、空输入 NULL、多线程 combine 一致性、每 symbol 的配置与 output 落盘（含路径回填）
+# group: [quantstats]
+
+require duckfn_quantstats
+
+# ============================================================================
+# 注册面：两个名字、各一个签名
+#
+# 基准不再是「额外一个参数」，而是配置里的一个键（一个 symbol 名），所以两个函数都只剩 4 参这一个
+# 签名，`duckdb_functions()` 里每个名字也就只有一行。
+# ============================================================================
+
+query I
+SELECT count(*) FROM duckdb_types() WHERE type_name = 'qs_html_report_options';
+----
+1
+
+# 字段名都不是 SQL 关键字，所以 DuckDB 渲染 typeof 时不加引号
+query T
+SELECT typeof(NULL::qs_html_report_options);
+----
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR, open_in_browser BOOLEAN)
+
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name IN ('qs_html_reports', 'qs_html_reports_by_prices')
+  AND function_type = 'aggregate'
+  AND len(parameters) = 4;
+----
+2
+
+# 旧名字已整体替换（0.1.0 起不做兼容）：SQL 里只剩这两个
+query T rowsort
+SELECT function_name FROM duckdb_functions() WHERE function_name LIKE 'qs_html_report%';
+----
+qs_html_reports
+qs_html_reports_by_prices
+
+statement error
+SELECT qs_html_report(1, 2, 3);
+----
+Scalar Function with name qs_html_report does not exist
+
+# ============================================================================
+# 数据：两个标的，各 60 天
+# ============================================================================
+
+statement ok
+CREATE TABLE daily_returns AS SELECT
+    CASE WHEN i % 2 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
+    (DATE '2024-01-01' + CAST(i // 2 AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS daily_return
+FROM range(120) t(i);
+
+# ============================================================================
+# 返回形状：list<struct{symbol, strategy_title, html, file_path}>
+# ============================================================================
+
+query T
+SELECT typeof(qs_html_reports(symbol, trade_date, daily_return, NULL)) FROM daily_returns;
+----
+STRUCT(symbol VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path VARCHAR)[]
+
+# 一次调用给全部标的出报告，顺序按 symbol 升序（不依赖 HashMap 与 combine 顺序）
+query T
+SELECT list((r).symbol) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+);
+----
+[AAA, BBB]
+
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+);
+----
+2
+
+# 每份都是一份完整报告（不是空串），且没配 output 时 file_path 是 NULL
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+) WHERE length((r).html) > 1000 AND (r).file_path IS NULL;
+----
+2
+
+# 显示名没写就退回 symbol（报告里的图例、返回行都是这个名字）
+query T
+SELECT list((r).strategy_title) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+);
+----
+[AAA, BBB]
+
+# 整体 NULL 配置 = 全默认：默认标题 "Strategy Tearsheet"
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+) WHERE position('Strategy Tearsheet' IN (r).html) > 0;
+----
+2
+
+# 每个标的那一份用的是**它自己**那份配置（这里用 symbol 列把标题与显示名拼出来）
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'title': symbol, 'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM daily_returns
+) WHERE (r).strategy_title = (r).symbol AND position('Metrics' IN (r).html) > 0;
+----
+2
+
+# periods_per_year 真的传下去了：改了它，报告里的年化数字会变，所以 md5 不同
+query T
+SELECT (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+        ) WHERE (r).symbol = 'AAA')
+     <> (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                           {'periods_per_year': 52}::qs_html_report_options)) AS r FROM daily_returns
+        ) WHERE (r).symbol = 'AAA') AS differs;
+----
+true
+
+# 不带 :: 的 struct 字面量是匿名 STRUCT(title VARCHAR)，与配置类型的字段数不匹配，必须显式 cast
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'title': 'My Fund'}) FROM daily_returns;
+----
+No function matches the given name and argument types
+
+# ============================================================================
+# 边界：空输入 -> SQL NULL；NULL 行被整行跳过；被跳空的 symbol 不出报告
+# ============================================================================
+
+query T
+SELECT qs_html_reports(symbol, trade_date, daily_return, NULL) IS NULL AS is_null
+FROM daily_returns WHERE trade_date > DATE '2100-01-01';
+----
+true
+
+statement ok
+CREATE TABLE returns_with_nulls AS
+SELECT * FROM daily_returns
+UNION ALL SELECT NULL, DATE '2024-01-01', 0.5::DOUBLE
+UNION ALL SELECT 'ZZZ', NULL, 0.5::DOUBLE
+UNION ALL SELECT 'ZZZ', DATE '2024-01-01', NULL::DOUBLE;
+
+# 多塞的 NULL 行不影响任何一份报告：AAA 的那份与干净数据逐字节一致
+query T
+SELECT (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM returns_with_nulls
+        ) WHERE (r).symbol = 'AAA')
+     = (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+        ) WHERE (r).symbol = 'AAA') AS same_as_clean;
+----
+true
+
+# 只有 NULL 行的 symbol 根本进不了结果（它没有一行有效数据）
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM returns_with_nulls
+) WHERE (r).symbol = 'ZZZ';
+----
+0
+
+# ============================================================================
+# combine：多线程会把一张表拆成多个状态再合并，结果必须与单线程逐字节一致
+#
+# 这是「combine 只合并 symbol 表、点的排序交给 ReturnSeries::new」以及「每个 symbol 的配置只解析一次、
+# 合并时只搬运解析结果」两条设计的端到端验证。
+# ============================================================================
+
+statement ok
+CREATE TABLE big_returns AS SELECT
+    'F' || (i % 4) AS symbol,
+    (DATE '2020-01-01' + CAST(i // 4 AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 11) - 5) AS DOUBLE) AS daily_return
+FROM range(20000) t(i);
+
+statement ok
+PRAGMA threads=1;
+
+statement ok
+CREATE TABLE big_single_thread AS
+SELECT list((r).symbol) AS symbols,
+       md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol)) AS digests
+FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'title': 'T'}::qs_html_report_options)) AS r
+    FROM big_returns
+);
+
+statement ok
+PRAGMA threads=4;
+
+query T
+SELECT (list((r).symbol) = (SELECT symbols FROM big_single_thread))
+   AND (md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol)) = (SELECT digests FROM big_single_thread)) AS same_as_single_thread
+FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'title': 'T'}::qs_html_report_options)) AS r
+    FROM big_returns
+);
+----
+true
+
+statement ok
+PRAGMA threads=1;
+
+# ============================================================================
+# 报告落盘（output）：经 **DuckDB 的 VFS**，不是 std::fs
+#
+# 同一套语义在本地与 wasm 上成立：写路径是 duckfn 便捷层（duck_vfs::write_string）背后的 DuckDB 文件
+# 系统，而 std::fs 在 wasm 目标下根本没有可写的地方。每个 symbol 各写一份（路径由 symbol 列拼出来），
+# 写完之后用 DuckDB 自己的 read_text 读回来 —— 读写走同一个文件系统，内容必须逐字节一致。
+# __TEST_DIR__ 是测试运行器给的临时目录。
+# ============================================================================
+
+statement ok
+CREATE TABLE written AS
+SELECT (r).symbol AS symbol, (r).html AS html, (r).file_path AS file_path
+FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM daily_returns
+);
+
+# 回填的 file_path 就是配置里那个路径原样（`__TEST_DIR__` 由运行器替换成它的临时目录，
+# 所以这里只断言路径的结尾 —— 期望结果里的 `__TEST_DIR__` 不会被替换）
+query I
+SELECT count(*) FROM written WHERE ends_with(file_path, 'dfn_qs_reports-' || symbol || '.html');
+----
+2
+
+# 两份文件都写出来了，且内容与返回行里的 html 逐字节一致
+query I
+SELECT count(*) FROM written
+WHERE (symbol = 'AAA' AND md5(html) = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')))
+   OR (symbol = 'BBB' AND md5(html) = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-BBB.html')));
+----
+2
+
+# 再写一次同一个路径：可重复写
+statement ok
+CREATE TABLE rewritten AS
+SELECT (r).html AS html FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM daily_returns
+) WHERE (r).symbol = 'AAA';
+
+query T
+SELECT (SELECT md5(html) FROM rewritten)
+     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')) AS same_content;
+----
+true
+
+# 旧文件比报告长：覆盖写就是覆盖写 —— duckfn 的便捷层内部会先把更长的旧文件清零再写正文
+# （C API 没有 truncate 这件事由它处理），所以尾部不会留下旧内容的残渣。
+statement ok
+COPY (SELECT repeat('x', 200000) AS filler)
+TO '__TEST_DIR__/dfn_qs_reports-AAA.html' (FORMAT csv, HEADER false);
+
+statement ok
+CREATE TABLE report_over_longer_file AS
+SELECT (r).html AS html FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
+    FROM daily_returns
+) WHERE (r).symbol = 'AAA';
+
+query T
+SELECT (SELECT md5(html) FROM report_over_longer_file)
+     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')) AS same_content;
+----
+true
+
+# 路径里有 NUL 字节：转成 C 字符串时就失败，不进入文件系统
+# （只取一个标的：多个标的写同一个路径会先撞上「路径重复」那条报错，见 html_reports_errors.test）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'output': 'a' || chr(0) || 'b'}::qs_html_report_options)
+FROM daily_returns WHERE symbol = 'AAA';
+----
+contains a NUL byte
+
+# ============================================================================
+# open_in_browser：测试只覆盖能安全断言的两件事
+#
+# 真正「把浏览器叫起来」没法在这里断言（那会在跑测试的机器上弹出窗口）。
+# ============================================================================
+
+# 关着的开关与不写这个键完全等价：md5 相同（新增字段没有扰动任何既有行为）
+query T
+SELECT (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+        ) WHERE (r).symbol = 'AAA')
+     = (SELECT md5((r).html) FROM (
+            SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                           {'open_in_browser': false}::qs_html_report_options)) AS r FROM daily_returns
+        ) WHERE (r).symbol = 'AAA') AS same_as_unset;
+----
+true
+
+# 浏览器只能打开本地文件：output 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
+# （这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'output': 's3://bucket/report.html',
+            'open_in_browser': true}::qs_html_report_options)
+FROM daily_returns;
+----
+only local file paths can be opened in a browser

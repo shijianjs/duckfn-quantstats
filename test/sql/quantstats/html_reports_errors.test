@@ -1,0 +1,122 @@
+# name: test/sql/quantstats/html_reports_errors.test
+# description: 报告函数的错误路径：基准 symbol 不存在、基准取值跨 symbol 不一致、benchmark 空串、两个 symbol 写同一个 output、periods_per_year=0、output=''、output 含 NUL、open_in_browser 配非本地路径、配置字面量没 cast，以及旧 API（qs_html_report / 带基准的第 4 个参数）已经整体不存在
+# group: [quantstats]
+
+require duckfn_quantstats
+
+statement ok
+CREATE TABLE daily_returns AS SELECT
+    CASE WHEN i % 2 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
+    (DATE '2024-01-01' + CAST(i // 2 AS INTEGER))::DATE AS trade_date,
+    CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS daily_return
+FROM range(120) t(i);
+
+statement ok
+CREATE TABLE nav_all AS SELECT
+    CASE WHEN i % 2 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
+    (DATE '2024-01-01' + CAST(i // 2 AS INTEGER))::DATE AS trade_date,
+    CAST(100.0 + (i % 7) AS DOUBLE) AS nav
+FROM range(120) t(i);
+
+# ============================================================================
+# 旧 API 整体替换：名字与「带基准的那个参数」都不在了
+# ============================================================================
+
+query I
+SELECT count(*) FROM duckdb_functions()
+WHERE function_name IN ('qs_html_report', 'qs_html_report_by_prices', 'qs_html_report_benchmark');
+----
+0
+
+statement error
+SELECT qs_html_report(1, 2, 3);
+----
+Scalar Function with name qs_html_report does not exist
+
+# 基准不再占一个参数位置：5 参没有签名（基准是配置里的一个键）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, 'AAA', NULL) FROM daily_returns;
+----
+No function matches the given name and argument types
+
+# 配置的 struct 字面量必须显式 cast（匿名 STRUCT 的字段数与配置类型不同）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'title': 'My Fund'}) FROM daily_returns;
+----
+No function matches the given name and argument types
+
+# ============================================================================
+# 基准相关的三条
+# ============================================================================
+
+# 基准 symbol 在数据里不存在 → 报错，而不是静默出一份没有基准的报告
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'benchmark': 'NOPE'}::qs_html_report_options)
+FROM daily_returns;
+----
+no row for the benchmark symbol 'NOPE'
+
+# 基准取值必须全局一致：配置是按行求值的，但不允许不同标的指向不同基准
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'benchmark': CASE WHEN symbol = 'AAA' THEN 'AAA' ELSE 'BBB' END}::qs_html_report_options)
+FROM daily_returns;
+----
+every symbol must use the same benchmark
+
+# benchmark 是空字符串：它匹配不到任何 symbol，属于配置写坏
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'benchmark': ''}::qs_html_report_options)
+FROM daily_returns;
+----
+benchmark must not be an empty string
+
+# 价格路径上的基准 symbol 同理
+statement error
+SELECT qs_html_reports_by_prices(symbol, trade_date, nav, {'benchmark': 'NOPE'}::qs_html_report_options)
+FROM nav_all;
+----
+no row for the benchmark symbol 'NOPE'
+
+# ============================================================================
+# 配置取值的错误路径
+# ============================================================================
+
+# 两个标的写同一个路径 → 报错，而不是后写的静默盖掉先写的
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'output': '__TEST_DIR__/dfn_qs_one.html'}::qs_html_report_options)
+FROM daily_returns;
+----
+both write to
+
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'periods_per_year': 0}::qs_html_report_options)
+FROM daily_returns;
+----
+periods_per_year must be greater than 0
+
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return, {'output': ''}::qs_html_report_options)
+FROM daily_returns;
+----
+output must not be an empty string
+
+# 路径里有 NUL 字节：转成 C 字符串时就失败，不进入文件系统
+# （只取一个标的：多个标的写同一个路径会先撞上「路径重复」那条报错）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'output': 'a' || chr(0) || 'b'}::qs_html_report_options)
+FROM daily_returns WHERE symbol = 'AAA';
+----
+contains a NUL byte
+
+# 浏览器只能打开本地文件：output 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
+# （这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
+statement error
+SELECT qs_html_reports(symbol, trade_date, daily_return,
+           {'output': 's3://bucket/report.html',
+            'open_in_browser': true}::qs_html_report_options)
+FROM daily_returns;
+----
+only local file paths can be opened in a browser
