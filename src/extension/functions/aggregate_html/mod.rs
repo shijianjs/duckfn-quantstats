@@ -9,7 +9,7 @@
 //
 //   qs_html_reports_by_prices(symbol, date, price, options)
 //
-// 两者都返回 `list<struct{symbol, benchmark, strategy_title, html, file_path}>`：**整张长表一次喂进来**
+// 两者都返回 `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>`：**整张长表一次喂进来**
 // （带 `symbol` 列，SQL 里不写 GROUP BY），函数内部按 symbol 分组，每个 symbol 一份完整报告。基准是配置
 // 里的 `benchmark` 键指出的**一个或多个 symbol**（表里 `symbol` 列的取值），它们只作输入、不出报告；
 // 因此「带基准」不需要额外参数、不需要 `list(...)`、也不需要 cross join。
@@ -47,9 +47,10 @@
 //
 //   qs_html_reports_by_prices(symbol, date, price, options)
 //
-// Both return `list<struct{symbol, benchmark, strategy_title, html, file_path}>`: a **whole long table per
-// call** (with a `symbol` column, no GROUP BY in SQL), grouped by symbol inside the function, one full report
-// per symbol. The benchmark is **one or more symbols** of that same table, named by the `benchmark` key in
+// Both return `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>`: a **whole
+// long table per call** (with a `symbol` column, no GROUP BY in SQL), grouped by symbol inside the function,
+// one full report per symbol. The benchmark is **one or more symbols** of that same table, named by the
+// `benchmark` key in
 // the options; they are input only and never reported on — so "with a benchmark" needs no extra argument, no
 // `list(...)` and no cross join.
 //

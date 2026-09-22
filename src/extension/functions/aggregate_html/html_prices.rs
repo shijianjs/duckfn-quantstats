@@ -9,7 +9,8 @@
 // 同一个名字下无法按类型分派。
 //
 // 其余一切 —— 一次调用处理整张长表、按 symbol 分组、基准是同一张表里的一个 symbol、
-// `list<struct{symbol, strategy_title, html, file_path}>` 的返回形状 —— 都与收益率路径相同。
+// `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>` 的返回形状 —— 都与
+// 收益率路径相同。
 //
 // Path 2/2: the price/NAV series.
 //
@@ -22,8 +23,8 @@
 // (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
 //
 // Everything else — a whole long table per call, grouping by symbol, the benchmark being a symbol of
-// that same table, the `list<struct{symbol, strategy_title, html, file_path}>` shape — matches the
-// return branch.
+// that same table, the `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>`
+// shape — matches the return branch.
 // ============================================================================
 
 use duckfn::{
@@ -107,10 +108,11 @@ pub(super) fn qs_html_reports_by_prices(
 }
 
 impl DuckAggregateState for HtmlPriceReportsState {
-    /// 与收益率路径同一个返回类型：`list<struct{symbol, strategy_title, html, file_path}>`。
+    /// 与收益率路径同一个返回类型：`list<struct{symbol, benchmark, strategy_title, benchmark_title, html,
+    /// file_path}>`。
     ///
-    /// The same return type as the return branch: `list<struct{symbol, strategy_title, html,
-    /// file_path}>`.
+    /// The same return type as the return branch: `list<struct{symbol, benchmark, strategy_title,
+    /// benchmark_title, html, file_path}>`.
     type Output = Vec<QuantstatsHtmlReport>;
 
     fn simple_combine(&mut self, other: &Self) {

@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_reports.test
-# description: qs_html_reports 收益率路径：单签名（4 参）、结果形状 list<struct{symbol, benchmark, strategy_title, html, file_path}>、无基准时 benchmark 为 NULL、一个标的对多个基准出多份（按基准列表顺序）、基准只作输入、显示名退回 symbol、NULL 行跳过、空输入 NULL、多线程 combine 一致性、output_dir 自动命名与路径回填、两次调用互不覆盖
+# description: qs_html_reports 收益率路径：单签名（4 参）、结果形状 list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>、无基准时 benchmark / benchmark_title 为 NULL、一个标的对多个基准出多份（按基准列表顺序）、基准只作输入、两个显示名回显且缺项各自退回 symbol、NULL 行跳过、空输入 NULL、多线程 combine 一致性、output_dir 自动命名与路径回填、两次调用互不覆盖
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -61,7 +61,7 @@ FROM range(160) t(i);
 query T
 SELECT typeof(qs_html_reports(symbol, trade_date, daily_return, NULL)) FROM daily_returns;
 ----
-STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path VARCHAR)[]
+STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, html VARCHAR, file_path VARCHAR)[]
 
 # 不带基准：每个 symbol 一行、benchmark 为 NULL、顺序按 symbol 升序
 query T
@@ -105,7 +105,29 @@ query I
 SELECT count(*) FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
                    {'benchmark': ['SPX', 'NDX']}::qs_html_report_options)) AS r FROM daily_returns
-) WHERE (r).strategy_title = (r).symbol AND (r).file_path IS NULL AND length((r).html) > 1000;
+) WHERE (r).strategy_title = (r).symbol
+    AND (r).benchmark_title = (r).benchmark
+    AND (r).file_path IS NULL AND length((r).html) > 1000;
+----
+4
+
+# 基准显示名回显在结果里：写了 benchmark_title 就是它，缺项（列表短了）退回那一份的基准 symbol
+# （基准那两行也得在输入里，所以这里滤掉 BBB 而不是滤掉基准）
+query T
+SELECT array_to_string(list((r).benchmark || '=' || (r).benchmark_title), ' | ') FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'benchmark': ['SPX', 'NDX'],
+                    'benchmark_title': ['S&P 500']}::qs_html_report_options)) AS r
+    FROM daily_returns WHERE symbol <> 'BBB'
+);
+----
+SPX=S&P 500 | NDX=NDX
+
+# 没有基准时 benchmark 与 benchmark_title 一起是 NULL（单序列报告没有基准可指、也没有基准名）
+query I
+SELECT count(*) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
+) WHERE (r).benchmark IS NULL AND (r).benchmark_title IS NULL;
 ----
 4
 

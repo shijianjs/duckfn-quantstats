@@ -132,14 +132,19 @@ benchmark symbol and extra entries are ignored — neither is an error.
 ### The result row type registers no named type
 
 `QuantstatsHtmlReport` in `html_report.rs` deliberately leaves `create_type` off: the aggregate's return type
-already carries the full anonymous `STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR, html
-VARCHAR, file_path VARCHAR)[]`, so SQL can read it by field name (`unnest` / `list_transform` / `[1].html`) — a
-type name on top would only add another surface to maintain.
+already carries the full anonymous `STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR,
+benchmark_title VARCHAR, html VARCHAR, file_path VARCHAR)[]`, so SQL can read it by field name (`unnest` /
+`list_transform` / `[1].html`) — a type name on top would only add another surface to maintain.
 
 The field names are the Rust field names verbatim (duckfn's `DuckStruct` derive has no field-level renaming)
-and none of the five is an SQL keyword, so DuckDB renders `typeof` without quotes. `benchmark` and `file_path`
-are the only `Option`s: `benchmark` is NULL for a single-series report (none configured), `file_path` is NULL
-when nothing was written, while the other three are always there.
+and none of the six is an SQL keyword, so DuckDB renders `typeof` without quotes. There are only three
+`Option`s: `benchmark` is NULL for a single-series report (none configured), `benchmark_title` goes with it
+(it is that report's benchmark's display name), and `file_path` is NULL when nothing was written — the other
+three are always there.
+
+Both display names are echoed into the row (`strategy_title` / `benchmark_title`): they are the very ones the
+legend and the file name used (each falling back to its own symbol), so printing or comparing them needs no
+HTML parsing.
 
 The same type doubles as `DuckAggregateState::Output = Vec<QuantstatsHtmlReport>` — duckfn's list write path
 (`create_writer_batch` / `write_valid` / `write_finish` in `duck_list.rs`) attaches a child writer and the

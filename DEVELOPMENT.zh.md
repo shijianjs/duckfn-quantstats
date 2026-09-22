@@ -113,13 +113,17 @@ SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `Retur
 ### 返回行类型不注册命名类型
 
 `html_report.rs` 的 `QuantstatsHtmlReport` **刻意不注册**命名类型（`create_type` 默认关闭）：聚合的返回
-类型本身就带着完整的匿名 `STRUCT(symbol VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path
-VARCHAR)[]`，SQL 里按字段名取用即可（`unnest` / `list_transform` / `[1].html`），再注册一个类型名只是
-多一份要维护的表面。
+类型本身就带着完整的匿名 `STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR,
+benchmark_title VARCHAR, html VARCHAR, file_path VARCHAR)[]`，SQL 里按字段名取用即可（`unnest` /
+`list_transform` / `[1].html`），再注册一个类型名只是多一份要维护的表面。
 
-字段名就是 Rust 字段名原样（duckfn 的 `DuckStruct` 派生不支持字段级改名），四个都不是 SQL 关键字，所以
-DuckDB 渲染 `typeof` 时不加引号。`file_path` 是唯一的 `Option<String>`：没落盘时它就是 NULL，其余三个
+字段名就是 Rust 字段名原样（duckfn 的 `DuckStruct` 派生不支持字段级改名），六个都不是 SQL 关键字，所以
+DuckDB 渲染 `typeof` 时不加引号。可空的只有三个：`benchmark` 在单序列报告（没配基准）时为 NULL，
+`benchmark_title` 跟着它（它就是那一份报告所用基准的显示名），`file_path` 在没落盘时为 NULL；其余三个
 字段一定存在。
+
+两个显示名（`strategy_title` / `benchmark_title`）都回显在结果行里：它们正是报告图例与文件名真正用的那
+两份（缺省时各退回自己的 symbol），要打印或比对时不必去 HTML 里抠。
 
 同一个类型也直接当 `DuckAggregateState::Output = Vec<QuantstatsHtmlReport>` 用 —— duckfn 写 LIST 的
 路径（`duck_list.rs` 的 `create_writer_batch` / `write_valid` / `write_finish`）会挂上子写入器，元素按

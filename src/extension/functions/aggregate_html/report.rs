@@ -14,11 +14,12 @@
 //
 // 基准的序列每个只转换一次（价格路径上是差分），所有标的共用；被指为基准的 symbol 只作输入、不出报告。
 //
-// # 两个显示名：解析一次，两个地方用
+// # 两个显示名：解析一次，三个地方用
 //
 // 每份报告要两个名字：策略显示名与**那一份报告所用基准**的显示名（`benchmark_title` 按下标对齐
-// `benchmark`，缺项退回基准 symbol）。它们在同一个地方解析一次，然后同时交给报告与文件名
-// （`ReportTarget` → naming.rs），所以目录里的文件名与报告里的图例不会各说各话。
+// `benchmark`，缺项退回基准 symbol）。它们在同一个地方解析一次，然后同时交给报告、文件名
+// （`ReportTarget` → naming.rs）与返回行（`strategy_title` / `benchmark_title`），所以目录里的文件名、
+// 报告里的图例与结果行不会各说各话 —— 显示名回显在结果里，看的人也就不必去 HTML 里抠。
 //
 // # 顺序与落盘
 //
@@ -28,7 +29,7 @@
 //      顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器 —— 配置错误因此发生在渲染
 //      之前，不会白渲染几十份几百 KB 的报告；
 //   2. 再逐个渲染、落盘、按需开浏览器；
-//   3. 最后把「实际写到哪」回填进返回行（没落盘就是 NULL）。
+//   3. 最后把「实际写到哪」与两个显示名落进返回行（没落盘时 `file_path` 是 NULL）。
 //
 // 文件名不给用户填（见 [`ReportTarget`]）：`output_dir` 只给目录，名字由 naming.rs 按「时间 + 策略名 +
 // 基准名 + 随机尾缀」生成，`report_path` 再确认它没被占用 —— 于是不管一个标的对几个基准、一次调用写多少
@@ -58,12 +59,13 @@
 // Each benchmark's series is converted exactly once (differenced first, on the price branch) and shared by
 // every instrument; a symbol named as a benchmark is input only and gets no report.
 //
-// # The two display names: resolved once, used twice
+// # The two display names: resolved once, used three times
 //
 // Every report needs two names: the strategy's and **that very report's benchmark's** (`benchmark_title` pairs
 // up with `benchmark` by index and falls back to the benchmark symbol). They are resolved in one place and
-// then handed to both the report and the file name (`ReportTarget` → naming.rs), so the name on disk and the
-// legend inside the report cannot drift apart.
+// then handed to the report, to the file name (`ReportTarget` → naming.rs) and to the returned row
+// (`strategy_title` / `benchmark_title`), so the name on disk, the legend inside the report and the result
+// row cannot drift apart — and with the names echoed back nobody has to dig through the HTML to read them.
 //
 // # Order and persistence
 //
@@ -74,7 +76,8 @@
 //      configuration is therefore reported before anything is rendered, rather than after dozens of
 //      few-hundred-KB reports;
 //   2. render, persist and open each one;
-//   3. fill the actual path into the returned row (NULL when nothing was written).
+//   3. put the actual path and the two display names into the returned row (`file_path` is NULL when nothing
+//      was written).
 //
 // The file name is not the caller's to type (see [`ReportTarget`]): `output_dir` only takes a directory and
 // naming.rs builds the name from "time + strategy + benchmark + random suffix", which `report_path` then
@@ -167,13 +170,14 @@ struct PlannedReport<'a> {
     ///
     /// That benchmark's series (born and gone with `benchmark`), attached to the report when it is rendered.
     benchmark_series: Option<&'a ReturnSeries>,
-    /// 报告与文件名里用的策略显示名。
+    /// 报告、文件名与返回行里用的策略显示名。
     ///
-    /// The strategy display name used in the report and the file name.
+    /// The strategy display name used in the report, the file name and the returned row.
     strategy_title: String,
-    /// 报告与文件名里用的基准显示名；没有基准时是 `None`。
+    /// 报告、文件名与返回行里用的基准显示名；没有基准时是 `None`。
     ///
-    /// The benchmark display name used in the report and the file name; `None` without a benchmark.
+    /// The benchmark display name used in the report, the file name and the returned row; `None` without a
+    /// benchmark.
     benchmark_title: Option<String>,
     /// 这个标的的序列。
     ///
@@ -341,6 +345,7 @@ fn render_reports(
             symbol: planned.symbol.to_owned(),
             benchmark: planned.benchmark.map(str::to_owned),
             strategy_title: planned.strategy_title.clone(),
+            benchmark_title: planned.benchmark_title.clone(),
             html: report,
             // 回填的就是这一次真正写出去的路径：`output_dir` 下那个自动命名的文件，或只在浏览器里
             // 打开时的临时文件，两者都没配则为 NULL。

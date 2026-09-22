@@ -105,7 +105,7 @@ FROM prices;
 
 | 签名 | 输入 | 返回 |
 | --- | --- | --- |
-| `qs_html_reports(symbol, date, period_return, options)` | 收益率序列 | `STRUCT(symbol, benchmark, strategy_title, html, file_path)[]` |
+| `qs_html_reports(symbol, date, period_return, options)` | 收益率序列 | `STRUCT(symbol, benchmark, strategy_title, benchmark_title, html, file_path)[]` |
 | `qs_html_reports_by_prices(symbol, date, price, options)` | 价格/净值序列 | 同上；函数内部先换算成收益率 |
 
 要点：
@@ -113,7 +113,7 @@ FROM prices;
 - **一次调用出整套报告。** SQL 里**不写 `GROUP BY`**：`symbol` 列就是分组依据，函数内部按它分组，
   每个 symbol 渲染一份完整报告。100 个标的就是 100 份完整报告（每份内嵌十几张 SVG），耗时与内存随标的
   数线性增长 —— 这是预期行为，不是性能 bug。
-- **返回的是一个数组**，每个元素是 `{symbol, benchmark, strategy_title, html, file_path}`。
+- **返回的是一个数组**，每个元素是 `{symbol, benchmark, strategy_title, benchmark_title, html, file_path}`。
   `unnest(...)` 把它铺成行，`list_transform(...)` 只取需要的字段，也可以 `(qs_html_reports(...))[1].html`
   直接取某一份。
 - **顺序按 `symbol` 升序**，同一标的内按 `benchmark` 列表给出的顺序；与输入顺序、线程数都无关。
@@ -182,7 +182,7 @@ FROM nav_table;
 
 两个显示名是例外，也是这套 API 能一次出几十份报告的前提：默认的 `'Strategy'` 对每一份都一样，图例里
 认不出谁是谁，浏览器临时文件名也会撞成同一串前缀 —— 所以缺省时退回数据里那个名字（symbol / 基准
-symbol），报告里的图例、临时文件名与结果里的 `strategy_title` 因此始终一致。
+symbol），报告里的图例、临时文件名与结果里的 `strategy_title` / `benchmark_title` 因此始终一致。
 
 **配置是按行求值的一列**，每个 symbol 只取用一次（该 symbol 第一行出现的那份），所以：
 

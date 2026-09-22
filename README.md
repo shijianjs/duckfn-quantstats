@@ -114,7 +114,7 @@ Two aggregate function names, **one signature each**, folding one long table int
 
 | Signature | Input | Returns |
 | --- | --- | --- |
-| `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, benchmark, strategy_title, html, file_path)[]` |
+| `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, benchmark, strategy_title, benchmark_title, html, file_path)[]` |
 | `qs_html_reports_by_prices(symbol, date, price, options)` | price/NAV series | the same; returns are derived inside the function |
 
 The essentials:
@@ -123,7 +123,8 @@ The essentials:
   the grouping key, the function splits by it internally and renders one full report per symbol. A hundred
   instruments mean a hundred full reports (each with a dozen inline SVGs), so time and memory grow linearly
   with the number of instruments — that is expected, not a performance bug.
-- **The result is a list**, each element being `{symbol, benchmark, strategy_title, html, file_path}`:
+- **The result is a list**, each element being
+  `{symbol, benchmark, strategy_title, benchmark_title, html, file_path}`:
   `unnest(...)` spreads it into rows, `list_transform(...)` picks fields, or `(qs_html_reports(...))[1].html`
   grabs one report directly.
 - **The order is ascending by `symbol`**, and within one symbol the order of the `benchmark` list; it is
@@ -203,7 +204,7 @@ The two display names are the exception, and they are what makes dozens of repor
 default `'Strategy'` is identical for every one of them, so the legend could not tell them apart and the
 temporary file names would share one useless prefix. They therefore fall back to a name that comes from the
 data (the symbol, the benchmark symbol), which keeps the report legend, the temporary file name and the
-returned `strategy_title` in agreement.
+returned `strategy_title` / `benchmark_title` in agreement.
 
 **The options are a per-row column** and each symbol uses the copy from its first row, hence:
 

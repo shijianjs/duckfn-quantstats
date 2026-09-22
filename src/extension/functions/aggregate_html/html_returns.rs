@@ -5,7 +5,8 @@
 // 分组，每个 symbol 一份完整报告。SQL 里**不需要 GROUP BY**（分组是函数的事），也**不需要 ORDER BY**
 // （排序是报告自己的事）。
 //
-// 返回值是 `list<struct{symbol, strategy_title, html, file_path}>`，见 types/html_report.rs。
+// 返回值是 `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>`，见
+// types/html_report.rs。
 //
 // 基准是同一张表里的一个 symbol（配置里的 `benchmark` 键），它只作输入、不出报告；配对与渲染都在
 // report.rs 的收尾里统一做。价格路径在 html_prices.rs，除了「收进来的是价格、要先差分」以外完全一样。
@@ -16,7 +17,8 @@
 // options) goes in, the function groups by symbol internally, one full report per symbol. SQL needs
 // **no GROUP BY** (grouping is the function's job) and **no ORDER BY** (ordering is the report's).
 //
-// The return value is `list<struct{symbol, strategy_title, html, file_path}>`, see types/html_report.rs.
+// The return value is `list<struct{symbol, benchmark, strategy_title, benchmark_title, html, file_path}>`, see
+// types/html_report.rs.
 //
 // The benchmark is a symbol of that same table (the `benchmark` key in the options); it is input only
 // and gets no report. Pairing and rendering happen in one place, the tail in report.rs. The price
@@ -106,10 +108,11 @@ pub(super) fn qs_html_reports(
 }
 
 impl DuckAggregateState for HtmlReportsState {
-    /// 一次调用返回整套报告：`list<struct{symbol, strategy_title, html, file_path}>`。
+    /// 一次调用返回整套报告：`list<struct{symbol, benchmark, strategy_title, benchmark_title, html,
+    /// file_path}>`。
     ///
-    /// One call returns the whole set of reports: `list<struct{symbol, strategy_title, html,
-    /// file_path}>`.
+    /// One call returns the whole set of reports: `list<struct{symbol, benchmark, strategy_title,
+    /// benchmark_title, html, file_path}>`.
     type Output = Vec<QuantstatsHtmlReport>;
 
     fn simple_combine(&mut self, other: &Self) {
