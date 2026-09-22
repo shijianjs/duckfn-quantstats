@@ -29,17 +29,18 @@ SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quant
 -- 已经 clone 了仓库？直接 read_csv('demo/prices.csv')
 ```
 
-上面几条都往 `reports` 目录里写报告 —— **目录要先建好**（`mkdir reports`，函数不会替你创建）。
+前两条用**浏览器打开**（不写 `output_dir`，报告落在系统临时文件里、路径回填在 `file_path`）；要落盘的
+那几条用 `'./'`（当前目录）—— 目录不会自动创建，写一个不存在的目录会在第一次跑的时候就报错。
 
 ```sql
--- 1. 整张表一次调用：每个标的各一份报告，各写各的文件（output_dir 只给目录，文件名由函数生成）
+-- 1. 整张表一次调用：每个标的各一份报告，生成后直接用系统默认浏览器打开
 SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'title': symbol,
                 'strategy_title': symbol,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'open_in_browser': true}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -53,13 +54,14 @@ FROM (
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'open_in_browser': true}::qs_html_report_options)) AS r
     FROM prices
 );
 
 -- 3. 一个标的对多个基准：每个基准一份报告（`benchmark` 是列表，顺序就是报告顺序）
 --    这里把 SPX 与 GOOGL 都当基准，所以出报告的就只剩 MSFT —— 每个基准一份
 --    （「一个基准多个标的」是另一回事：那只是每个标的各出一份，不必列成列表）
+--    output_dir 只给目录，文件名由函数生成；'./' 就是当前目录（一定存在）
 SELECT (r).symbol, (r).benchmark, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
@@ -68,7 +70,7 @@ FROM (
                 'benchmark_title': ['S&P 500', 'Alphabet'],   -- 按下标对齐 benchmark
                 'title': symbol,
                 'strategy_title': symbol,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -92,7 +94,7 @@ FROM (
 -- 报告清单：只回 symbol、基准与落盘路径
 SELECT list_transform(
            qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
            lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM prices;
 ```
@@ -125,7 +127,7 @@ FROM prices;
 - 配置参数 `options` **固定在参数列表最后**且必给 —— 不需要配置就写 `NULL`。它是**可空**配置，类型是
   加载期建好的命名 STRUCT 类型 `qs_html_report_options`。
 - 配置**按行求值**（见 [配置字段](#配置字段)），所以「每个标的一套标题 / 显示名 / 落盘目录」就是用
-  `symbol` 列把配置拼出来，例如 `{'title': symbol, 'output_dir': 'reports'}`。
+  `symbol` 列把配置拼出来，例如 `{'title': symbol, 'output_dir': './'}`。
 - SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给报告自己去排。
 - 名字为什么是两个：`(symbol, date, price, options)` 与 `(symbol, date, period_return, options)` 的类型
   序列完全一样（`VARCHAR, DATE, DOUBLE, STRUCT`），同一个名字下无法分派。
@@ -190,7 +192,7 @@ SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'title': symbol,
             'strategy_title': symbol,
-            'output_dir': 'reports'}::qs_html_report_options)) AS report
+            'output_dir': './'}::qs_html_report_options)) AS report
 FROM prices;
 ```
 
@@ -235,7 +237,7 @@ FROM nav_table;
 -- 顺带落盘（只给目录，文件名函数自己拼；走 DuckDB 的 VFS，所以 wasm 下同样可用）
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'title': symbol, 'output_dir': 'reports'}::qs_html_report_options)) AS report
+           {'title': symbol, 'output_dir': './'}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- 落盘之后直接用浏览器打开（不写 output_dir 就先落一个临时文件，再打开它；每份报告开一个标签页）
@@ -247,7 +249,7 @@ FROM daily_returns;
 -- 只要清单，不要 HTML（一份报告几百 KB，铺成行会很吵）
 SELECT list_transform(
            qs_html_reports(symbol, trade_date, daily_return,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
            lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM daily_returns;
 ```
@@ -306,7 +308,7 @@ FROM daily_returns;
 ```sql
 SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
     SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
 ```

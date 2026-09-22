@@ -33,19 +33,20 @@ SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quant
 -- cloned the repo? then simply read_csv('demo/prices.csv')
 ```
 
-All of the blocks below write their reports into a `reports` directory — **create it first**
-(`mkdir reports`; the function does not create it for you).
+The first two blocks **open the reports in your browser** (no `output_dir`, so they go to temporary files and
+their paths come back in `file_path`); the ones that write files use `'./'` (the current directory) — the
+directory is never created for you, and pointing at one that does not exist fails on the very first run.
 
 ```sql
--- 1. The whole table in one call: one report per instrument, each written to its own file
---    (output_dir only takes the directory; the function names the files)
+-- 1. The whole table in one call: one report per instrument, opened in the system default browser
+--    once it has been generated
 SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'title': symbol,
                 'strategy_title': symbol,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'open_in_browser': true}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -60,7 +61,7 @@ FROM (
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'open_in_browser': true}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -68,6 +69,8 @@ FROM (
 --    and its order is the order of the reports). Naming SPX and GOOGL here leaves MSFT as the only
 --    instrument that gets reports — one per benchmark. ("Several instruments against one benchmark"
 --    is a different thing: that is just one report per instrument and needs no list.)
+--    output_dir only takes the directory, the function names the files; './' is the current directory
+--    (which always exists).
 SELECT (r).symbol, (r).benchmark, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
@@ -76,7 +79,7 @@ FROM (
                 'benchmark_title': ['S&P 500', 'Alphabet'],   -- paired with `benchmark` by index
                 'title': symbol,
                 'strategy_title': symbol,
-                'output_dir': 'reports'}::qs_html_report_options)) AS r
+                'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -100,7 +103,7 @@ is the list of reports, `list_transform` picks just the fields you need:
 -- The report list: symbol, benchmark and written path only
 SELECT list_transform(
            qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
            lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM prices;
 ```
@@ -138,7 +141,7 @@ The essentials:
   a **nullable** config whose type is the named STRUCT `qs_html_report_options`, created at load time.
 - The options are **evaluated per row** (see [Config fields](#config-fields)), which is exactly how "each
   instrument gets its own title and display name" works: build the struct out of the `symbol` column, e.g.
-  `{'title': symbol, 'output_dir': 'reports'}`.
+  `{'title': symbol, 'output_dir': './'}`.
 - **No `ORDER BY` is needed**: the aggregate only concatenates and lets the report sort by date.
 - Why two names: `(symbol, date, price, options)` and `(symbol, date, period_return, options)` have exactly
   the same type sequence (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
@@ -211,7 +214,7 @@ SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'title': symbol,
             'strategy_title': symbol,
-            'output_dir': 'reports'}::qs_html_report_options)) AS report
+            'output_dir': './'}::qs_html_report_options)) AS report
 FROM prices;
 ```
 
@@ -259,7 +262,7 @@ FROM nav_table;
 -- through DuckDB's VFS, so this works on wasm too)
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'title': symbol, 'output_dir': 'reports'}::qs_html_report_options)) AS report
+           {'title': symbol, 'output_dir': './'}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- Write them and open them in your browser (with no 'output_dir' each report goes to a temp file
@@ -272,7 +275,7 @@ FROM daily_returns;
 -- Just the list, no HTML (a report is a few hundred KB, spreading them into rows gets noisy)
 SELECT list_transform(
            qs_html_reports(symbol, trade_date, daily_return,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
            lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM daily_returns;
 ```
@@ -337,7 +340,7 @@ The `file_path` in each returned row is the path that very call wrote to (`NULL`
 ```sql
 SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
     SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
 ```
