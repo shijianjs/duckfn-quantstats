@@ -39,7 +39,7 @@ WITH benchmark AS (
 )
 SELECT qs_html_report_by_prices(
            p.date, p.price, b.series,
-           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04}::qs_html_report_options) AS html
+           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04, 'open_in_browser': true}::qs_html_report_options) AS html
 FROM prices p, benchmark b
 WHERE p.symbol = 'MSFT';
 
