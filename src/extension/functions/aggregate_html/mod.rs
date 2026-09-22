@@ -30,7 +30,8 @@
 //   series.rs         内部点表示、日期换算、序列构造、价格差分
 //   slots.rs          参数槽：DuckLazySlot 的用法，以及基准列表的报错与归一化
 //   report.rs         收尾：点 → ReturnSeries → 渲染 HTML、落盘、按需打开浏览器
-//   browser.rs        用系统默认浏览器打开报告：临时文件名与各平台的启动命令（wasm 下整个功能被忽略）
+//   browser.rs        用系统默认浏览器打开报告（tempfile 建临时文件、sanitize-filename 管合法文件名、
+//                     open 负责启动；wasm 下整个功能被忽略）
 //
 // Two SQL names, four aggregate overloads.
 //
@@ -68,8 +69,9 @@
 //                     normalisation
 //   report.rs         the tail: points → ReturnSeries → rendered HTML, persisted through DuckDB's VFS and
 //                     opened in a browser when the configuration asks for either
-//   browser.rs        opening the report in the system default browser: the temporary file name and the
-//                     per-platform launch command (the whole feature is ignored on wasm)
+//   browser.rs        opening the report in the system default browser (tempfile creates the temporary file,
+//                     sanitize-filename owns the legal-file-name rules, open starts the browser; the whole
+//                     feature is ignored on wasm)
 // ============================================================================
 
 mod html_prices;

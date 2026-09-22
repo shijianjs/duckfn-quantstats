@@ -216,15 +216,21 @@ DuckDB 的 C API 没有 truncate（`DUCKDB_FILE_FLAG_CREATE` 只表示「需要�
 
 - 写了 `output`：先落盘，再打开那个文件；
 - 没写：先把报告落到系统临时目录里的
-  `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html`。前缀是给人看的 —— 时间（因此按名字排序临时
-  目录，排出来正好是时间顺序）、`strategy_title`（没写就退回 `title`）与 `benchmark_title`，其中文件名
-  里出现不了的字符换成 `_`；随机尾缀保证同一秒里连着出几份报告也不会互相覆盖；`.html` 后缀则让系统把
-  文件交给浏览器渲染，而不是当成下载；
+  `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html`，文件由
+  [tempfile](https://crates.io/crates/tempfile) 新建。前缀是给人看的 —— 时间（因此按名字排序临时目录，
+  排出来正好是时间顺序）、`strategy_title`（没写就退回 `title`）与 `benchmark_title`；这两段显示名过一遍
+  [sanitize-filename](https://crates.io/crates/sanitize-filename)，文件名的合法性（非法字符、控制字符、
+  Windows 保留设备名、结尾的点与空格）由它按规则处理、换成 `_`，本扩展只在其上补两条自己的策略：空格并
+  成 `_`、每段最多 32 个字符（名字里有两段，而平台上限是 255）。随机尾缀、`.html` 后缀（决定系统把它交给
+  浏览器渲染而不是当成下载）以及「这个名字当时一定是空的」都由 tempfile 负责，所以既不会覆盖已有文件，
+  同一秒里连着出几份报告也不会撞名；
 - `output` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种路径。
   这个检查发生在渲染**之前**。
 
-它只负责「把浏览器叫起来」：报告已经落盘了，所以既不等待浏览器、也不关心浏览器怎么处理这个文件。唯一会
-报错的情形是启动器本身起不来（比如系统里没有 `xdg-open`）。
+「把浏览器叫起来」是 [open](https://crates.io/crates/open) 的事，而且用的是不阻塞的 `that_detached`：
+报告已经落盘了，所以这次查询既不等待浏览器、也不关心浏览器怎么处理这个文件。Windows 上就是一次
+`ShellExecute` 调用（开了 `shellexecute-on-windows`，不用它默认的那条 PowerShell 路线）；macOS 与其他
+平台则是 `open` / `xdg-open` 加上它自带的后备序列。唯一会报错的情形是启动器本身起不来。
 
 这个选项是为单份报告准备的。`GROUP BY` 下每个分组都会被依次打开 —— 而且没写 `output` 时每个分组各自落
 一个临时文件，至少不会互相覆盖。
@@ -235,9 +241,11 @@ DuckDB 的 C API 没有 truncate（`DUCKDB_FILE_FLAG_CREATE` 只表示「需要�
 这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
 文件系统）。
 
-`open_in_browser` 是唯一一处**有意保留**的平台分支：wasm 构建里没有可以启动的浏览器进程（就是
-`browser.rs`，本扩展仅剩的平台相关代码），所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时
-文件。报告字符串原样返回给宿主，展示是宿主页面的事：blob URL + `window.open`、`<iframe>`，或者别的。
+`open_in_browser` 是唯一一处**有意保留**的平台分支，也是本扩展仅剩的平台相关代码（`browser.rs`）：wasm
+构建里没有可以启动的浏览器进程，所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时文件。报告
+字符串原样返回给宿主，展示是宿主页面的事：blob URL + `window.open`、`<iframe>`，或者别的。它背后那三个
+crate 声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下，wasm 构建连编都不编它们 ——
+这其实是硬要求：`open` 根本没有 emscripten 的实现，编不过。
 
 `just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
 能正常编过；运行时行为由 DuckDB 的 VFS 决定，而不是由本扩展决定。
@@ -266,6 +274,10 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
   一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两个重载都基于它，
   不自己重算指标 —— 那会与报告里的数字形成两套真相。
+- [open](https://crates.io/crates/open)、[tempfile](https://crates.io/crates/tempfile) 与
+  [sanitize-filename](https://crates.io/crates/sanitize-filename)：`open_in_browser` 的三件事 —— 把浏览器
+  叫起来、新建一个不重名的临时文件、以及知道平台认哪些文件名。**只用于非 wasm 目标**（见上面的
+  WebAssembly 一节），所以它们挂在 target 专属的依赖表里，而不是主依赖表。
 - [chrono](https://crates.io/crates/chrono)：`ReturnSeries` 要的是 `NaiveDate`，而 duckfn 的 `DuckDate`
   只存「自 1970-01-01 起的天数」，换算在扩展里做。
 

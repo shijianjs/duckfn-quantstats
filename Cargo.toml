@@ -74,3 +74,52 @@ quantstats-rs = "0.1.0"
 # `DuckDate` only stores days since 1970-01-01 — the conversion is on us.
 # quantstats-rs depends on chrono 0.4 as well, so both resolve to the same version.
 chrono = "0.4"
+
+# 下面三个只服务配置里的 `open_in_browser`（用系统默认浏览器打开报告），各管一段：
+#
+#   Browser::temporary_file 用 tempfile 建临时文件、用 sanitize-filename 管显示名那两段，
+#   Browser::open_report 用 open 把浏览器叫起来。
+#
+# 它们被限定在**非 wasm 目标**上，一半是取舍、一半是硬约束：wasm 构建里没有浏览器进程可以启动（那里报告
+# 字符串原样返回宿主、这条功能整个被忽略），而 `open` 在 emscripten 上根本编不过（它没有那个平台的实现）。
+# 于是 wasm 下这三个 crate 连编都不用编 —— 平台相关的取舍集中在一处，而不是散落成 `#[cfg]`。
+#
+# The three crates below only serve the `open_in_browser` option (opening the report in the system default
+# browser), and each covers one part of it: `Browser::temporary_file` uses tempfile for the temporary file and
+# sanitize-filename for the two display names, while `Browser::open_report` uses open to start the browser.
+#
+# They are limited to **non-wasm targets**, part preference and part hard constraint: a wasm build has no
+# browser process to launch (the report string goes back to the host as it is and the whole feature is ignored
+# there), and `open` does not even compile for emscripten (it has no implementation for that platform). So on
+# wasm these crates are not compiled at all — the platform trade-off lives in one place instead of being
+# scattered across `#[cfg]`s.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+# open：用系统配置的默认程序打开路径或 URL。各平台入口（Windows 的 ShellExecute、macOS 的 `open`、
+# 类 Unix 的 `xdg-open` 及其后备序列）、参数引用、以及不给进程留僵尸子进程都由它负责，不必自己拼命令行。
+#
+# `shellexecute-on-windows` 让 Windows 上直接走 ShellExecute（原生 API，一次调用），而不是它默认的
+# 「起一个 PowerShell 辅助进程、失败再退到 explorer.exe」。前面那个 `insecure` 特性（换成 `cmd /c start`）
+# 恰恰是我们要躲开的老路子。
+#
+# open: opens a path or URL with the program configured on the system. It owns the per-platform entry points
+# (ShellExecute on Windows, `open` on macOS, `xdg-open` and its fallbacks on Unix), the argument quoting, and
+# not leaving zombie children behind — no hand-built command line.
+#
+# `shellexecute-on-windows` makes Windows go straight through ShellExecute (one native API call) instead of
+# its default "start a PowerShell helper, fall back to explorer.exe". The `insecure` feature (which switches
+# to `cmd /c start`) is exactly the old path we want to avoid.
+open = { version = "5.4", features = ["shellexecute-on-windows"] }
+# sanitize-filename：按 Node 同名库的规则清理文件名（非法字符、控制字符、Windows 保留设备名、结尾的点与
+# 空格），规则本身由它维护，我们只说「替换成什么」。
+#
+# sanitize-filename: cleans file names with the rules of the Node library of the same name (illegal and
+# control characters, Windows reserved device names, trailing dots and spaces). It maintains the rules; all we
+# say is what to substitute.
+sanitize-filename = "0.6"
+# tempfile：给出「有意义的前缀 + 随机尾缀」的临时文件名，并保证那个文件是新建的（不会覆盖已有文件）。
+# 临时目录、随机尾缀与撞名重试都不必自己写。
+#
+# tempfile: produces a temporary file name with a meaningful prefix and a random suffix, and guarantees that
+# file is newly created (nothing existing is overwritten). The temp directory, the random suffix and the retry
+# on collisions are all its job.
+tempfile = "3.27"

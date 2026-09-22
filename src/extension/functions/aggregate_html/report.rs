@@ -117,8 +117,8 @@ pub(super) fn render_with_benchmark(
 ///   打不开的东西，相对路径也得先补成绝对路径。
 ///
 /// 两者在 [`ReportTarget::new`] 里一次定下来，配置错误因此发生在渲染**之前**，不会白渲染一份几百 KB
-/// 的报告。`output` 没写而又要在浏览器里打开时，落盘路径退化成临时目录里的一个随机文件名（浏览器需要
-/// 一个真实存在的文件），名字由 `browser::temporary_report_path` 负责。
+/// 的报告。`output` 没写而又要在浏览器里打开时，落盘路径退化成 `browser::temporary_file` 建好的那个临时
+/// 文件（浏览器需要一个真实存在的文件）。
 ///
 /// Where a report goes: the path to write it to (possibly none) and whether to open it in a browser.
 ///
@@ -131,8 +131,8 @@ pub(super) fn render_with_benchmark(
 ///
 /// Both are settled in [`ReportTarget::new`], so a bad configuration is reported **before** anything is
 /// rendered rather than after a few hundred KB of work. When `output` is not set but the browser was asked
-/// for, the write target falls back to a randomly named file in the temp directory (a browser needs a file
-/// that actually exists) — `browser::temporary_report_path` names it.
+/// for, the write target falls back to the temporary file `browser::temporary_file` created (a browser needs
+/// a file that actually exists).
 pub(super) struct ReportTarget {
     /// 落盘路径，配置原样；`None` 表示不落盘。
     ///
@@ -150,6 +150,11 @@ impl ReportTarget {
     /// Resolve where the report goes from the configuration, validating the related option values on the way
     /// (whether `output` is an empty string, whether a non-local path could be opened at all).
     pub(super) fn new(options: &QuantstatsHtmlOptions) -> DuckResult<Self> {
+        // 先看要不要打开（wasm 下恒为 false）：它同时决定「要不要校验 `output` 能不能打开」与
+        // 「没有 `output` 时要不要先落一个临时文件」。
+        //
+        // Is the browser wanted at all (always false on wasm)? That one answer decides both whether `output`
+        // has to be openable and whether a temporary file is needed when it is unset.
         let open_in_browser = browser::is_requested(options);
 
         // 空字符串的 `output` 在这里就报掉（`output_path`）。
@@ -157,7 +162,11 @@ impl ReportTarget {
         // An empty `output` is reported right here, by `output_path`.
         let write_to = match options.output_path()? {
             Some(path) => Some(path.to_owned()),
-            None if open_in_browser => Some(browser::temporary_report_path(options)),
+            // 要在浏览器里打开却没有落盘路径：让 browser 那边先把临时文件建好，报告写进去就是。
+            //
+            // The browser was asked for but no path was configured: let the browser side create the
+            // temporary file first, then write the report into it.
+            None if open_in_browser => browser::temporary_file(options)?,
             None => None,
         };
 

@@ -236,17 +236,23 @@ file that actually exists, which decides the rest:
 
 - with `output` set, the report is written there and that file is opened;
 - without it, the report is written to a temporary file first —
-  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time (sorting the
-  temp directory by name therefore sorts it by time), then `strategy_title` (falling back to `title`) and
-  `benchmark_title`, with anything that cannot appear in a file name replaced by `_`. The random suffix keeps
-  two reports generated within the same second from overwriting each other, and the `.html` suffix is what
-  makes the browser render the file instead of downloading it;
+  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`, created by [tempfile](https://crates.io/crates/tempfile).
+  The prefix is for humans: the time (sorting the temp directory by name therefore sorts it by time), then
+  `strategy_title` (falling back to `title`) and `benchmark_title`. Those two display names go through
+  [sanitize-filename](https://crates.io/crates/sanitize-filename), which owns the file-name rules — illegal
+  and control characters, Windows reserved device names, trailing dots and spaces — and replaces what is left
+  with `_`; on top of that this extension collapses spaces into `_` and caps each part at 32 characters, since
+  a name holds two of them and the platform limit is 255. tempfile picks the random suffix, appends the
+  `.html` (what makes the browser render the file instead of downloading it), and guarantees the name was free
+  at that moment, so nothing existing is overwritten and two reports from the same second cannot collide;
 - an `output` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op, since
   no browser can open it. That is checked **before** the report is rendered.
 
-Launching is all it does: the report is already on disk, so it neither waits for the browser nor looks at what
-the browser does with the file. The only failure it reports is the launcher itself not starting (no `xdg-open`
-on the machine, say).
+Launching is [open](https://crates.io/crates/open)'s job, and it is the non-blocking `that_detached` variant:
+the report is already on disk, so the query neither waits for the browser nor looks at what the browser does
+with the file. On Windows that is a single `ShellExecute` call (the `shellexecute-on-windows` feature, rather
+than the crate's PowerShell-based default); on macOS and elsewhere it is `open` / `xdg-open` plus the crate's
+fallback list. The only failure reported is the launcher itself not starting.
 
 The option is meant for a single report. Under `GROUP BY` every group is opened in turn — and, without
 `output`, each group gets its own temporary file, so at least nothing overwrites anything.
@@ -258,10 +264,13 @@ the file lands wherever DuckDB's own file system points in that environment. Tha
 behaviour, where the path was dropped on `wasm32-unknown-emscripten` because `std::fs` has no writable file
 system there.
 
-`open_in_browser` is the one deliberate exception: a wasm build has no browser process to launch (that is
-`browser.rs`, the only platform-specific code left in the extension), so the option is ignored there — no
+`open_in_browser` is the one deliberate exception, and it is also the only platform-specific code left in the
+extension (`browser.rs`): a wasm build has no browser process to launch, so the option is ignored there — no
 browser, and no temporary file either. The report string comes back to the host as it is, and showing it is
-the host page's job: a blob URL and `window.open`, an `<iframe>`, or whatever else fits.
+the host page's job: a blob URL and `window.open`, an `<iframe>`, or whatever else fits. The three crates
+behind that option are declared under `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`, so a wasm
+build does not compile them at all — a hard requirement, in fact, since `open` has no emscripten
+implementation and would not build.
 
 `just build_wasm` (`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`)
 compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
@@ -295,7 +304,13 @@ module layout.
   so both overloads are built on it instead of recomputing metrics — that would create a second source of
   truth for numbers the report already prints.
 - [chrono](https://crates.io/crates/chrono): `ReturnSeries` wants `NaiveDate`, while duckfn's `DuckDate` only
-  stores days since 1970-01-01, so the conversion lives in the extension.
+  stores days since 1970-01-01, so the conversion lives in the extension; it also stamps the temporary file
+  name.
+- [open](https://crates.io/crates/open), [tempfile](https://crates.io/crates/tempfile) and
+  [sanitize-filename](https://crates.io/crates/sanitize-filename): `open_in_browser` — starting the browser,
+  creating a uniquely named temporary file, and knowing which file names the platform accepts. **Non-wasm
+  targets only** (see the WebAssembly section), which is why they live in a target-specific dependency table
+  instead of the main one.
 
 ## Building
 
