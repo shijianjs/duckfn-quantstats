@@ -2,7 +2,7 @@
 // 路径 3/4：价格/净值序列，单序列（3 参）
 // 路径 4/4：价格/净值序列，带基准（4 参）
 //
-// 两个重载共用 SQL 名字 `duckfn_quantstats_html_prices`，按参数个数分派。与收益率路径（html_returns.rs）
+// 两个重载共用 SQL 名字 `qs_html_report_by_prices`，按参数个数分派。与收益率路径（html_returns.rs）
 // 唯一的区别是：这里收进来的 `price` 是**价格/净值**，要在 `result()` 里先差分成收益率再渲染，
 // 差分规则见 series.rs 的 `prices_to_returns`。
 //
@@ -11,7 +11,7 @@
 //
 // Paths 3/4 and 4/4: the price/NAV series, single (3 arguments) and with a benchmark (4 arguments).
 //
-// Both overloads share the SQL name `duckfn_quantstats_html_prices` and are dispatched by argument count.
+// Both overloads share the SQL name `qs_html_report_by_prices` and are dispatched by argument count.
 // The only difference from the return branch (html_returns.rs) is that `price` here is a **price/NAV** and
 // has to be differenced into returns in `result()` before rendering; the rules live in
 // `prices_to_returns` in series.rs.
@@ -54,7 +54,7 @@ pub(crate) struct HtmlPriceState {
 /// 首个点丢弃，前值缺失/为 0 时跳过该点。点数不足 2 个（或全被跳过）时按「没有有效行」返回 `NULL`。
 ///
 /// ```sql
-/// SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL)
+/// SELECT fund, qs_html_report_by_prices(trade_date, nav, NULL)
 /// FROM nav_table GROUP BY fund;
 /// ```
 ///
@@ -65,8 +65,8 @@ pub(crate) struct HtmlPriceState {
 /// then `price_t / price_{t-1} - 1` per point, dropping the first and skipping a point whose predecessor
 /// is missing or zero. Fewer than two points (or everything skipped) is treated as "no valid row" and
 /// returns `NULL`.
-#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html_prices")]
-fn duckfn_quantstats_html_prices(
+#[duck_aggregate_function(overloads_name = "qs_html_report_by_prices")]
+fn qs_html_report_by_prices(
     date: DuckDate,
     price: f64,
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
@@ -116,9 +116,9 @@ pub(crate) struct HtmlPriceBenchmarkState {
 ///     SELECT list({'date': date, 'price': price}) AS series FROM benchmark_nav
 /// )
 /// SELECT fund,
-///        duckfn_quantstats_html_prices(
+///        qs_html_report_by_prices(
 ///            date, price, benchmark.series,
-///            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options)
+///            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::qs_html_report_options)
 /// FROM fund_nav, benchmark
 /// GROUP BY fund;
 /// ```
@@ -129,8 +129,8 @@ pub(crate) struct HtmlPriceBenchmarkState {
 /// This is the four-argument overload. `benchmark` is `STRUCT(date DATE, price DOUBLE)[]`, likewise built
 /// by `list(...)` over a single-row result and evaluated once. Both sides are differenced with the same
 /// rules as above, and only then go through `align_start_dates`.
-#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html_prices")]
-fn duckfn_quantstats_html_prices_with_benchmark(
+#[duck_aggregate_function(overloads_name = "qs_html_report_by_prices")]
+fn qs_html_report_by_prices_with_benchmark(
     date: DuckDate,
     price: f64,
     benchmark: Option<DuckLazy<Vec<QuantstatsPricePoint>>>,

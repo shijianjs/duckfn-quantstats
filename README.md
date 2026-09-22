@@ -20,16 +20,16 @@ date-ordered series into one complete quantstats HTML report (`VARCHAR`):
 
 | Signature | Input | Description |
 | --- | --- | --- |
-| `duckfn_quantstats_html(date, period_return, options)` | return series | Single-series report; one row per period. |
-| `duckfn_quantstats_html(date, period_return, benchmark, options)` | return series | Benchmark report; the benchmark is a **list passed in once**. |
-| `duckfn_quantstats_html_prices(date, price, options)` | price series | Single-series report; returns are derived inside the function. |
-| `duckfn_quantstats_html_prices(date, price, benchmark, options)` | price series | Benchmark report; both sides are prices. |
+| `qs_html_report(date, period_return, options)` | return series | Single-series report; one row per period. |
+| `qs_html_report(date, period_return, benchmark, options)` | return series | Benchmark report; the benchmark is a **list passed in once**. |
+| `qs_html_report_by_prices(date, price, options)` | price series | Single-series report; returns are derived inside the function. |
+| `qs_html_report_by_prices(date, price, benchmark, options)` | price series | Benchmark report; both sides are prices. |
 
 The first pair is registered as one function set via `overloads_name` and the second pair as another, so SQL
 sees exactly two names.
 
 - The options argument always comes **last** (data columns first, options last). It is a **nullable** config
-  whose type is the named STRUCT `duckfn_quantstats_html_options`, created at load time; `NULL` means "all
+  whose type is the named STRUCT `qs_html_report_options`, created at load time; `NULL` means "all
   defaults".
 - `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and `price` is that day's price or
   NAV (`DOUBLE`). A row whose `date` or value is `NULL` is **skipped entirely**, like any other SQL
@@ -54,7 +54,7 @@ sees exactly two names.
 
 ### Price (or NAV) series
 
-`duckfn_quantstats_html_prices` takes **prices** — NAVs count too — not percentage changes. The value column
+`qs_html_report_by_prices` takes **prices** — NAVs count too — not percentage changes. The value column
 is called `price`, borrowing Python quantstats' vocabulary: it lumps this kind of input under "prices" and
 runs `pct_change` on anything that looks like a price series. **A NAV is not strictly a price**, but
 quantstats does not distinguish either, so one key takes in all of these level values and users never have to
@@ -74,7 +74,7 @@ be computed in a subquery first:
 
 ```sql
 -- By hand: an extra subquery, and it is easy to get PARTITION BY / ORDER BY wrong
-SELECT fund, duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+SELECT fund, qs_html_report(trade_date, period_return, NULL) AS html
 FROM (
     SELECT fund, trade_date,
            nav / lag(nav) OVER (PARTITION BY fund ORDER BY trade_date) - 1.0 AS period_return
@@ -83,7 +83,7 @@ FROM (
 GROUP BY fund;
 
 -- With the shortcut: prices go straight in, grouping is plain GROUP BY
-SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html
+SELECT fund, qs_html_report_by_prices(trade_date, nav, NULL) AS html
 FROM nav_table
 GROUP BY fund;
 ```
@@ -101,7 +101,7 @@ it must be reduced to a single row and then cross-joined in.
 
 ### Config fields
 
-Every field of `duckfn_quantstats_html_options` is **nullable**; keys you omit take their default:
+Every field of `qs_html_report_options` is **nullable**; keys you omit take their default:
 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -125,13 +125,13 @@ Both collapse to 0 when `rf = 0` (the default).
 
 ```sql
 -- Single series, all-default options
-SELECT duckfn_quantstats_html(trade_date, daily_return, NULL) FROM daily_returns;
+SELECT qs_html_report(trade_date, daily_return, NULL) FROM daily_returns;
 
 -- Single series, only the keys you care about; a struct literal must be cast to the options type
 SELECT symbol,
-       duckfn_quantstats_html(
+       qs_html_report(
            trade_date, daily_return,
-           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
+           {'title': 'My Fund', 'rf': 0.02}::qs_html_report_options) AS html
 FROM daily_returns
 GROUP BY symbol;
 
@@ -141,23 +141,23 @@ WITH benchmark AS (
     FROM benchmark_returns
 )
 SELECT s.fund,
-       duckfn_quantstats_html(
+       qs_html_report(
            s.trade_date, s.daily_return, benchmark.series,
-           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
+           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::qs_html_report_options) AS html
 FROM strategy_returns s, benchmark
 GROUP BY s.fund;
 
 -- A price (or NAV) series: the shortcut saves writing the pct_change window
 SELECT fund,
-       duckfn_quantstats_html_prices(
-           trade_date, nav, {'title': 'My Fund'}::duckfn_quantstats_html_options) AS html
+       qs_html_report_by_prices(
+           trade_date, nav, {'title': 'My Fund'}::qs_html_report_options) AS html
 FROM nav_table
 GROUP BY fund;
 
 -- Also write the report to a file (through DuckDB's VFS, so this works on wasm too)
-SELECT duckfn_quantstats_html(
+SELECT qs_html_report(
            trade_date, daily_return,
-           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
+           {'title': 'My Fund', 'output': 'fund.html'}::qs_html_report_options)
 FROM daily_returns;
 ```
 
@@ -165,7 +165,7 @@ A scalar subquery works just as well as the cross join (verified), with the same
 
 ```sql
 SELECT fund,
-       duckfn_quantstats_html(
+       qs_html_report(
            trade_date, daily_return,
            (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
            NULL)
@@ -175,10 +175,10 @@ GROUP BY fund;
 
 ### Three behaviours worth knowing
 
-- **A struct literal must be cast with `::duckfn_quantstats_html_options`.** Without it the literal is an
+- **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
   anonymous `STRUCT(title VARCHAR)` whose field count differs from the options type, and DuckDB reports that
   no function matches — registering that named type is exactly what makes the cast possible.
-- **`'...'::JSON::duckfn_quantstats_html_options` must spell out all 7 keys** (DuckDB's JSON→STRUCT
+- **`'...'::JSON::qs_html_report_options` must spell out all 7 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
 - **The benchmark point keys are fixed to `date` / `period_return`** (duckfn's `DuckStruct` derive has no
   field renaming). They match the anonymous `STRUCT(date DATE, period_return DOUBLE)` exactly, so **no cast is
@@ -193,7 +193,7 @@ GROUP BY fund;
 | The benchmark argument is `NULL` | Error `the benchmark list must not be NULL` |
 | The benchmark is an empty list, or holds no valid point | Error `the benchmark list is empty` |
 | The benchmark list contains a whole-NULL element | Error `cannot read the benchmark list` |
-| `duckfn_quantstats_html_prices`: fewer than two benchmark prices, so no return can be derived | Error `the benchmark prices produced no returns` |
+| `qs_html_report_by_prices`: fewer than two benchmark prices, so no return can be derived | Error `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output = ''` | Error `output must not be an empty string` |
 | The `output` path contains a NUL byte | Error `contains a NUL byte` |

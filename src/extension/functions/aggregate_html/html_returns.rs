@@ -2,12 +2,12 @@
 // 路径 1/4：收益率序列，单序列（3 参）
 // 路径 2/4：收益率序列，带基准（4 参）
 //
-// 两个重载共用 SQL 名字 `duckfn_quantstats_html`，按参数个数分派；两侧的点都是**收益率**，
+// 两个重载共用 SQL 名字 `qs_html_report`，按参数个数分派；两侧的点都是**收益率**，
 // 不需要任何换算（价格路径在 html_prices.rs）。
 //
 // Paths 1/4 and 2/4: the return series, single (3 arguments) and with a benchmark (4 arguments).
 //
-// Both overloads share the SQL name `duckfn_quantstats_html` and are dispatched by argument count; the
+// Both overloads share the SQL name `qs_html_report` and are dispatched by argument count; the
 // points on both sides are **returns**, so no conversion is needed here (the price branch lives in
 // html_prices.rs).
 // ============================================================================
@@ -43,9 +43,9 @@ pub(crate) struct HtmlReportState {
 /// 与 SQL 聚合惯例一致）。
 ///
 /// ```sql
-/// SELECT duckfn_quantstats_html(date, period_return, NULL) FROM daily_returns;
+/// SELECT qs_html_report(date, period_return, NULL) FROM daily_returns;
 /// SELECT symbol,
-///        duckfn_quantstats_html(date, period_return, {'title': 'My Fund'}::duckfn_quantstats_html_options)
+///        qs_html_report(date, period_return, {'title': 'My Fund'}::qs_html_report_options)
 /// FROM daily_returns GROUP BY symbol;
 /// ```
 ///
@@ -54,8 +54,8 @@ pub(crate) struct HtmlReportState {
 ///
 /// This is the three-argument overload. A row whose `date` or `period_return` is NULL is skipped entirely
 /// — duckfn's existing semantics for non-`Option` arguments, and the usual SQL aggregate behaviour.
-#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html")]
-fn duckfn_quantstats_html(
+#[duck_aggregate_function(overloads_name = "qs_html_report")]
+fn qs_html_report(
     date: DuckDate,
     period_return: f64,
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
@@ -111,9 +111,9 @@ pub(crate) struct HtmlBenchmarkState {
 ///     FROM benchmark_returns
 /// )
 /// SELECT fund,
-///        duckfn_quantstats_html(
+///        qs_html_report(
 ///            date, period_return, benchmark.series,
-///            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options)
+///            {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::qs_html_report_options)
 /// FROM fund_returns, benchmark
 /// GROUP BY fund;
 /// ```
@@ -129,8 +129,8 @@ pub(crate) struct HtmlBenchmarkState {
 /// A NULL or empty `benchmark` (or one whose points all miss their date/value) is an **error**: this
 /// overload exists for the benchmark case, so a single-series report should simply omit the argument. An
 /// error is harder to misread than a silently benchmark-less report.
-#[duck_aggregate_function(overloads_name = "duckfn_quantstats_html")]
-fn duckfn_quantstats_html_with_benchmark(
+#[duck_aggregate_function(overloads_name = "qs_html_report")]
+fn qs_html_report_with_benchmark(
     date: DuckDate,
     period_return: f64,
     benchmark: Option<DuckLazy<Vec<QuantstatsReturnPoint>>>,

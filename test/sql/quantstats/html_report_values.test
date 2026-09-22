@@ -49,14 +49,14 @@ CREATE TABLE benchmark_returns AS SELECT * FROM (VALUES
 
 statement ok
 CREATE TABLE single_report AS
-SELECT duckfn_quantstats_html(trade_date, daily_return,
-    {'title': 'My Fund', 'strategy_title': 'My Fund', 'rf': 0.04}::duckfn_quantstats_html_options) AS html
+SELECT qs_html_report(trade_date, daily_return,
+    {'title': 'My Fund', 'strategy_title': 'My Fund', 'rf': 0.04}::qs_html_report_options) AS html
 FROM daily_returns;
 
 statement ok
 CREATE TABLE benchmark_report AS
-SELECT duckfn_quantstats_html(s.trade_date, s.daily_return, b.series,
-    {'title': 'My Fund', 'strategy_title': 'My Fund', 'benchmark_title': 'Bench', 'rf': 0.04}::duckfn_quantstats_html_options) AS html
+SELECT qs_html_report(s.trade_date, s.daily_return, b.series,
+    {'title': 'My Fund', 'strategy_title': 'My Fund', 'benchmark_title': 'Bench', 'rf': 0.04}::qs_html_report_options) AS html
 FROM daily_returns s,
      (SELECT list({'date': trade_date, 'period_return': daily_return}) AS series FROM benchmark_returns) b;
 
@@ -188,8 +188,8 @@ true
 
 statement ok
 CREATE TABLE other_report AS
-SELECT duckfn_quantstats_html(trade_date, daily_return,
-    {'title': 'Other', 'strategy_title': 'Alpha', 'rf': 0}::duckfn_quantstats_html_options) AS html
+SELECT qs_html_report(trade_date, daily_return,
+    {'title': 'Other', 'strategy_title': 'Alpha', 'rf': 0}::qs_html_report_options) AS html
 FROM daily_returns;
 
 query T

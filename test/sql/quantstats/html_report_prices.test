@@ -1,12 +1,12 @@
 # name: test/sql/quantstats/html_report_prices.test
-# description: duckfn_quantstats_html_prices 价格/净值路径：与「先在 SQL 里用 lag 差分再走收益率路径」的结果逐字节一致，以及带基准、前值为 0 时跳过、单点/空输入返回 NULL 与错误路径
+# description: qs_html_report_by_prices 价格/净值路径：与「先在 SQL 里用 lag 差分再走收益率路径」的结果逐字节一致，以及带基准、前值为 0 时跳过、单点/空输入返回 NULL 与错误路径
 # group: [quantstats]
 
 require duckfn_quantstats
 
 # 同一个名字下两个签名：3 参（单序列）与 4 参（带基准）
 query I rowsort
-SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html_prices';
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'qs_html_report_by_prices';
 ----
 3
 4
@@ -15,7 +15,7 @@ SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_qua
 # 的类型序列完全一样（都是 DATE, DOUBLE, STRUCT），同一个名字下无法分派。
 # 这里顺带钉住两个名字都在、各有两个签名。
 query I rowsort
-SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'duckfn_quantstats_html';
+SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'qs_html_report';
 ----
 3
 4
@@ -47,11 +47,11 @@ CREATE TABLE nav_table AS SELECT * FROM (VALUES
 
 statement ok
 CREATE TABLE report_from_prices AS
-SELECT duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html FROM nav_table;
+SELECT qs_html_report_by_prices(trade_date, nav, NULL) AS html FROM nav_table;
 
 statement ok
 CREATE TABLE report_from_returns AS
-SELECT duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+SELECT qs_html_report(trade_date, period_return, NULL) AS html
 FROM (
     SELECT trade_date, nav / lag(nav) OVER (ORDER BY trade_date) - 1.0 AS period_return
     FROM nav_table
@@ -68,13 +68,13 @@ true
 # ============================================================================
 
 query T
-SELECT duckfn_quantstats_html_prices(trade_date, nav, NULL) IS NULL AS is_null
+SELECT qs_html_report_by_prices(trade_date, nav, NULL) IS NULL AS is_null
 FROM nav_table WHERE trade_date > DATE '2100-01-01';
 ----
 true
 
 query T
-SELECT duckfn_quantstats_html_prices(trade_date, nav, NULL) IS NULL AS is_null
+SELECT qs_html_report_by_prices(trade_date, nav, NULL) IS NULL AS is_null
 FROM nav_table WHERE trade_date = DATE '2024-01-02';
 ----
 true
@@ -91,9 +91,9 @@ CREATE TABLE nav_with_zero AS SELECT * FROM (VALUES
 
 query T
 SELECT (SELECT md5(html) FROM (
-            SELECT duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html FROM nav_with_zero))
+            SELECT qs_html_report_by_prices(trade_date, nav, NULL) AS html FROM nav_with_zero))
      = (SELECT md5(html) FROM (
-            SELECT duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+            SELECT qs_html_report(trade_date, period_return, NULL) AS html
             FROM (VALUES
                 (DATE '2024-01-04', 110.0::DOUBLE / 100.0::DOUBLE - 1.0),
                 (DATE '2024-01-05', 121.0::DOUBLE / 110.0::DOUBLE - 1.0)
@@ -103,7 +103,7 @@ true
 
 # 输入乱序也没关系：函数内部先按日期排序再差分
 query T
-SELECT md5(duckfn_quantstats_html_prices(trade_date, nav, NULL))
+SELECT md5(qs_html_report_by_prices(trade_date, nav, NULL))
      = (SELECT md5(html) FROM report_from_prices) AS same_as_sorted
 FROM (SELECT * FROM nav_table ORDER BY trade_date DESC);
 ----
@@ -137,7 +137,7 @@ SELECT typeof(series) FROM benchmark_price_series;
 STRUCT(date DATE, price DOUBLE)[]
 
 query T
-SELECT length(duckfn_quantstats_html_prices(n.trade_date, n.nav, b.series, NULL)) > 1000 AS ok
+SELECT length(qs_html_report_by_prices(n.trade_date, n.nav, b.series, NULL)) > 1000 AS ok
 FROM nav_table n, benchmark_price_series b;
 ----
 true
@@ -153,10 +153,10 @@ FROM (
 
 query T
 SELECT (SELECT md5(html) FROM (
-            SELECT duckfn_quantstats_html_prices(n.trade_date, n.nav, b.series, NULL) AS html
+            SELECT qs_html_report_by_prices(n.trade_date, n.nav, b.series, NULL) AS html
             FROM nav_table n, benchmark_price_series b))
      = (SELECT md5(html) FROM (
-            SELECT duckfn_quantstats_html(s.trade_date, s.period_return, b.series, NULL) AS html
+            SELECT qs_html_report(s.trade_date, s.period_return, b.series, NULL) AS html
             FROM (SELECT trade_date, nav / lag(nav) OVER (ORDER BY trade_date) - 1.0 AS period_return
                   FROM nav_table) s,
                  benchmark_return_series b
@@ -177,7 +177,7 @@ FROM range(240) t(i);
 
 query I
 SELECT count(*) FROM (
-    SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html
+    SELECT fund, qs_html_report_by_prices(trade_date, nav, NULL) AS html
     FROM nav_multi GROUP BY fund
 ) WHERE length(html) > 1000;
 ----
@@ -189,14 +189,14 @@ SELECT count(*) FROM (
 
 # 基准为 NULL
 statement error
-SELECT duckfn_quantstats_html_prices(n.trade_date, n.nav, NULL, NULL)
+SELECT qs_html_report_by_prices(n.trade_date, n.nav, NULL, NULL)
 FROM nav_table n, benchmark_price_series b;
 ----
 the benchmark list must not be NULL
 
 # 基准为空列表
 statement error
-SELECT duckfn_quantstats_html_prices(n.trade_date, n.nav,
+SELECT qs_html_report_by_prices(n.trade_date, n.nav,
            []::STRUCT(date DATE, price DOUBLE)[], NULL)
 FROM nav_table n, benchmark_price_series b;
 ----
@@ -204,7 +204,7 @@ the benchmark list is empty
 
 # 基准价格只有一个点，差分不出任何收益率
 statement error
-SELECT duckfn_quantstats_html_prices(n.trade_date, n.nav,
+SELECT qs_html_report_by_prices(n.trade_date, n.nav,
            (SELECT list({'date': trade_date, 'price': nav}) FROM benchmark_nav WHERE trade_date = DATE '2024-01-02'),
            NULL)
 FROM nav_table n, benchmark_price_series b;
@@ -213,14 +213,14 @@ the benchmark prices produced no returns
 
 # 参数顺序不对
 statement error
-SELECT duckfn_quantstats_html_prices(NULL, n.trade_date, n.nav)
+SELECT qs_html_report_by_prices(NULL, n.trade_date, n.nav)
 FROM nav_table n, benchmark_price_series b;
 ----
 No function matches the given name and argument types
 
 # 收益率的那个名字不接受价格语义的字段名：基准列表的键必须是 period_return
 statement error
-SELECT duckfn_quantstats_html(n.trade_date, n.nav, b.series, NULL)
+SELECT qs_html_report(n.trade_date, n.nav, b.series, NULL)
 FROM nav_table n, benchmark_price_series b;
 ----
 No function matches the given name and argument types

@@ -17,15 +17,15 @@ quantstats HTML 报告（`VARCHAR`）：
 
 | 签名 | 输入 | 说明 |
 | --- | --- | --- |
-| `duckfn_quantstats_html(date, period_return, options)` | 收益率序列 | 单序列报告，一行 = 一个周期。 |
-| `duckfn_quantstats_html(date, period_return, benchmark, options)` | 收益率序列 | 带基准报告，基准侧是一个**一次性传入的列表参数**。 |
-| `duckfn_quantstats_html_prices(date, price, options)` | 价格/净值序列 | 单序列报告，函数内部换算成收益率。 |
-| `duckfn_quantstats_html_prices(date, price, benchmark, options)` | 价格/净值序列 | 带基准报告，两侧都是价格/净值。 |
+| `qs_html_report(date, period_return, options)` | 收益率序列 | 单序列报告，一行 = 一个周期。 |
+| `qs_html_report(date, period_return, benchmark, options)` | 收益率序列 | 带基准报告，基准侧是一个**一次性传入的列表参数**。 |
+| `qs_html_report_by_prices(date, price, options)` | 价格/净值序列 | 单序列报告，函数内部换算成收益率。 |
+| `qs_html_report_by_prices(date, price, benchmark, options)` | 价格/净值序列 | 带基准报告，两侧都是价格/净值。 |
 
 前两个由 `overloads_name` 注册成一个函数集、后两个注册成另一个，SQL 里各占一个名字。
 
 - 配置参数 `options` **固定在参数列表最后**（数据列在前、配置在后）。它是**可空**配置，类型是加载期建好的
-  命名 STRUCT 类型 `duckfn_quantstats_html_options`；传 `NULL` 表示全默认。
+  命名 STRUCT 类型 `qs_html_report_options`；传 `NULL` 表示全默认。
 - `date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`），`price` 是当天的价格或净值（`DOUBLE`）。
   两列任一为 `NULL` 的行会被**整行跳过**，与其它 SQL 聚合函数一致。
 - `benchmark` 是 `STRUCT(date DATE, <值列名> DOUBLE)[]`（`period_return` 或 `price`）。它是 `NULL`、是空列表、
@@ -44,7 +44,7 @@ quantstats HTML 报告（`VARCHAR`）：
 
 ### 价格/净值路径
 
-`duckfn_quantstats_html_prices` 收的是**价格、净值这类水平值**，不是百分比变化。值列叫 `price` 是照搬
+`qs_html_report_by_prices` 收的是**价格、净值这类水平值**，不是百分比变化。值列叫 `price` 是照搬
 Python quantstats 的词汇：它把这类输入统称 prices，内部对看起来像价格的序列自动做 `pct_change`。
 **净值（NAV）严格说不是 price**，但 quantstats 也不区分，净值序列照样当 prices 喂 —— 所以这里用同一个键收下，
 不用去想该填哪个。换算规则：
@@ -61,7 +61,7 @@ Python quantstats 的词汇：它把这类输入统称 prices，内部对看起�
 
 ```sql
 -- 自己算：多一层子查询，而且窗口的 PARTITION BY / ORDER BY 很容易写漏
-SELECT fund, duckfn_quantstats_html(trade_date, period_return, NULL) AS html
+SELECT fund, qs_html_report(trade_date, period_return, NULL) AS html
 FROM (
     SELECT fund, trade_date,
            nav / lag(nav) OVER (PARTITION BY fund ORDER BY trade_date) - 1.0 AS period_return
@@ -70,7 +70,7 @@ FROM (
 GROUP BY fund;
 
 -- 用快捷方式：价格/净值直接进去，分区交给 GROUP BY
-SELECT fund, duckfn_quantstats_html_prices(trade_date, nav, NULL) AS html
+SELECT fund, qs_html_report_by_prices(trade_date, nav, NULL) AS html
 FROM nav_table
 GROUP BY fund;
 ```
@@ -87,7 +87,7 @@ GROUP BY fund;
 
 ### 配置字段
 
-`duckfn_quantstats_html_options` 的字段**全部可空**，没写的键取默认值：
+`qs_html_report_options` 的字段**全部可空**，没写的键取默认值：
 
 | 字段 | 类型 | 默认 | 说明 |
 | --- | --- | --- | --- |
@@ -109,13 +109,13 @@ Sharpe（含滚动 Sharpe / Sortino）用 `(1 + rf)^(1/periods_per_year) - 1`，
 
 ```sql
 -- 单序列：全部默认配置
-SELECT duckfn_quantstats_html(trade_date, daily_return, NULL) FROM daily_returns;
+SELECT qs_html_report(trade_date, daily_return, NULL) FROM daily_returns;
 
 -- 单序列：只写关心的几个键；struct 字面量必须显式转成配置类型
 SELECT symbol,
-       duckfn_quantstats_html(
+       qs_html_report(
            trade_date, daily_return,
-           {'title': 'My Fund', 'rf': 0.02}::duckfn_quantstats_html_options) AS html
+           {'title': 'My Fund', 'rf': 0.02}::qs_html_report_options) AS html
 FROM daily_returns
 GROUP BY symbol;
 
@@ -125,23 +125,23 @@ WITH benchmark AS (
     FROM benchmark_returns
 )
 SELECT s.fund,
-       duckfn_quantstats_html(
+       qs_html_report(
            s.trade_date, s.daily_return, benchmark.series,
-           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::duckfn_quantstats_html_options) AS html
+           {'title': 'My Fund', 'benchmark_title': 'S&P 500'}::qs_html_report_options) AS html
 FROM strategy_returns s, benchmark
 GROUP BY s.fund;
 
 -- 价格/净值序列：直接用快捷方式，不用自己写 pct_change 窗口
 SELECT fund,
-       duckfn_quantstats_html_prices(
-           trade_date, nav, {'title': 'My Fund'}::duckfn_quantstats_html_options) AS html
+       qs_html_report_by_prices(
+           trade_date, nav, {'title': 'My Fund'}::qs_html_report_options) AS html
 FROM nav_table
 GROUP BY fund;
 
 -- 顺带落盘一份（走 DuckDB 的 VFS，所以 wasm 下同样可用）
-SELECT duckfn_quantstats_html(
+SELECT qs_html_report(
            trade_date, daily_return,
-           {'title': 'My Fund', 'output': 'fund.html'}::duckfn_quantstats_html_options)
+           {'title': 'My Fund', 'output': 'fund.html'}::qs_html_report_options)
 FROM daily_returns;
 ```
 
@@ -149,7 +149,7 @@ FROM daily_returns;
 
 ```sql
 SELECT fund,
-       duckfn_quantstats_html(
+       qs_html_report(
            trade_date, daily_return,
            (SELECT list({'date': trade_date, 'period_return': daily_return}) FROM benchmark_returns),
            NULL)
@@ -159,10 +159,10 @@ GROUP BY fund;
 
 ### 三个必须知道的行为
 
-- **配置的 struct 字面量必须显式写 `::duckfn_quantstats_html_options`。** 不写的话它是匿名的
+- **配置的 struct 字面量必须显式写 `::qs_html_report_options`。** 不写的话它是匿名的
   `STRUCT(title VARCHAR)`，字段个数与配置类型不同，DuckDB 会直接说找不到匹配的函数 —— 注册这个
   命名类型就是为了这一步 cast。
-- **`'...'::JSON::duckfn_quantstats_html_options` 要把 7 个键写全**（DuckDB 的 JSON→STRUCT 转换
+- **`'...'::JSON::qs_html_report_options` 要把 7 个键写全**（DuckDB 的 JSON→STRUCT 转换
   不允许缺键），所以推荐直接用 struct 字面量。
 - **基准点的键名固定是 `date` / `period_return`**（duckfn 的 `DuckStruct` 派生不支持字段改名）。
   它和匿名 `STRUCT(date DATE, period_return DOUBLE)` 完全一致，所以**不需要 cast**；只有当列类型不是
@@ -176,7 +176,7 @@ GROUP BY fund;
 | 基准参数为 `NULL` | 报错 `the benchmark list must not be NULL` |
 | 基准是空列表，或列表里没有任何有效点 | 报错 `the benchmark list is empty` |
 | 基准列表里有整体为 `NULL` 的元素 | 报错 `cannot read the benchmark list` |
-| `duckfn_quantstats_html_prices`：基准价格点不足两个，差分不出收益率 | 报错 `the benchmark prices produced no returns` |
+| `qs_html_report_by_prices`：基准价格点不足两个，差分不出收益率 | 报错 `the benchmark prices produced no returns` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output = ''` | 报错 `output must not be an empty string` |
 | `output` 路径里有 NUL 字节 | 报错 `contains a NUL byte` |

@@ -40,7 +40,7 @@ pub(super) struct SeriesKind {
 /// attributes — macro attributes accept literals only, so `function` here and those two strings must be
 /// kept in sync by hand.
 pub(super) const RETURNS: SeriesKind = SeriesKind {
-    function: "duckfn_quantstats_html",
+    function: "qs_html_report",
     value_field: "period_return",
 };
 
@@ -57,6 +57,6 @@ pub(super) const RETURNS: SeriesKind = SeriesKind {
 /// strictly a price, but quantstats does not distinguish either — a NAV series goes in as prices just
 /// the same — so a single `price` key takes in all of these level values.
 pub(super) const PRICES: SeriesKind = SeriesKind {
-    function: "duckfn_quantstats_html_prices",
+    function: "qs_html_report_by_prices",
     value_field: "price",
 };

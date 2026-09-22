@@ -3,13 +3,13 @@
 //
 // 收益率序列（一行 = 一个周期的收益率）：
 //
-//   duckfn_quantstats_html(date, period_return, options)                  单序列报告
-//   duckfn_quantstats_html(date, period_return, benchmark, options)       带基准报告
+//   qs_html_report(date, period_return, options)                  单序列报告
+//   qs_html_report(date, period_return, benchmark, options)       带基准报告
 //
 // 价格/净值序列（一行 = 一天的价格或净值，函数内部换算成收益率）：
 //
-//   duckfn_quantstats_html_prices(date, price, options)                   单序列报告
-//   duckfn_quantstats_html_prices(date, price, benchmark, options)        带基准报告
+//   qs_html_report_by_prices(date, price, options)                   单序列报告
+//   qs_html_report_by_prices(date, price, benchmark, options)        带基准报告
 //
 // 每个名字下两个签名只差一个 `benchmark` 参数，所以用 `overloads_name` 各注册成一个**函数集**，
 // 按参数个数分派（`register_all_aggregate_overload` 会按名字分组，每个重载各自带参数表与返回类型）。
@@ -35,13 +35,13 @@
 //
 // Return series (one row per period's return):
 //
-//   duckfn_quantstats_html(date, period_return, options)                  single series
-//   duckfn_quantstats_html(date, period_return, benchmark, options)       with a benchmark
+//   qs_html_report(date, period_return, options)                  single series
+//   qs_html_report(date, period_return, benchmark, options)       with a benchmark
 //
 // Price/NAV series (one row per day's price, converted to returns inside the function):
 //
-//   duckfn_quantstats_html_prices(date, price, options)                   single series
-//   duckfn_quantstats_html_prices(date, price, benchmark, options)        with a benchmark
+//   qs_html_report_by_prices(date, price, options)                   single series
+//   qs_html_report_by_prices(date, price, benchmark, options)        with a benchmark
 //
 // The two signatures under each name differ only by the `benchmark` argument, so `overloads_name`
 // registers each pair as **one function set**, dispatched by argument count

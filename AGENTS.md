@@ -42,17 +42,26 @@ git clone https://github.com/shijianjs/duckfn
 
 ## 仓库约定
 
-### 注册到 DuckDB 的函数名统一加前缀
+### 注册到 DuckDB 的函数名统一加 `qs_` 前缀
 
-所有注册到 DuckDB 的函数名一律以 `duckfn_quantstats_` 开头，例如 `duckfn_quantstats_sharpe()`。
+所有注册到 DuckDB 的函数名一律以 `qs_`（quantstats）开头，例如 `qs_html_report(...)`。
 范围包括标量函数、聚合函数、表函数、COPY 格式、cast、SQL 宏、replacement scan
 —— 凡是出现在 SQL 里的名字都要带前缀。
 
-前缀与扩展名 `duckfn_quantstats` 完全一致：知道扩展名就能猜出函数名，
-也便于按前缀在 `duckdb_functions()` 里检索。不要为了省 3 个字符改成 `dfn_quantstats_`
-（省下的字符有限，却要长期在两套名字之间做映射）。
+社区扩展几乎都不把包名/扩展名写进函数名（见
+<https://duckdb.org/community_extensions/list_of_extensions>）：`duckfn_quantstats_html`
+这样的全名在每个调用点上都是纯噪声，而 `qs_` 短到可以忽略，又足以在 `duckdb_functions()` 里
+按前缀检索。**前缀只是命名空间，不再是扩展名的缩写**，不要因为扩展名变了就跟着改。
 
-duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函数定义成 `fn duckfn_quantstats_xxx(...)` 即可。
+前缀之后的部分要能读懂，不要拿缩写堆砌。同一分支的两个重载共用同一个名字、靠参数个数分派：
+
+```text
+qs_html_report(date, period_return, options)              / (..., benchmark, options)
+qs_html_report_by_prices(date, price, options)            / (..., benchmark, options)
+```
+
+duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函数定义成 `fn qs_xxx(...)` 即可
+（`overloads_name` 除外，它只吃字面量，见 `functions/aggregate_html/kind.rs` 的同步提醒）。
 
 ### 临时文件放到 target/
 

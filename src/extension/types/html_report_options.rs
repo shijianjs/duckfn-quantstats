@@ -5,9 +5,9 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 // 报告配置：一个具名 STRUCT 类型，可在 SQL 里直接 cast
 //
 // `#[duck(create_type = true)]` 让 duckfn 在扩展加载期执行
-//   CREATE TYPE IF NOT EXISTS "duckfn_quantstats_html_options" AS STRUCT(...);
-// 之后 SQL 里可以直接写 `{'title': 'x'}::duckfn_quantstats_html_options`，
-// 也可以把 JSON 字符串转成它（`'{"title": "x"}'::JSON::duckfn_quantstats_html_options`）。
+//   CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...);
+// 之后 SQL 里可以直接写 `{'title': 'x'}::qs_html_report_options`，
+// 也可以把 JSON 字符串转成它（`'{"title": "x"}'::JSON::qs_html_report_options`）。
 //
 // 字段**全部**是 `Option<T>`，这是硬要求：DuckDB 的 struct 字面量缺字段时会补 NULL，
 // 而 duckfn 读到「非 Option 字段为 NULL」时会让**整个 struct** 变成 NULL。那样用户写的
@@ -16,8 +16,8 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 // Report options: a named STRUCT type that SQL can cast to directly.
 //
 // `#[duck(create_type = true)]` makes duckfn run
-//   `CREATE TYPE IF NOT EXISTS "duckfn_quantstats_html_options" AS STRUCT(...)`
-// at load time, so SQL can write `{'title': 'x'}::duckfn_quantstats_html_options`, or cast a JSON
+//   `CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...)`
+// at load time, so SQL can write `{'title': 'x'}::qs_html_report_options`, or cast a JSON
 // string to it.
 //
 // Every field is an `Option<T>` on purpose: DuckDB fills missing keys of a struct literal with NULL,
@@ -30,7 +30,7 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 /// The report options; the Rust field names are the keys used in SQL.
 #[derive(Clone, Debug, Default, DuckStruct)]
 #[duck(
-    sql_name = "duckfn_quantstats_html_options",
+    sql_name = "qs_html_report_options",
     create_type = true
 )]
 pub(crate) struct QuantstatsHtmlOptions {
@@ -123,7 +123,7 @@ impl QuantstatsHtmlOptions {
         if let Some(periods_per_year) = self.periods_per_year {
             if periods_per_year == 0 {
                 return Err(duck_error(
-                    "duckfn_quantstats_html_options.periods_per_year must be greater than 0",
+                    "qs_html_report_options.periods_per_year must be greater than 0",
                 ));
             }
             options.periods_per_year = periods_per_year;
@@ -157,7 +157,7 @@ impl QuantstatsHtmlOptions {
         };
         if output.is_empty() {
             return Err(duck_error(
-                "duckfn_quantstats_html_options.output must not be an empty string",
+                "qs_html_report_options.output must not be an empty string",
             ));
         }
         Ok(Some(output))
