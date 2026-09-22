@@ -42,6 +42,24 @@ git clone https://github.com/shijianjs/duckfn
 
 ## 仓库约定
 
+### 尽量用成熟三方库实现，不要自己造轮子
+
+写任何「通用」逻辑之前先问一句：这件事是不是已经有 crate（或 std API）在做？
+
+- **平台差异、临时文件与随机名、文件名的合法性规则、编码、哈希、日期时间算术、序列化** ——
+  这类通用问题一律先找库。已经这么做的先例：`open_in_browser` 用 `open`（各平台的启动命令与
+  参数引用）、`tempfile`（临时文件与随机尾缀）、`sanitize-filename`（文件名字法）。
+- **能用 std 就用 std**，别自己拼底层积木：路径绝对化用 `std::path::absolute`，而不是
+  `env::current_dir()?.join(path)`。
+- 手写只允许出现在**领域逻辑**上（quantstats 的差分规则、报告怎么渲染），或者已知的库都不合适 ——
+  后者必须在这段代码的注释里写明「为什么不用库」，例如 `series.rs::naive_date`（算术是 chrono 的，
+  只剩 epoch 常数，而它就是那个 API 的输入定义）。
+- 依赖不是免费的：引入 crate 时在 `Cargo.toml` 里写一句它负责什么、为什么选它，让取舍一眼看得出来；
+  只服务某个平台的依赖挂到 target 专属依赖表下
+  （见 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`），别让别的目标替它付编译成本 ——
+  有时这甚至是硬要求（`open` 没有 emscripten 的实现，编到 wasm 直接失败）。
+- 自查标准：一个「通用」函数如果在 crates.io 上能查到现成实现，它就需要一个留下来的理由。
+
 ### 注册到 DuckDB 的函数名统一加 `qs_` 前缀
 
 所有注册到 DuckDB 的函数名一律以 `qs_`（quantstats）开头，例如 `qs_html_report(...)`。
