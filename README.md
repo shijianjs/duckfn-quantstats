@@ -10,9 +10,57 @@ A DuckDB extension (loadable extension) that wraps
 DuckDB's C API in 1.5, so there is no 1.4 compatibility path; the extension is built and tested against
 v1.5.5.
 
-This file is the user guide (SQL surface, configuration, behaviour, quick start). The development notes —
-module layout, design decisions, dependency choices and the test suite — are in
-[DEVELOPMENT.md](DEVELOPMENT.md).
+This file is the user guide. The development notes — module layout, design decisions, dependency choices and
+the test suite — are in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## Quick start
+
+`demo/prices.csv` is a committed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):
+1435 trading days each, 2021-01-04 … 2026-09-21, one shared calendar. The block below is meant to be copied
+and run as-is (the extension has to be built first — see [Building and loading](#building-and-loading));
+`read_csv` fetches the file over HTTPS by itself (DuckDB 1.5 reads `https://` URLs — no `httpfs`, no API
+key):
+
+```sql
+LOAD './target/debug/duckfn_quantstats.duckdb_extension';
+
+CREATE TABLE prices AS
+SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
+-- unavailable (mainland China, for instance)? the same file is mirrored by jsDelivr:
+--   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
+-- cloned the repo? then simply read_csv('demo/prices.csv')
+```
+
+```sql
+-- 1. One report: written to a file, then opened in your browser
+SELECT qs_html_report_by_prices(date, price,
+           {'title': 'Microsoft', 'output': 'msft.html', 'open_in_browser': true}::qs_html_report_options)
+FROM prices WHERE symbol = 'MSFT';
+
+-- 2. Against the index: the benchmark enters as a list of points
+WITH benchmark AS (
+    SELECT list({'date': date, 'price': price}) AS series FROM prices WHERE symbol = 'SPX'
+)
+SELECT qs_html_report_by_prices(
+           p.date, p.price, b.series,
+           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices p, benchmark b
+WHERE p.symbol = 'MSFT';
+
+-- 3. Already have returns? The other function; the pct_change has to sit in a subquery
+SELECT qs_html_report(date, period_return, {'title': 'Microsoft', 'rf': 0.04}::qs_html_report_options)
+FROM (SELECT date, price / lag(price) OVER (ORDER BY date) - 1.0 AS period_return
+      FROM prices WHERE symbol = 'MSFT');
+
+-- 4. One report per symbol
+SELECT symbol,
+       qs_html_report_by_prices(date, price, {'title': symbol, 'rf': 0.04}::qs_html_report_options) AS html
+FROM prices
+GROUP BY symbol;
+```
+
+A report is a few hundred KB of HTML (a dozen inline SVGs) and query 4 prints one per symbol, so in a
+terminal `output` — or `open_in_browser` — is the friendlier route.
 
 ## Functions
 
@@ -26,8 +74,7 @@ date-ordered series into one complete quantstats HTML report (`VARCHAR`):
 | `qs_html_report_by_prices(date, price, options)` | price series | Single-series report; returns are derived inside the function. |
 | `qs_html_report_by_prices(date, price, benchmark, options)` | price series | Benchmark report; both sides are prices. |
 
-The first pair is registered as one function set via `overloads_name` and the second pair as another, so SQL
-sees exactly two names.
+SQL sees exactly two names (the two overloads of each are one function set):
 
 - The options argument always comes **last** (data columns first, options last). It is a **nullable** config
   whose type is the named STRUCT `qs_html_report_options`, created at load time; `NULL` means "all
@@ -38,14 +85,12 @@ sees exactly two names.
 - `benchmark` is `STRUCT(date DATE, <value field> DOUBLE)[]` (`period_return` or `price`). A `NULL` benchmark,
   an empty one, or one without a single valid point is an **error** — that overload exists for the benchmark
   case, so a single-series report should simply omit the argument.
-- The price branch **needs its own name**: `(date, price, options)` and `(date, period_return, options)` have
-  exactly the same type sequence (`DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
 - A group without any valid row returns `NULL` (not an empty string, not an error).
-- The report is rendered in `result()`, i.e. **once per group**. `GROUP BY` over 100 instruments renders 100
-  full reports (each with a dozen inline SVGs), so time and memory grow linearly with the number of groups.
+- **One report per group.** `GROUP BY` over 100 instruments renders 100 full reports (each with a dozen
+  inline SVGs), so time and memory grow linearly with the number of groups.
 - No `ORDER BY` is needed: the aggregate only concatenates and lets the report sort by date.
 
-### Price (or NAV) series
+## Price (or NAV) series
 
 `qs_html_report_by_prices` takes **prices** — NAVs count too — not percentage changes. The value column
 is called `price`, borrowing Python quantstats' vocabulary: it lumps this kind of input under "prices" and
@@ -81,18 +126,7 @@ FROM nav_table
 GROUP BY fund;
 ```
 
-### Why the benchmark is a list argument
-
-Representing the benchmark as rows of the same long table would force the benchmark rows to appear once per
-group: 100 instruments × 1000 days = 100k rows materialised and scanned, while the benchmark itself is only
-1000 rows — plus a "which label is the benchmark" config key. With a list passed in once, the benchmark is
-written once and evaluated once, and the strategy side still gets its grouping from `GROUP BY`.
-
-The price is that the list has to be aggregated in a subquery first: `list(...)` is itself an aggregate and
-**cannot be inlined into an aggregate call** (DuckDB reports `aggregate function calls cannot be nested`), so
-it must be reduced to a single row and then cross-joined in.
-
-### Config fields
+## Config fields
 
 Every field of `qs_html_report_options` is **nullable**; keys you omit take their default:
 
@@ -115,7 +149,7 @@ conversions that differ slightly — Sharpe (and rolling Sharpe / Sortino) uses
 `(1 + rf)^(1/periods_per_year) - 1`, while PSR / Sortino in the metrics table use `rf / periods_per_year`.
 Both collapse to 0 when `rf = 0` (the default).
 
-### Usage
+## Usage
 
 ```sql
 -- Single series, all-default options
@@ -161,7 +195,10 @@ SELECT qs_html_report(
 FROM daily_returns;
 ```
 
-A scalar subquery works just as well as the cross join (verified), with the same effect:
+The benchmark argument is one single list, so it has to be aggregated into one row first: `list(...)` is
+itself an aggregate and **cannot be inlined into an aggregate call** (DuckDB reports
+`aggregate function calls cannot be nested`). A scalar subquery works just as well as the cross join
+(verified), with the same effect:
 
 ```sql
 SELECT fund,
@@ -173,20 +210,19 @@ FROM strategy_returns
 GROUP BY fund;
 ```
 
-### Three behaviours worth knowing
+## Behaviours worth knowing
 
 - **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
   anonymous `STRUCT(title VARCHAR)` whose field count differs from the options type, and DuckDB reports that
-  no function matches — registering that named type is exactly what makes the cast possible.
+  no function matches.
 - **`'...'::JSON::qs_html_report_options` must spell out all 8 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
-- **The benchmark point keys are fixed to `date` / `period_return`** (`price` on the price side; duckfn's
-  `DuckStruct` derive has no field renaming). They match the anonymous
-  `STRUCT(date DATE, period_return DOUBLE)` exactly, so **no cast is
-  needed**; only when the source columns are not `DATE` / `DOUBLE` do you add one:
+- **The benchmark point keys are fixed to `date` / `period_return`** (`price` on the price side). They match
+  the anonymous `STRUCT(date DATE, period_return DOUBLE)` exactly, so **no cast is needed**; only when the
+  source columns are not `DATE` / `DOUBLE` do you add one:
   `{'date': trade_date::DATE, 'period_return': daily_return::DOUBLE}`.
 
-### Error paths
+## Error paths
 
 | Situation | Behaviour |
 | --- | --- |
@@ -201,20 +237,19 @@ GROUP BY fund;
 | The `output` path cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
 | `open_in_browser` with an `output` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
 
-### Writing the report to a file
+## Writing the report to a file
 
 `output` writes the rendered HTML through **DuckDB's VFS** rather than `std::fs`, so local disk, in-memory
 file systems, whatever file system the wasm build exposes, and `s3://` / `http(s)://` once `httpfs` is loaded
 all go through the same path with the same semantics.
 
 `output` **replaces** the target: afterwards the file holds exactly the report, even when it previously held
-something longer. `read_text()` therefore returns exactly what the function returned — the test suite pins
-that with `md5`, including the "existing file is longer" case.
+something longer.
 
 The path is part of the configuration, so under `GROUP BY` give each group its own file
 (`'report-' || symbol || '.html'`) instead of pointing every group at one path.
 
-### Opening the report in a browser
+## Opening the report in a browser
 
 `open_in_browser` hands the report to the system default browser once it has been generated, so a terminal
 session does not have to end with "…and now go find that file and double-click it". A browser needs a local
@@ -222,10 +257,9 @@ file that actually exists, which decides the rest:
 
 - with `output` set, the report is written there and that file is opened;
 - without it, the report is written to a temporary file first —
-  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time (sorting the
-  temp directory by name therefore sorts it by time), then `strategy_title` (falling back to `title`) and
-  `benchmark_title`, with characters a file name cannot hold replaced by `_`. Nothing existing is ever
-  overwritten, and two reports from the same second cannot collide;
+  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time, then
+  `strategy_title` (falling back to `title`) and `benchmark_title`, with characters a file name cannot hold
+  replaced by `_`. Nothing existing is ever overwritten, and two reports from the same second cannot collide;
 - an `output` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op, since
   no browser can open it. That is checked **before** the report is rendered.
 
@@ -234,10 +268,9 @@ the browser nor looks at what the browser does with the file. The only failure r
 itself not starting.
 
 The option is meant for a single report. Under `GROUP BY` every group is opened in turn — and, without
-`output`, each group gets its own temporary file, so at least nothing overwrites anything. (Which crates do
-the file naming and the launching is in [DEVELOPMENT.md](DEVELOPMENT.md).)
+`output`, each group gets its own temporary file, so at least nothing overwrites anything.
 
-### WebAssembly
+## WebAssembly
 
 `output` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the native one and
 the file lands wherever DuckDB's own file system points in that environment.
@@ -276,63 +309,4 @@ SELECT ...;
 "
 ```
 
-Building and loading are all this file covers about it; the development loop (Justfile recipes, clippy,
-wasm builds) is in [DEVELOPMENT.md](DEVELOPMENT.md).
-
-## Quick start on real data
-
-`demo/prices.csv` is a fixed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):
-1435 trading days each, 2021-01-04 … 2026-09-21, one calendar shared by all three. It is a long table
-(`date`, `symbol`, `price`) committed on purpose, so that the following can be copied and run as-is;
-`read_csv` fetches it over HTTP (DuckDB 1.5 reads `https://` URLs by itself — no `httpfs`, no API key):
-
-```sql
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
-
-CREATE TABLE prices AS
-SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
--- unavailable (mainland China, for instance)? the same file is mirrored by jsDelivr:
---   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
--- cloned the repo? then simply read_csv('demo/prices.csv')
-```
-
-```sql
--- One report per symbol: the price overload differences the prices itself
-SELECT symbol,
-       qs_html_report_by_prices(date, price, {'title': symbol, 'rf': 0.04}::qs_html_report_options) AS html
-FROM prices
-GROUP BY symbol;
-
--- Microsoft against the index: the benchmark enters as a list of price points
-WITH benchmark AS (
-    SELECT list({'date': date, 'price': price}) AS series FROM prices WHERE symbol = 'SPX'
-)
-SELECT qs_html_report_by_prices(
-           p.date, p.price, b.series,
-           {'title': 'Microsoft', 'benchmark_title': 'S&P 500', 'rf': 0.04}::qs_html_report_options) AS html
-FROM prices p, benchmark b
-WHERE p.symbol = 'MSFT';
-
--- Already have returns? The other overload; the pct_change has to sit in a subquery
-SELECT qs_html_report(date, period_return, {'title': 'Microsoft', 'rf': 0.04}::qs_html_report_options)
-FROM (SELECT date, price / lag(price) OVER (ORDER BY date) - 1.0 AS period_return
-      FROM prices WHERE symbol = 'MSFT');
-
--- Write it out instead of reading HTML off the terminal (the directory must already exist)
-SELECT qs_html_report_by_prices(date, price,
-           {'title': 'Microsoft', 'output': 'msft.html'}::qs_html_report_options)
-FROM prices WHERE symbol = 'MSFT';
-```
-
-A report is a few hundred KB of HTML (a dozen inline SVGs), so in a terminal `output` is the friendlier
-route: write the file, then open it in a browser — or let `open_in_browser` write it and pop it open for you.
-
-**Why a snapshot and not a live URL.** When this was written there was no free, key-less *and* stable HTTP
-endpoint for the daily closes of individual tickers: stooq puts a JavaScript challenge in front of its CSV
-download, Yahoo's endpoint answers with region redirects, and EODHD's public `demo` token dies on quota
-after a handful of requests. FRED does export the index as CSV
-(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500`), but it rejects the `HEAD` probe `read_csv`
-sends first, so that one cannot be read directly either. `demo/prices.csv` is therefore a snapshot taken
-on 2026-09-22 — the index from that FRED CSV, the stocks from Nasdaq's public quote API
-(`https://api.nasdaq.com/api/quote/MSFT/historical?assetclass=stocks&fromdate=2021-01-01&todate=2026-09-21&limit=2000`),
-close prices as served.
+The development loop (Justfile recipes, clippy, wasm builds) is in [DEVELOPMENT.md](DEVELOPMENT.md).

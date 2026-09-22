@@ -246,3 +246,18 @@ SELECT html_extract_text(html, '//div[@id="right"]/table[1]//tr[td[1]="Sharpe"]/
 新增函数时至少覆盖：正常值、`NULL`、边界值、错误路径（`statement error`）。
 
 提交前：`cargo clippy --all-targets -- -D warnings`。
+
+## 演示数据（`demo/prices.csv`）
+
+这是一份固定快照：`GOOGL`、`MSFT` 与标普 500 指数（`SPX`）的日收盘价，各 1435 个交易日，
+区间 2021-01-04 … 2026-09-21，三者的交易日历完全一致。它是一张长表（`date`、`symbol`、`price`），
+提交进仓库就是为了 README 的快速上手可以原样复制运行。
+
+**为什么是快照、而不是实时 URL。** 写这份文档时，个股日线没有「免费 + 免 key + 稳定」的 HTTP 端点：
+stooq 的 CSV 下载被套上了 JavaScript 校验，Yahoo 的接口回的是地区跳转页，EODHD 的公开 `demo` token
+几次请求就用完配额。FRED 确实提供指数的 CSV
+（`https://fred.stlouisfed.org/graph/fredgraph.csv?id=SP500`），但它会拒绝 `read_csv` 先发的那个 `HEAD`
+探测，所以也读不了。于是快照取的是 2026-09-22 那一份 —— 指数来自上面那份 FRED CSV，两只个股来自 Nasdaq
+的公开行情接口
+（`https://api.nasdaq.com/api/quote/MSFT/historical?assetclass=stocks&fromdate=2021-01-01&todate=2026-09-21&limit=2000`），
+价格为接口给出的收盘价。
