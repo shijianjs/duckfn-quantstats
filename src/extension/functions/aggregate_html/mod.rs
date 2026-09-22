@@ -26,8 +26,8 @@
 //
 //   html_returns.rs   路径 1/2 —— 收益率序列（单序列、带基准）
 //   html_prices.rs    路径 3/4 —— 价格/净值序列（单序列、带基准）
-//   kind.rs           一个分支的 SQL 侧名字（函数名、值列名）
-//   series.rs         内部点表示、日期换算、序列构造、价格差分
+//   kind.rs           一个分支的 SQL 侧名字（函数名取自宏生成的 `SQL_NAME`，加值列名）
+//   series.rs         内部点表示、序列构造、价格差分（日期换算交给 duckfn 的 chrono 桥）
 //   slots.rs          参数槽：DuckLazySlot 的用法，以及基准列表的报错与归一化
 //   report.rs         收尾：点 → ReturnSeries → 渲染 HTML、落盘、按需打开浏览器
 //   browser.rs        用系统默认浏览器打开报告（tempfile 建临时文件、sanitize-filename 管合法文件名、
@@ -63,8 +63,10 @@
 //
 //   html_returns.rs   paths 1/2 — return series (single, with a benchmark)
 //   html_prices.rs    paths 3/4 — price/NAV series (single, with a benchmark)
-//   kind.rs           the SQL-side names of one branch (function name, value field)
-//   series.rs         the internal point type, date conversion, series building, price differencing
+//   kind.rs           the SQL-side names of one branch (the function name read from the macro-generated
+//                     `SQL_NAME`, plus the value field)
+//   series.rs         the internal point type, series building and price differencing (the date conversion
+//                     is duckfn's chrono bridge)
 //   slots.rs          the argument slots: how DuckLazySlot is used, plus the benchmark list's errors and
 //                     normalisation
 //   report.rs         the tail: points → ReturnSeries → rendered HTML, persisted through DuckDB's VFS and

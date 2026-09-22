@@ -187,12 +187,12 @@ SELECT count(*) FROM (
 # 错误路径
 # ============================================================================
 
-# 基准为 NULL
+# 基准为 NULL（前缀同样是宏生成的 `SQL_NAME`，见 benchmark 那份测试的说明）
 statement error
 SELECT qs_html_report_by_prices(n.trade_date, n.nav, NULL, NULL)
 FROM nav_table n, benchmark_price_series b;
 ----
-the benchmark list must not be NULL
+qs_html_report_by_prices: the benchmark list must not be NULL
 
 # 基准为空列表
 statement error
@@ -209,7 +209,7 @@ SELECT qs_html_report_by_prices(n.trade_date, n.nav,
            NULL)
 FROM nav_table n, benchmark_price_series b;
 ----
-the benchmark prices produced no returns
+qs_html_report_by_prices: the benchmark prices produced no returns
 
 # 参数顺序不对
 statement error

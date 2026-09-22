@@ -24,19 +24,29 @@ path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-# 0.0.7 起提供本扩展用到的全部设施：
+# 0.0.8 起提供本扩展用到的全部设施：
 #   - `DuckLazySlot<T>`：把 DuckLazy 参数「解析一次」这条路径固化成类型；
 #   - `duckdb-1-5` feature 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的
 #     `write_string` 就是「覆盖写」（内部处理了「C API 没有 truncate」，旧文件更长也照样写对），
-#     所以 `output` 落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs。
+#     所以 `output` 落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs；
+#   - `chrono` feature：时间包装类型与 chrono 的双向转换（`DuckDate::to_naive_date`、`from_naive_date`
+#     等），越界（含 `DATE 'infinity'`）返回错误而不是 panic，单位换算由方法负责；
+#   - 属性宏生成的 `SQL_NAME` 常量：注册进 DuckDB 时真正的函数名（设了 `overloads_name` 就是函数集名）。
+#     错误信息前缀因此不必手写第二份字面量，而是从 `kind.rs` 指过去。
 #
-# Since 0.0.7 duckfn provides everything this project uses:
+# Since 0.0.8 duckfn provides everything this project uses:
 #   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
 #   - `duckfn::duck_vfs` under the `duckdb-1-5` feature: host file system access plus one-line reads
 #     and writes. Its `write_string` *is* "replace" (a longer existing file is dealt with internally,
 #     despite the C API having no truncate), which is what `output` uses instead of `std::fs` — there
-#     is no writable `std::fs` on wasm at all.
-duckfn = { version = "0.0.7", features = ["duckdb-1-5"] }
+#     is no writable `std::fs` on wasm at all;
+#   - the `chrono` feature: bidirectional conversions between the time wrapper types and chrono
+#     (`DuckDate::to_naive_date`, `from_naive_date`, …), where out-of-range values (including
+#     `DATE 'infinity'`) are errors rather than panics and the unit conversion is the method's job;
+#   - the `SQL_NAME` constant each attribute macro generates: the name the function is really
+#     registered under (the function-set name when `overloads_name` is set). Error prefixes therefore
+#     read that constant — `kind.rs` points at it — instead of repeating the literal.
+duckfn = { version = "0.0.8", features = ["duckdb-1-5", "chrono"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
@@ -66,13 +76,21 @@ quack-rs = "0.16.0"
 libduckdb-sys = { version = ">=1.10500, <2", features = ["loadable-extension"] }
 quantstats-rs = "0.1.0"
 
-# chrono：quantstats-rs 的 `ReturnSeries` 要的是 `chrono::NaiveDate`，
-# 而 duckfn 的 `DuckDate` 只存「自 1970-01-01 起的天数」，换算得我们自己来。
-# quantstats-rs 也依赖 chrono 0.4，两边会解析成同一个版本，不会引入第二份。
+# chrono：本扩展自己用到的是**本地时间**（`chrono::Local`，`open_in_browser` 的临时文件名前缀要用
+# 年月日时分秒，见 browser.rs）—— 那是 `clock` feature 里的东西，用默认 feature 即可，不做收窄；
+# 日期那头则由 duckfn 的 `chrono` feature 负责换算（`DuckDate::to_naive_date`），它产出的正是
+# quantstats-rs 的 `ReturnSeries` 要的 `chrono::NaiveDate`。
 #
-# chrono: quantstats-rs' `ReturnSeries` wants `chrono::NaiveDate`, while duckfn's
-# `DuckDate` only stores days since 1970-01-01 — the conversion is on us.
-# quantstats-rs depends on chrono 0.4 as well, so both resolve to the same version.
+# 三个 crate 共用同一个 chrono：duckfn 的 `chrono` feature、这里、以及 quantstats-rs 都指向 0.4，
+# 所以桥接出来的类型能直接喂给 `ReturnSeries::new`，不会出现第二份 chrono。
+#
+# chrono: what this extension uses directly is **local time** (`chrono::Local` — the temporary file
+# name prefix for `open_in_browser` carries a `%Y%m%d-%H%M%S` stamp, see browser.rs); the date side is
+# duckfn's `chrono` feature (`DuckDate::to_naive_date`), which produces exactly the
+# `chrono::NaiveDate` quantstats-rs' `ReturnSeries` wants.
+#
+# All three share one chrono: duckfn's `chrono` feature, this dependency and quantstats-rs all point
+# at 0.4, so what the bridge returns can go straight into `ReturnSeries::new` — no second chrono.
 chrono = "0.4"
 
 # 下面三个只服务配置里的 `open_in_browser`（用系统默认浏览器打开报告），各管一段：

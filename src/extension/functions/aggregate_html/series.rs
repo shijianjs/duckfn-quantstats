@@ -42,8 +42,7 @@
 // them into [`SeriesPoint`].
 // ============================================================================
 
-use chrono::{NaiveDate, TimeDelta};
-use duckfn::{DuckResult, duck_error};
+use duckfn::{DuckDate, DuckResult, duck_error};
 use quantstats_rs::ReturnSeries;
 
 use crate::extension::types::price_point::QuantstatsPricePoint;
@@ -64,9 +63,11 @@ use crate::extension::types::return_point::QuantstatsReturnPoint;
 /// it).
 #[derive(Clone, Copy, Debug)]
 pub(super) struct SeriesPoint {
-    /// 自 1970-01-01 起的天数（换算成 `NaiveDate` 可能失败，所以留到 `build_series` 里做）。
+    /// 自 1970-01-01 起的天数（换算成 `NaiveDate` 可能失败，所以留到 `build_series` 里交给 duckfn 的
+    /// chrono 桥做）。
     ///
-    /// Days since 1970-01-01 (converting to `NaiveDate` can fail, so it is left to `build_series`).
+    /// Days since 1970-01-01 (converting to `NaiveDate` can fail, so it is left to `build_series`, which
+    /// hands it to duckfn's chrono bridge).
     pub(super) days_since_epoch: i32,
     /// 该点的值：收益率，或价格/净值。
     ///
@@ -74,35 +75,31 @@ pub(super) struct SeriesPoint {
     pub(super) value: f64,
 }
 
-/// 把 `DuckDate`（自 1970-01-01 起的天数）换成 chrono 的 `NaiveDate`。
-///
-/// `ReturnSeries` 要的是 `NaiveDate`，而 duckfn 的 `DuckDate` 只存天数，换算只能自己做。
-/// 越界（例如 `DATE 'infinity'` 之类的极端值）返回查询错误，不用会 panic 的运算符。
-///
-/// Convert a `DuckDate` (days since 1970-01-01) into a chrono `NaiveDate`.
-///
-/// `ReturnSeries` wants `NaiveDate`, while duckfn's `DuckDate` only stores days, so the conversion is on
-/// us. Out-of-range values (e.g. `DATE 'infinity'`) become a query error instead of a panic.
-fn naive_date(days_since_epoch: i32) -> DuckResult<NaiveDate> {
-    NaiveDate::from_ymd_opt(1970, 1, 1)
-        .and_then(|epoch| epoch.checked_add_signed(TimeDelta::days(i64::from(days_since_epoch))))
-        .ok_or_else(|| {
-            duck_error(format!(
-                "cannot convert DuckDate {{ days_since_epoch: {days_since_epoch} }} into a calendar date"
-            ))
-        })
-}
-
 /// 一组点 → `ReturnSeries`。排序由 `ReturnSeries::new` 内部完成，所以 SQL 侧不需要 `ORDER BY`，
 /// `combine` 的拼接顺序也不影响结果。
 ///
+/// 天数 → `NaiveDate` 这一步交给 duckfn 的 chrono 桥（`DuckDate::to_naive_date`，靠 Cargo 里的
+/// `chrono` feature 打开）：纪元常数、单位换算与溢出检查都是它的活，`DATE 'infinity'`
+/// （DuckDB 用 `i32::MAX` 表示）这类越界值由它转成查询错误，不会 panic。这里只把内部表示补回
+/// `DuckDate` —— 它产出的正是 `ReturnSeries::new` 要的 `chrono::NaiveDate`。
+///
 /// A list of points → `ReturnSeries`. Sorting happens inside `ReturnSeries::new`, so SQL does not need an
 /// `ORDER BY` and the concatenation order inside `combine` does not matter.
+///
+/// The day count → `NaiveDate` step belongs to duckfn's chrono bridge (`DuckDate::to_naive_date`, enabled
+/// by the `chrono` feature in Cargo.toml): the epoch constant, the unit conversion and the overflow check
+/// are its job, and out-of-range values such as `DATE 'infinity'` (DuckDB represents it as `i32::MAX`)
+/// come back as a query error rather than a panic. All this code does is put the internal representation
+/// back into a `DuckDate` — and what comes out is exactly the `chrono::NaiveDate` `ReturnSeries::new`
+/// wants.
 pub(super) fn build_series(points: &[SeriesPoint], name: Option<String>) -> DuckResult<ReturnSeries> {
     let mut dates = Vec::with_capacity(points.len());
     let mut values = Vec::with_capacity(points.len());
     for point in points {
-        dates.push(naive_date(point.days_since_epoch)?);
+        let date = DuckDate {
+            days_since_epoch: point.days_since_epoch,
+        };
+        dates.push(date.to_naive_date()?);
         values.push(point.value);
     }
 

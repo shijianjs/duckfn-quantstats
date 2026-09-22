@@ -157,10 +157,11 @@ dependencies = [
 
 [[package]]
 name = "duckfn"
-version = "0.0.7"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c7c07977efc259f41adb212971a015a22810763230af55471c818d55ff36668"
+checksum = "196abb689ce5282a16f4002c9da8efc3d1f50bf39d10f96a98423b26b79955de"
 dependencies = [
+ "chrono",
  "duckfn-macro",
  "indexmap",
  "inventory",
@@ -171,9 +172,9 @@ dependencies = [
 
 [[package]]
 name = "duckfn-macro"
-version = "0.0.7"
+version = "0.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25472f6e2f9722ffdb4f6de10d51f349943f314b58a761a449e557d5f4de981e"
+checksum = "02abc090a9adb1f7b4daa0d3a62e20bd38afb3fd62f8295cb561935fe4793fe3"
 dependencies = [
  "darling",
  "proc-macro2",

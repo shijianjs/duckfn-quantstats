@@ -54,8 +54,14 @@ pub(crate) struct HtmlReportState {
 ///
 /// This is the three-argument overload. A row whose `date` or `period_return` is NULL is skipped entirely
 /// — duckfn's existing semantics for non-`Option` arguments, and the usual SQL aggregate behaviour.
+// `pub(super)` 不是要把它当公开 API：属性宏会把函数包进同名模块，而模块沿用函数的可见性，
+// kind.rs 要从那儿读生成的 `SQL_NAME`（见 kind.rs 的说明）。
+//
+// `pub(super)` is not about making this public API: the attribute macro wraps the function in a
+// same-named module that inherits the function's visibility, and kind.rs reads the generated `SQL_NAME`
+// from there (see kind.rs).
 #[duck_aggregate_function(overloads_name = "qs_html_report")]
-fn qs_html_report(
+pub(super) fn qs_html_report(
     date: DuckDate,
     period_return: f64,
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
@@ -130,7 +136,7 @@ pub(crate) struct HtmlBenchmarkState {
 /// overload exists for the benchmark case, so a single-series report should simply omit the argument. An
 /// error is harder to misread than a silently benchmark-less report.
 #[duck_aggregate_function(overloads_name = "qs_html_report")]
-fn qs_html_report_with_benchmark(
+pub(super) fn qs_html_report_with_benchmark(
     date: DuckDate,
     period_return: f64,
     benchmark: Option<DuckLazy<Vec<QuantstatsReturnPoint>>>,

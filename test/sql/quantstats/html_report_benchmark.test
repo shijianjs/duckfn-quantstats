@@ -141,12 +141,14 @@ PRAGMA threads=1;
 # 错误路径
 # ============================================================================
 
-# 基准为 NULL：这一支就是为带基准的场景存在的，只要单序列就该少传这个参数
+# 基准为 NULL：这一支就是为带基准的场景存在的，只要单序列就该少传这个参数。
+# 断言特意带上 `qs_html_report: ` 前缀 —— 它来自属性宏生成的 `SQL_NAME`（kind.rs 直接指过去），
+# 所以这条用例同时钉住了「错误信息里的函数名就是真正注册进 DuckDB 的那个名字」。
 statement error
 SELECT qs_html_report(s.trade_date, s.daily_return, NULL, NULL)
 FROM strategy_returns s, benchmark_series b;
 ----
-the benchmark list must not be NULL
+qs_html_report: the benchmark list must not be NULL
 
 # 基准为空列表
 statement error

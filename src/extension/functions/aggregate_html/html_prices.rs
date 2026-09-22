@@ -65,8 +65,14 @@ pub(crate) struct HtmlPriceState {
 /// then `price_t / price_{t-1} - 1` per point, dropping the first and skipping a point whose predecessor
 /// is missing or zero. Fewer than two points (or everything skipped) is treated as "no valid row" and
 /// returns `NULL`.
+// `pub(super)` 不是要把它当公开 API：属性宏会把函数包进同名模块，而模块沿用函数的可见性，
+// kind.rs 要从那儿读生成的 `SQL_NAME`（见 kind.rs 的说明）。
+//
+// `pub(super)` is not about making this public API: the attribute macro wraps the function in a
+// same-named module that inherits the function's visibility, and kind.rs reads the generated `SQL_NAME`
+// from there (see kind.rs).
 #[duck_aggregate_function(overloads_name = "qs_html_report_by_prices")]
-fn qs_html_report_by_prices(
+pub(super) fn qs_html_report_by_prices(
     date: DuckDate,
     price: f64,
     options: Option<DuckLazy<QuantstatsHtmlOptions>>,
@@ -130,7 +136,7 @@ pub(crate) struct HtmlPriceBenchmarkState {
 /// by `list(...)` over a single-row result and evaluated once. Both sides are differenced with the same
 /// rules as above, and only then go through `align_start_dates`.
 #[duck_aggregate_function(overloads_name = "qs_html_report_by_prices")]
-fn qs_html_report_by_prices_with_benchmark(
+pub(super) fn qs_html_report_by_prices_with_benchmark(
     date: DuckDate,
     price: f64,
     benchmark: Option<DuckLazy<Vec<QuantstatsPricePoint>>>,

@@ -264,8 +264,10 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
 
 ## 依赖
 
-- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开启了它的
-  `duckdb-1-5` feature —— `output` 用的宿主文件系统（`duckfn::duck_vfs`）就在这个 feature 下。
+- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开了两个 feature：
+  `duckdb-1-5`（`output` 用的宿主文件系统 `duckfn::duck_vfs` 在它下面）与 `chrono`（时间包装类型的互转，
+  如 `DuckDate::to_naive_date`）。属性宏还会为每个签名生成 `SQL_NAME` 常量 —— 真正注册进 DuckDB 的名字 ——
+  错误信息前缀读它，不再手抄一份 `overloads_name` 字面量。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
@@ -278,8 +280,10 @@ src/extension/mod.rs ->  duckfn_entrypoint!("duckfn_quantstats");
   [sanitize-filename](https://crates.io/crates/sanitize-filename)：`open_in_browser` 的三件事 —— 把浏览器
   叫起来、新建一个不重名的临时文件、以及知道平台认哪些文件名。**只用于非 wasm 目标**（见上面的
   WebAssembly 一节），所以它们挂在 target 专属的依赖表里，而不是主依赖表。
-- [chrono](https://crates.io/crates/chrono)：`ReturnSeries` 要的是 `NaiveDate`，而 duckfn 的 `DuckDate`
-  只存「自 1970-01-01 起的天数」，换算在扩展里做。
+- [chrono](https://crates.io/crates/chrono)：本扩展自己用的是**本地时间** —— `open_in_browser` 拼的临时文件名
+  以 `%Y%m%d-%H%M%S` 时间戳开头（`chrono::Local`）。日期那头由 duckfn 的 `chrono` feature 换算
+  （`DuckDate::to_naive_date`），它产出的 `NaiveDate` 正是 quantstats-rs 的 `ReturnSeries::new` 要的；
+  三个 crate 共用同一个 chrono 0.4。
 
 ## 构建
 

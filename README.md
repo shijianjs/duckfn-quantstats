@@ -291,8 +291,11 @@ module layout.
 ## Dependencies
 
 - [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions with
-  DuckDB. Its `duckdb-1-5` feature is enabled, which is what provides `DuckLazySlot`'s sibling — the host
-  file system (`duckfn::duck_vfs`) used by `output`.
+  DuckDB. Two of its features are enabled: `duckdb-1-5`, which provides the host file system
+  (`duckfn::duck_vfs`) used by `output`, and `chrono`, which converts the time wrapper types
+  (`DuckDate::to_naive_date` and friends). The macros also generate a `SQL_NAME` constant per signature —
+  the name the function is really registered under — so error prefixes read that instead of a hand-written
+  copy of the `overloads_name` literal.
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension` enabled —
@@ -303,9 +306,10 @@ module layout.
   `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is unreachable),
   so both overloads are built on it instead of recomputing metrics — that would create a second source of
   truth for numbers the report already prints.
-- [chrono](https://crates.io/crates/chrono): `ReturnSeries` wants `NaiveDate`, while duckfn's `DuckDate` only
-  stores days since 1970-01-01, so the conversion lives in the extension; it also stamps the temporary file
-  name.
+- [chrono](https://crates.io/crates/chrono): used directly for **local time** — the temporary file name
+  `open_in_browser` builds starts with a `%Y%m%d-%H%M%S` stamp (`chrono::Local`). The date side is duckfn's
+  `chrono` feature (`DuckDate::to_naive_date`), whose `NaiveDate` is exactly what quantstats-rs'
+  `ReturnSeries::new` takes; all three share one chrono 0.4.
 - [open](https://crates.io/crates/open), [tempfile](https://crates.io/crates/tempfile) and
   [sanitize-filename](https://crates.io/crates/sanitize-filename): `open_in_browser` — starting the browser,
   creating a uniquely named temporary file, and knowing which file names the platform accepts. **Non-wasm
