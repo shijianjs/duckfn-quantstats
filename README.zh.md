@@ -4,9 +4,10 @@
 
 一个 DuckDB 扩展（loadable extension），包装 [quantstats-rs](https://crates.io/crates/quantstats-rs)：
 把「一张按日期排列的长表」一次交给它，函数内部按 `symbol` 分组，**每个标的产出一份完整的 quantstats
-HTML 报告**，并把这些报告（连同各自的显示名与实际落盘路径）作为**一个数组**返回 —— 全部在 SQL 里完成。
+HTML 报告**（配置里指名基准时，一个标的对几个基准就出几份），并把这些报告（连同各自的基准、显示名与实际
+落盘路径）作为**一个数组**返回 —— 全部在 SQL 里完成。
 
-**要求 DuckDB 1.5 及以上。** 报告落盘（`output`）用的宿主文件系统是 1.5 才进 DuckDB C API 的，
+**要求 DuckDB 1.5 及以上。** 报告落盘（`output_dir`）用的宿主文件系统是 1.5 才进 DuckDB C API 的，
 所以不再保留 1.4 兼容性；本扩展在 v1.5.5 上构建与测试。
 
 本文件是用户文档。开发笔记（目录结构、设计取舍、依赖选择与测试）在 [DEVELOPMENT.zh.md](DEVELOPMENT.zh.md)。
@@ -28,15 +29,17 @@ SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quant
 -- 已经 clone 了仓库？直接 read_csv('demo/prices.csv')
 ```
 
+上面几条都往 `reports` 目录里写报告 —— **目录要先建好**（`mkdir reports`，函数不会替你创建）。
+
 ```sql
--- 1. 整张表一次调用：每个标的各一份报告，各写各的文件，路径回填在结果里
+-- 1. 整张表一次调用：每个标的各一份报告，各写各的文件（output_dir 只给目录，文件名由函数生成）
 SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'title': symbol,
                 'strategy_title': symbol,
-                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -45,21 +48,35 @@ SELECT (r).symbol, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': 'SPX',
+               {'benchmark': ['SPX'],
                 'benchmark_title': 'S&P 500',
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
-                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 
--- 3. 手上已经是收益率？用另一个名字；pct_change 得放在子查询里
+-- 3. 一个标的对多个基准：每个基准一份报告（`benchmark` 是列表，顺序就是报告顺序）
+--    这里把 SPX 与 GOOGL 都当基准，所以出报告的就只剩 MSFT —— 每个基准一份
+--    （「一个基准多个标的」是另一回事：那只是每个标的各出一份，不必列成列表）
+SELECT (r).symbol, (r).benchmark, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX', 'GOOGL'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
+    FROM prices
+);
+
+-- 4. 手上已经是收益率？用另一个名字；pct_change 得放在子查询里
 SELECT (r).symbol, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports(
                symbol, date, period_return,
-               {'benchmark': 'SPX'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX']}::qs_html_report_options)) AS r
     FROM (SELECT symbol, date,
                  price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
           FROM prices)
@@ -67,15 +84,15 @@ FROM (
 ```
 
 一份报告是几百 KB 的 HTML（内嵌十几张 SVG），`unnest(...)` 会把它们一行份地铺开，所以终端里更适合让
-`output`（落盘）或 `open_in_browser`（用浏览器打开）接手。只想看清单、不看 HTML 时，用
+`output_dir`（落盘）或 `open_in_browser`（用浏览器打开）接手。只想看清单、不看 HTML 时，用
 `list_transform` 只挑需要的字段即可：
 
 ```sql
--- 报告清单：只回 symbol 与落盘路径
+-- 报告清单：只回 symbol、基准与落盘路径
 SELECT list_transform(
            qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': 'SPX', 'output': 'report-' || symbol || '.html'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM prices;
 ```
 
@@ -85,7 +102,7 @@ FROM prices;
 
 | 签名 | 输入 | 返回 |
 | --- | --- | --- |
-| `qs_html_reports(symbol, date, period_return, options)` | 收益率序列 | `STRUCT(symbol, strategy_title, html, file_path)[]` |
+| `qs_html_reports(symbol, date, period_return, options)` | 收益率序列 | `STRUCT(symbol, benchmark, strategy_title, html, file_path)[]` |
 | `qs_html_reports_by_prices(symbol, date, price, options)` | 价格/净值序列 | 同上；函数内部先换算成收益率 |
 
 要点：
@@ -93,19 +110,21 @@ FROM prices;
 - **一次调用出整套报告。** SQL 里**不写 `GROUP BY`**：`symbol` 列就是分组依据，函数内部按它分组，
   每个 symbol 渲染一份完整报告。100 个标的就是 100 份完整报告（每份内嵌十几张 SVG），耗时与内存随标的
   数线性增长 —— 这是预期行为，不是性能 bug。
-- **返回的是一个数组**，每个元素是 `{symbol, strategy_title, html, file_path}`。`unnest(...)` 把它铺成
-  行，`list_transform(...)` 只取需要的字段，也可以 `(qs_html_reports(...))[1].html` 直接取某一份。
-- **顺序按 `symbol` 升序**，与输入顺序、线程数都无关。
-- **基准就是表里一个普通的 symbol**：配置里的 `benchmark` 写它的名字（**单个**，不是列表），它的数据就
-  当基准用，而**它自己不出现在结果里**（100 个标的指了 1 个基准 → 返回 99 条）。想给不同标的配不同基准、
-  或者想让基准自己也出一份报告，自己过滤后分几次调用即可。
+- **返回的是一个数组**，每个元素是 `{symbol, benchmark, strategy_title, html, file_path}`。
+  `unnest(...)` 把它铺成行，`list_transform(...)` 只取需要的字段，也可以 `(qs_html_reports(...))[1].html`
+  直接取某一份。
+- **顺序按 `symbol` 升序**，同一标的内按 `benchmark` 列表给出的顺序；与输入顺序、线程数都无关。
+- **基准是表里一个或多个普通的 symbol**：配置里的 `benchmark` 是**列表**（`['SPX', 'NDX']`），列到的
+  symbol 只作输入、**不出现在结果里**。报告只能带一个基准，所以「一个标的对 M 个基准」就是**M 份报告**：
+  同一 `symbol` 出现 M 行，靠 `benchmark` 字段区分（一个基准多个标的则只是每个标的各出一份）。
+  想让基准自己也出一份报告、或给不同标的配不同基准，自己过滤后分几次调用即可。
 - `symbol` 是 `VARCHAR`，`date` 是 `DATE`，`period_return` 是按周期计的收益率（`DOUBLE`），`price`
   是当天的价格或净值（`DOUBLE`）。这四者任一为 `NULL` 的行会被**整行跳过**（`symbol` 是空串的行同样
   跳过），与其它 SQL 聚合函数一致。
 - 配置参数 `options` **固定在参数列表最后**且必给 —— 不需要配置就写 `NULL`。它是**可空**配置，类型是
   加载期建好的命名 STRUCT 类型 `qs_html_report_options`。
-- 配置**按行求值**（见 [配置字段](#配置字段)），所以「每个标的一套标题 / 显示名 / 落盘路径」就是用
-  `symbol` 列把配置拼出来，例如 `{'title': symbol, 'output': 'report-' || symbol || '.html'}`。
+- 配置**按行求值**（见 [配置字段](#配置字段)），所以「每个标的一套标题 / 显示名 / 落盘目录」就是用
+  `symbol` 列把配置拼出来，例如 `{'title': symbol, 'output_dir': 'reports'}`。
 - SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给报告自己去排。
 - 名字为什么是两个：`(symbol, date, price, options)` 与 `(symbol, date, period_return, options)` 的类型
   序列完全一样（`VARCHAR, DATE, DOUBLE, STRUCT`），同一个名字下无法分派。
@@ -148,13 +167,13 @@ FROM nav_table;
 | --- | --- | --- | --- |
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | 报告标题 |
 | `strategy_title` | `VARCHAR` | 该 symbol | 策略显示名；没写就退回 `symbol` 本身 |
-| `benchmark_title` | `VARCHAR` | 基准 symbol | 基准显示名（纯展示）；没写就退回 `benchmark` 那个 symbol |
-| `benchmark` | `VARCHAR` | `NULL` | 哪个 **symbol** 当基准；它只作输入、不出报告 |
+| `benchmark_title` | `VARCHAR` | 基准 symbol | 基准显示名（纯展示）；没写就退回**那一份报告所用的**基准 symbol。多基准时不能写（那时它没有单一答案） |
+| `benchmark` | `VARCHAR[]` | `NULL` | 哪些 **symbol** 当基准（**列表**，顺序即报告顺序）；它们只作输入、不出报告。一个基准也要写成 `['SPX']` |
 | `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
-| `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径，走 DuckDB 的 VFS（见下） |
-| `open_in_browser` | `BOOLEAN` | `false` | 用系统默认浏览器打开报告；没写 `output` 时会先落一个临时文件（见下） |
+| `output_dir` | `VARCHAR` | `NULL` | 把每份报告落盘到该**目录**，文件名由函数生成（见下）；走 DuckDB 的 VFS |
+| `open_in_browser` | `BOOLEAN` | `false` | 用系统默认浏览器打开报告；没写 `output_dir` 时会先落一个临时文件（见下） |
 
 除两个显示名之外，默认值都直接取自 quantstats-rs 的 `HtmlReportOptions::default()`，本扩展不另立一套。
 
@@ -165,16 +184,20 @@ symbol），报告里的图例、临时文件名与结果里的 `strategy_title`
 **配置是按行求值的一列**，每个 symbol 只取用一次（该 symbol 第一行出现的那份），所以：
 
 ```sql
--- 每个标的各自的标题、显示名与落盘路径，全部由 symbol 列拼出来
+-- 每个标的各自的标题与显示名，由 symbol 列拼出来（落盘目录由 output_dir 统一给，文件名函数自己拼）
 SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'title': symbol,
             'strategy_title': symbol,
-            'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
+            'output_dir': 'reports'}::qs_html_report_options)) AS report
 FROM prices;
 ```
 
-同一个 symbol 的配置要逐行一致；`benchmark` 这一项还要求**整次调用里所有取值一致**（不一致直接报错）。
+同一个 symbol 的配置要逐行一致；`benchmark` 这一项还要求**整次调用里所有标的给出同一个列表**（元素与
+顺序都一致，不一致直接报错），否则「谁把谁当基准」就没有单一答案。
+
+想按基准维度定制文案或路径时不必纠结：`benchmark_title` 缺省就会退回各自的基准 symbol，落盘路径则由
+函数按「时间 + 策略名 + 基准名 + 随机尾缀」自动生成（见下），两处都自带基准那一段。
 
 `rf` 按**年化**口径传（`0.04` = 4%），报告内部再换算成周期利率；crate 里有两处换算略有差别 ——
 Sharpe（含滚动 Sharpe / Sortino）用 `(1 + rf)^(1/periods_per_year) - 1`，而指标表里的 PSR / Sortino 用
@@ -190,10 +213,16 @@ FROM daily_returns WHERE symbol = 'FUND';
 -- 整张表、带基准：基准是表里一个普通的 symbol
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'benchmark': 'SPX',
+           {'benchmark': ['SPX'],
             'title': symbol,
             'strategy_title': symbol,
             'benchmark_title': 'S&P 500'}::qs_html_report_options)) AS report
+FROM daily_returns;
+
+-- 一个标的对两个基准：该标的两份报告，每份只跟它自己那个基准比
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- 价格/净值序列：直接用快捷方式，不用自己写 pct_change 窗口
@@ -201,13 +230,13 @@ SELECT unnest(qs_html_reports_by_prices(
            symbol, trade_date, nav, {'title': symbol}::qs_html_report_options)) AS report
 FROM nav_table;
 
--- 顺带落盘一份（走 DuckDB 的 VFS，所以 wasm 下同样可用）
+-- 顺带落盘（只给目录，文件名函数自己拼；走 DuckDB 的 VFS，所以 wasm 下同样可用）
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'title': symbol, 'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
+           {'title': symbol, 'output_dir': 'reports'}::qs_html_report_options)) AS report
 FROM daily_returns;
 
--- 落盘之后直接用浏览器打开（不写 output 就先落一个临时文件，再打开它；每个标的开一个标签页）
+-- 落盘之后直接用浏览器打开（不写 output_dir 就先落一个临时文件，再打开它；每份报告开一个标签页）
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
            {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
@@ -216,20 +245,22 @@ FROM daily_returns;
 -- 只要清单，不要 HTML（一份报告几百 KB，铺成行会很吵）
 SELECT list_transform(
            qs_html_reports(symbol, trade_date, daily_return,
-               {'output': 'report-' || symbol || '.html'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM daily_returns;
 ```
 
 ## 几个必须知道的行为
 
 - **配置的 struct 字面量必须显式写 `::qs_html_report_options`。** 不写的话它是匿名的
-  `STRUCT(title VARCHAR)`，字段个数与配置类型不同，DuckDB 会直接说找不到匹配的函数。
+  `STRUCT(title VARCHAR)`，匹配不上任何签名，DuckDB 会直接说找不到函数。
 - **`'...'::JSON::qs_html_report_options` 要把 9 个键写全**（DuckDB 的 JSON→STRUCT 转换不允许缺键），
   所以推荐直接用 struct 字面量。
-- **`benchmark` 写的是 symbol 名，不是值。** 它必须是表里 `symbol` 列的某个取值，且整次调用一致；被指到
-  的那个 symbol 只当基准，不出现在返回的数组里。
-- **结果的顺序按 `symbol` 升序**，不随输入顺序或线程数变化。
+- **`benchmark` 写的是 symbol 名（列表），不是值。** 每一项都必须是表里 `symbol` 列的某个取值，整次调用
+  一致；列到的 symbol 只当基准，不出现在返回的数组里。一个基准也要写成 `['SPX']`。
+- **多基准时不要写 `benchmark_title`**：那时它没有单一答案（是哪个基准的名字？），显示名会各自退回对应
+  的基准 symbol。
+- **结果的顺序按 `symbol` 升序、同一标的内按基准列表顺序**，不随输入顺序或线程数变化。
 
 ## 错误路径
 
@@ -238,36 +269,41 @@ FROM daily_returns;
 | 一行都没有，或没有任何标的能出报告 | 返回 `NULL` |
 | 某个标的差分/构造后没有有效点 | 该标的从结果里略过 |
 | `benchmark` 指的 symbol 在表里没有行 | 报错 `no row for the benchmark symbol '…'` |
-| `benchmark` 取值在多个标的之间不一致 | 报错 `every symbol must use the same benchmark` |
-| `benchmark = ''` | 报错 `benchmark must not be an empty string` |
+| `benchmark` 列表在各标的之间不一致（元素或顺序不同） | 报错 `every symbol must use the same benchmark list` |
+| `benchmark` 列表里有空串 / NULL 元素 / 重复项 | 报错 `must not contain an empty string` / `… a NULL element` / `lists '…' twice` |
+| 多基准时写了 `benchmark_title` | 报错 `benchmark_title cannot be set with 2 benchmarks` |
 | 价格路径：基准差分不出收益率（有效点不足两个） | 报错 `produced no returns` |
-| 两个标的写到同一个 `output` 路径 | 报错 `both write to '…'` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
-| `output = ''` | 报错 `output must not be an empty string` |
-| `output` 路径里有 NUL 字节 | 报错 `contains a NUL byte` |
-| `output` 路径写不进去（目录不存在、远端不可写等） | 报错里带 `duckfn::duck_vfs::write` 与路径 |
-| `open_in_browser` 配的 `output` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
+| `output_dir = ''` | 报错 `output_dir must not be an empty string` |
+| `output_dir` 里有 NUL 字节 | 报错 `contains a NUL byte` |
+| `output_dir` 写不进去（目录不存在、远端不可写等） | 报错里带 `duckfn::duck_vfs::write` 与路径 |
+| `open_in_browser` 配的 `output_dir` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
 
 报错信息一律以注册的函数名开头（`qs_html_reports: …`），所以一眼能看出是哪个函数的问题。
 
-## 报告落盘（`output`）
+## 报告落盘（`output_dir`）
 
-`output` 把渲染好的 HTML 写出去，走的是 **DuckDB 的 VFS** 而不是 `std::fs`：本地磁盘、内存文件系统、
-wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` / `http(s)://`，
-都是同一条通路、同一套语义。
+`output_dir` 给一个**目录**，每份报告一个文件，文件名由函数生成：
+`<时间>-<策略名>-<基准名>-<随机尾缀>.html`（没有基准时中间那一段就不出现）。这样安排的原因是：
 
-`output` 是**替换**：写完之后文件里恰好就是这份报告，哪怕它以前更长。
+- **不用自己拼路径**：文件名要带「哪个标的、对哪个基准、什么时候」，这些只有函数知道；而且「一个标的
+  对多个基准」时，按标的拼出来的路径必然互相覆盖；
+- **不会互相覆盖**：随机尾缀 + 落盘前查一次同名文件（撞上就换一个尾缀重试），所以两次调用各写各的，
+  文件也从来不会被覆盖；
+- **名字认得出来**：后两段正是报告里的显示名（`strategy_title` 与基准显示名），目录里一眼能看出这是
+  哪份报告。
 
-配置是按行求值的，所以「每个标的各写一份」就是拿 `symbol` 列拼路径（`'report-' || symbol || '.html'`）。
-**两个标的指到同一个路径会报错**，而不是静默互相覆盖。目录不会自动创建，路径里的目录得先存在。
+目录**必须已经存在**（函数不会替你创建）。写文件走的是 **DuckDB 的 VFS** 而不是 `std::fs`：本地磁盘、
+内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` / `http(s)://`，
+都是同一条通路、同一套语义（VFS 路径按 `/` 拼，所以 `output_dir` 写 `s3://bucket/reports` 也没问题）。
 
 返回行里的 `file_path` 就是这次真正写出去的路径（没落盘则为 `NULL`），所以「写了哪些文件」可以直接
 从结果里读，不必去猜：
 
 ```sql
-SELECT (r).symbol, (r).file_path FROM (
+SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
     SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 ```
@@ -277,22 +313,24 @@ SELECT (r).symbol, (r).file_path FROM (
 `open_in_browser` 在报告生成之后把它交给系统默认浏览器，于是终端里的一套流程不必以「现在去找那个文件、
 双击打开」收尾。浏览器要的是一个真实存在的本地文件，其余都由这件事决定：
 
-- 写了 `output`：先落盘，再打开那个文件；
-- 没写：先把报告落到系统临时目录里的
-  `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html`。前缀是给人看的 —— 时间、`strategy_title`
-  （没写就退回 `title`）与 `benchmark_title`（没写就退回基准 symbol），文件名里放不下的字符换成 `_`；
-  既不会覆盖已有文件，同一秒里连着出几份报告也不会撞名；
-- `output` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种路径。
-  这个检查发生在渲染**之前**。
+- 写了 `output_dir`：先落盘，再打开那些文件；
+- 没写：先把每份报告落到系统临时目录里的
+  `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html` 文件（与 `output_dir` 用的是同一套命名规则），
+  再打开它。前缀是给人看的 —— 时间、`strategy_title`（没写就退回 `title`）与 `benchmark_title`
+  （没写就退回基准 symbol），文件名里放不下的字符换成 `_`；既不会覆盖已有文件，同一秒里连着出几份报告
+  也不会撞名；
+- `output_dir` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种
+  路径。这个检查发生在渲染**之前**。
 
 浏览器是**不阻塞**地叫起来的：报告已经落盘，所以这次查询既不等待浏览器、也不关心浏览器怎么处理这个文件。
 唯一会报错的情形是启动器本身起不来。
 
-一次调用会为每个标的各开一个标签页（没写 `output` 时各落一个临时文件，至少不会互相覆盖）。
+一次调用会为**每一份报告**各开一个标签页（一个标的对两个基准就是两个标签页；没写 `output_dir` 时各落
+一个临时文件，至少不会互相覆盖）。
 
 ## WebAssembly
 
-`output` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
+`output_dir` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
 
 `open_in_browser` 是唯一一处**有意保留**的例外：wasm 构建里没有可以启动的浏览器进程，所以那边直接忽略这个
 选项 —— 不打开浏览器，也不会为此写临时文件。报告字符串原样返回给宿主，展示是宿主页面的事：

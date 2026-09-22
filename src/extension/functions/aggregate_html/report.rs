@@ -1,73 +1,80 @@
 // ============================================================================
-// 收尾：按 symbol 逐份渲染 → 落盘 / 打开浏览器 → 回填清单
+// 收尾：按 (标的, 基准) 逐份渲染 → 落盘 / 打开浏览器 → 回填清单
 //
 // 两条路径的最后一步只差「点要不要先差分」，所以共用 `render_reports` 一个实现：
 //
 //   render_return_reports  点本来就是收益率
 //   render_price_reports   点先过 `prices_to_returns`（策略与基准走同一套规则）
 //
+// # 一份报告 = 一个 (标的, 基准) 对
+//
+// 报告只能有一个基准（quantstats-rs 的 `HtmlReportOptions` 就是一个 `Option<&ReturnSeries>`），所以
+// 「一个标的对多个基准」落成**多份报告**：`benchmark: ['SPX', 'NDX']` + 3 个标的 = 6 行。顺序是
+// 「标的按 symbol 升序，同一标的内按基准列表给出的顺序」，所以基准列表的顺序就是报告的顺序。
+//
+// 基准的序列每个只转换一次（价格路径上是差分），所有标的共用；被指为基准的 symbol 只作输入、不出报告。
+//
+// # 顺序与落盘
+//
 // 顺序是刻意定的：
 //
-//   1. 先把每个标的的配置与「报告的去处」（[`ReportTarget`]）都定下来，顺带校验 `output` 非空、
-//      `open_in_browser` 指的路径能不能交给浏览器，并**查重落盘路径** —— 两个标的写进同一个文件
-//      等于静默丢报告，在渲染之前拦住比渲染之后才发现划算得多；
+//   1. 先把每个标的的序列、以及每个 (标的, 基准) 对的落盘目标（[`ReportTarget`]）都定下来，顺带校验
+//      `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器 —— 配置错误因此发生在渲染之前，
+//      不会白渲染几十份几百 KB 的报告；
 //   2. 再逐个渲染、落盘、按需开浏览器；
 //   3. 最后把「实际写到哪」回填进返回行（没落盘就是 NULL）。
 //
-// 基准：配置里 `benchmark` 指的 symbol 只作输入、不出报告。它的序列**只转换一次**（价格路径上是
-// 差分），所有标的共用；它不在表里、或转换后没有有效点时**报错** —— 这个键是调用方明确写下的，
-// 静默出一份没有基准的报告比报错更容易让人误判。
+// 文件名不给用户填（见 [`ReportTarget`]）：`output_dir` 只给目录，名字由 naming.rs 按「时间 + 策略名 +
+// 基准名 + 随机尾缀」生成，`report_path` 再确认它没被占用 —— 于是不管一个标的对几个基准、一次调用写多少
+// 文件，都不存在互相覆盖这回事。
 //
 // 配置直接从每个 symbol 的槽位取（`SymbolSlot::options_or_default`）：整列配置是 `NULL`、或那一行
 // 都没轮到解析时，槽里没有解析结果，退化成 quantstats-rs 自己的全默认。
 //
-// 报告的去处由 [`ReportTarget`] 定下：配置里写了 `output` 就落盘（经 duckfn 的便捷层走 DuckDB 的
-// VFS —— 本地磁盘 / 内存文件系统 / wasm 上的文件系统是同一条通路 —— 而不是 `std::fs`，细节见
-// `write_report`）；另外要了 `open_in_browser` 就在落盘之后用系统默认浏览器打开它（没写 `output`
-// 则先落一个临时文件，见 browser.rs；多个标的开多个标签页，这是它的自然语义）。
-//
 // 没有任何可出的报告（一行都没有，或每个标的转换后都没有有效点）返回 `Ok(None)`，即 SQL `NULL` ——
 // 不要交给 `html()`，那边会报 `EmptySeries` 错误。
 //
-// The tail: render one report per symbol → write / open in a browser → fill the list in.
+// The tail: render one report per (symbol, benchmark) pair → write / open in a browser → fill the list in.
 //
-// The last step is the same on both paths and differs only in "do the points have to be differenced
-// first", hence a single `render_reports` implementation:
+// The last step is the same on both paths and differs only in "do the points have to be differenced first",
+// hence a single `render_reports` implementation:
 //
 //   render_return_reports  the points already are returns
-//   render_price_reports   the points go through `prices_to_returns` (same rules for strategy and
-//                          benchmark)
+//   render_price_reports   the points go through `prices_to_returns` (same rules for strategy and benchmark)
+//
+// # One report = one (symbol, benchmark) pair
+//
+// A report can only carry one benchmark (quantstats-rs' `HtmlReportOptions` holds a single
+// `Option<&ReturnSeries>`), so "one instrument against several benchmarks" becomes **several reports**:
+// `benchmark: ['SPX', 'NDX']` with 3 instruments yields 6 rows. The order is "symbols ascending, and within
+// one symbol the order of the configured benchmark list", which makes that list the order of the reports.
+//
+// Each benchmark's series is converted exactly once (differenced first, on the price branch) and shared by
+// every instrument; a symbol named as a benchmark is input only and gets no report.
+//
+// # Order and persistence
 //
 // The order is deliberate:
 //
-//   1. settle every instrument's options and where its report goes ([`ReportTarget`]), validating
-//      `output` and `open_in_browser` on the way, and **check for duplicate output paths** — two
-//      instruments writing into one file silently loses a report, and catching that before anything is
-//      rendered is much cheaper than catching it after;
+//   1. settle every instrument's series and every (symbol, benchmark) pair's destination ([`ReportTarget`]),
+//      validating `output_dir` and `open_in_browser` on the way — a bad configuration is therefore reported
+//      before anything is rendered, rather than after dozens of few-hundred-KB reports;
 //   2. render, persist and open each one;
 //   3. fill the actual path into the returned row (NULL when nothing was written).
 //
-// The benchmark: the symbol named by `benchmark` is input only and gets no report. Its series is
-// converted **once** (differenced, on the price branch) and shared by every instrument; when it is not
-// in the table, or has no valid point left after conversion, that is an **error** — the caller wrote
-// that key explicitly, and a silently benchmark-less report would be easier to misread than a failure.
+// The file name is not the caller's to type (see [`ReportTarget`]): `output_dir` only takes a directory and
+// naming.rs builds the name from "time + strategy + benchmark + random suffix", which `report_path` then
+// checks is free — so no matter how many benchmarks an instrument has or how many files one call writes,
+// they cannot overwrite each other.
 //
 // The options come straight out of each symbol's slot (`SymbolSlot::options_or_default`): when the whole
 // column was NULL, or no row of that symbol has been parsed yet, the slot holds no parse result and the
 // report falls back to quantstats-rs' own all-defaults.
 //
-// Where a report goes is decided by [`ReportTarget`]: a configured `output` is written through duckfn's
-// convenience layer on DuckDB's VFS (local disk / in-memory file systems / the wasm build's file system
-// all take the same path) rather than `std::fs`, see `write_report`; and when `open_in_browser` was
-// asked for, the report is opened with the system default browser afterwards (via a temporary file when
-// no `output` was given, see browser.rs; several instruments open several tabs, which is what the option
-// naturally means).
-//
 // Nothing to report at all (no row, or no instrument with a valid series after conversion) yields
 // `Ok(None)`, i.e. SQL `NULL` — do not hand it to `html()`, which would fail with `EmptySeries`.
 // ============================================================================
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -79,6 +86,7 @@ use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 
 use super::browser;
 use super::kind::SeriesKind;
+use super::naming;
 use super::series::{SeriesPoint, build_series, prices_to_returns};
 use super::slots::SymbolTable;
 
@@ -103,27 +111,23 @@ pub(super) fn render_price_reports(
     render_reports(kind, symbols, prices_to_returns)
 }
 
-/// 一份待渲染的报告：谁、用什么配置、写到哪、用哪条序列。
+/// 一个标的的「一份报告」所需的一切：序列、配置、落盘目标（基准由外部按列表顺序给出）。
 ///
-/// One report waiting to be rendered: which symbol, with which options, written where, from which
-/// series.
-struct PlannedReport<'a> {
-    /// 报告对应的 symbol（取自输入列，不是配置）。
+/// Everything one report of one instrument needs: its series, its options and its destination (the
+/// benchmark comes from the outer list order).
+struct StrategyReport<'a> {
+    /// 报告对应的 symbol。
     ///
-    /// The symbol this report belongs to (from the input column, not from the options).
+    /// The symbol this report belongs to.
     symbol: &'a str,
     /// 该 symbol 的配置；没解析到就是全默认。
     ///
     /// This symbol's options; all defaults when nothing was parsed.
     options: Arc<QuantstatsHtmlOptions>,
-    /// 报告的去处（`output` / `open_in_browser` 已经在这里校验过）。
+    /// 已经换算成收益率的策略序列。同一个标的的所有基准共用它。
     ///
-    /// Where the report goes (`output` / `open_in_browser` were validated here).
-    target: ReportTarget,
-    /// 已经换算成收益率的点。
-    ///
-    /// The points, already converted into returns.
-    returns: Vec<SeriesPoint>,
+    /// The strategy series, already converted into returns. Every benchmark of this instrument shares it.
+    series: ReturnSeries,
 }
 
 /// 收尾的实现：`to_returns` 是两条路径唯一的差别（收益率路径是恒等，价格路径是差分）。
@@ -153,106 +157,123 @@ fn render_reports(
         .collect();
 
     let function = kind.function;
-    let benchmark = benchmark_symbol(kind, &configured)?;
+    let benchmarks = benchmark_names(kind, &configured)?;
 
-    // 基准序列只换算一次，所有标的共用 —— 别在下面的循环里对每个标的重算一遍。
+    // 基准序列每个只转换一次，所有标的共用 —— 别在下面的循环里对每个标的重算一遍。
     //
-    // The benchmark series is converted once and shared by every instrument — do not recompute it per
+    // Each benchmark series is converted once and shared by every instrument — do not recompute it per
     // instrument in the loop below.
-    let benchmark_returns = match benchmark {
-        Some(benchmark) => {
-            let points = symbols
-                .get(benchmark)
-                .map(|slot| slot.points())
-                .ok_or_else(|| {
-                    duck_error(format!(
-                        "{function}: no row for the benchmark symbol '{benchmark}' — the benchmark must \
-                         be a symbol present in the input"
-                    ))
-                })?;
+    let mut benchmark_series = Vec::with_capacity(benchmarks.len());
+    for benchmark in &benchmarks {
+        let points = symbols
+            .get(benchmark)
+            .map(|slot| slot.points())
+            .ok_or_else(|| {
+                duck_error(format!(
+                    "{function}: no row for the benchmark symbol '{benchmark}' — the benchmark must be \
+                     a symbol present in the input"
+                ))
+            })?;
 
-            let returns = to_returns(points);
-            if returns.is_empty() {
-                return Err(duck_error(format!(
-                    "{function}: the benchmark symbol '{benchmark}' produced no returns — it needs at \
-                     least two points, and on the price branch its predecessors must not be zero"
-                )));
-            }
-
-            Some(returns)
+        let returns = to_returns(points);
+        if returns.is_empty() {
+            return Err(duck_error(format!(
+                "{function}: the benchmark symbol '{benchmark}' produced no returns — it needs at least \
+                 two points, and on the price branch its predecessors must not be zero"
+            )));
         }
-        None => None,
-    };
 
-    // 第一遍：把每个标的的去处定下来（顺带校验配置），并确认没有两个标的写同一个文件。
+        benchmark_series.push(build_series(&returns, None)?);
+    }
+
+    // 第一遍：把要出报告的标的挑出来（基准只作输入）并建好序列。换算后没有有效点的标的略过 ——
+    // 「没有报告可出」与「一行都没有 → NULL」是同一套语义，不是错误。
     //
-    // First pass: settle where every instrument's report goes (validating its options on the way) and
-    // make sure no two of them write into the same file.
-    let mut planned = Vec::with_capacity(configured.len());
+    // First pass: pick the instruments that get a report (the benchmark is input only) and build their
+    // series. An instrument with no valid point after conversion is left out — the same semantics as
+    // "no row at all → NULL", not an error.
+    let mut strategies: Vec<StrategyReport<'_>> = Vec::with_capacity(configured.len());
     for (symbol, options) in &configured {
-        // 基准只作输入，不出报告。
-        //
-        // The benchmark is input only and gets no report.
-        if Some(*symbol) == benchmark {
+        if benchmarks.contains(symbol) {
             continue;
         }
 
         let points = symbols.get(symbol).map(|slot| slot.points()).unwrap_or(&[]);
         let returns = to_returns(points);
-        // 这个标的换算后没有有效点（整组只有一个点，或所有点都缺前值）→ 它没有报告可出，略过。
-        // 与「一行都没有 → NULL」是同一套语义，不是错误。
-        //
-        // After conversion this instrument has no valid point (a single-point series, or every point
-        // missing its predecessor) → there is no report for it, so it is left out. The same semantics
-        // as "no row at all → NULL", not an error.
         if returns.is_empty() {
             continue;
         }
 
-        planned.push(PlannedReport {
+        strategies.push(StrategyReport {
             symbol,
             options: Arc::clone(options),
-            target: ReportTarget::new(options)?,
-            returns,
+            series: build_series(&returns, None)?,
         });
     }
-    check_output_paths(kind, &planned)?;
 
-    // 基准序列在这里建一次：下面每个标的的报告都要挂到同一个 `ReturnSeries` 上（`with_benchmark`
-    // 借它）。
+    // 每个标的的落盘目标：没配基准时一个（单序列报告），否则每个基准一个。全部在这里定下来，所以
+    // `output_dir` / `open_in_browser` 的配置错误发生在渲染之前。
     //
-    // The benchmark series is built once here: every report below attaches to that same `ReturnSeries`
-    // (`with_benchmark` borrows it).
-    let benchmark_series = match &benchmark_returns {
-        Some(returns) => Some(build_series(returns, None)?),
-        None => None,
-    };
+    // Every instrument's destinations: one when no benchmark is configured (a single-series report),
+    // otherwise one per benchmark. They are all settled here, so `output_dir` / `open_in_browser`
+    // misconfiguration surfaces before anything is rendered.
+    let targets: Vec<Vec<ReportTarget>> = strategies
+        .iter()
+        .map(|strategy| -> DuckResult<Vec<ReportTarget>> {
+            if benchmarks.is_empty() {
+                return Ok(vec![ReportTarget::new(
+                    &strategy.options,
+                    strategy.symbol,
+                    None,
+                )?]);
+            }
+
+            benchmarks
+                .iter()
+                .map(|benchmark| {
+                    ReportTarget::new(&strategy.options, strategy.symbol, Some(benchmark))
+                })
+                .collect()
+        })
+        .collect::<DuckResult<_>>()?;
 
     // 第二遍：渲染 → 落盘 / 开浏览器 → 回填路径。
     //
     // Second pass: render → write / open in a browser → fill the path in.
-    let mut reports = Vec::with_capacity(planned.len());
-    for planned in planned {
-        let series = build_series(&planned.returns, None)?;
-        let mut report_options = planned.options.to_report_options(planned.symbol, benchmark)?;
-        if let Some(benchmark_series) = &benchmark_series {
-            report_options = report_options.with_benchmark(benchmark_series);
-        }
-
-        let report = render(kind, &series, report_options)?;
-        planned.target.deliver(&report)?;
-
-        reports.push(QuantstatsHtmlReport {
-            symbol: planned.symbol.to_owned(),
-            strategy_title: planned.options.strategy_title_or(planned.symbol),
-            html: report,
-            // 回填的就是这一次真正写出去的路径：`output` 原样，只在浏览器里打开时会退化成那个临时
-            // 文件，两者都没配则为 NULL。
+    let mut reports = Vec::with_capacity(
+        strategies
+            .len()
+            .saturating_mul(benchmarks.len().max(1)),
+    );
+    for (strategy, targets) in strategies.iter().zip(&targets) {
+        for (index, target) in targets.iter().enumerate() {
+            // 没配基准时 `benchmarks` 是空的，`get(0)` 就是 `None` —— 与只有一个目标的那一支对上。
             //
-            // This is the path this very call wrote to: `output` verbatim, the temporary file when the
-            // browser was the only one asking for a file, and NULL when there is neither.
-            file_path: planned.target.write_to().map(str::to_owned),
-        });
+            // With no benchmark configured `benchmarks` is empty and `get(0)` is `None`, which is what
+            // the single-destination branch means.
+            let benchmark = benchmarks.get(index).copied();
+            let mut report_options = strategy.options.to_report_options(strategy.symbol, benchmark)?;
+            if benchmark.is_some() {
+                report_options = report_options.with_benchmark(&benchmark_series[index]);
+            }
+
+            let report = render(kind, &strategy.series, report_options)?;
+            target.deliver(&report)?;
+
+            reports.push(QuantstatsHtmlReport {
+                symbol: strategy.symbol.to_owned(),
+                benchmark: benchmark.map(str::to_owned),
+                strategy_title: strategy.options.strategy_title_or(strategy.symbol),
+                html: report,
+                // 回填的就是这一次真正写出去的路径：`output_dir` 下那个自动命名的文件，或只在浏览器里
+                // 打开时的临时文件，两者都没配则为 NULL。
+                //
+                // This is the path this very call wrote to: the auto-named file under `output_dir`, the
+                // temporary file when the browser was the only one asking for a file, and NULL when there
+                // is neither.
+                file_path: target.write_to().map(str::to_owned),
+            });
+        }
     }
 
     if reports.is_empty() {
@@ -262,113 +283,87 @@ fn render_reports(
     }
 }
 
-/// 配置里 `benchmark` 指出的那个 symbol；没有配置基准则是 `None`。
+/// 配置里给出的基准 symbol 列表；没配基准时是空数组。
 ///
-/// 一次调用里非 NULL 的 `benchmark` 取值必须一致，否则「谁把谁当基准」没有单一答案，被指的 symbol
-/// 该不该出报告也就说不清了 —— 所以直接报错，而不是挑某一个用。
+/// 一次调用里所有标的必须给**同一个列表**（元素与顺序都一致），否则「谁把谁当基准」没有单一答案，
+/// 被指的 symbol 该不该出报告也就说不清了 —— 所以直接报错，而不是挑某一个用。列表本身的问题（空串、
+/// NULL 元素、重复、多基准时还写了 `benchmark_title`）由 [`QuantstatsHtmlOptions::benchmark_names`] 拦。
 ///
-/// The symbol named by `benchmark` in the options, or `None` when no benchmark was configured.
+/// The benchmark symbols configured; empty when no benchmark was configured.
 ///
-/// Every non-NULL `benchmark` written in one call must agree, otherwise "which one is the benchmark" has
-/// no single answer and whether the named symbol should also get a report becomes unanswerable — so this
-/// is an error instead of picking one.
-fn benchmark_symbol<'b>(
+/// Every instrument in one call has to supply the **same list** (same entries, same order), otherwise "which
+/// one is the benchmark" has no single answer and whether the named symbol should also get a report becomes
+/// unanswerable — so this is an error instead of picking one. Problems inside the list itself (an empty
+/// string, a NULL element, a duplicate, a `benchmark_title` set alongside several benchmarks) are caught by
+/// [`QuantstatsHtmlOptions::benchmark_names`].
+fn benchmark_names<'b>(
     kind: SeriesKind,
     configured: &'b [(&str, Arc<QuantstatsHtmlOptions>)],
-) -> DuckResult<Option<&'b str>> {
-    let mut found: Option<&'b str> = None;
+) -> DuckResult<Vec<&'b str>> {
+    let mut agreed: Option<Vec<&'b str>> = None;
 
     for (symbol, options) in configured {
-        let Some(benchmark) = options.benchmark_name()? else {
-            continue;
-        };
+        let names = options.benchmark_names()?;
 
-        match found {
-            Some(existing) if existing != benchmark => {
+        match &agreed {
+            None => agreed = Some(names),
+            Some(existing) if *existing != names => {
                 return Err(duck_error(format!(
-                    "{}: every symbol must use the same benchmark — found '{existing}' and \
-                     '{benchmark}' (symbol '{symbol}')",
-                    kind.function
+                    "{}: every symbol must use the same benchmark list — found [{}] and [{}] (symbol \
+                     '{symbol}')",
+                    kind.function,
+                    existing.join(", "),
+                    names.join(", ")
                 )));
             }
-            _ => found = Some(benchmark),
+            Some(_) => {}
         }
     }
 
-    Ok(found)
-}
-
-/// 两个标的的 `output` 落到同一个路径就报错。
-///
-/// 覆盖是静默的：先写的报告会被后来的替换掉，调用方拿到两份「成功」的结果却只有一份文件。这属于配置
-/// 写错（每个标的都该有自己的路径），所以直接说清是哪两个标的撞了。
-///
-/// Two instruments writing to the same `output` path is an error.
-///
-/// The overwrite is silent: the earlier report is replaced by the later one, and the caller gets two
-/// "successful" rows but only one file. That is a misconfiguration (each instrument needs its own path),
-/// so the error names both symbols.
-fn check_output_paths(kind: SeriesKind, planned: &[PlannedReport<'_>]) -> DuckResult<()> {
-    let mut seen: HashMap<&str, &str> = HashMap::new();
-
-    for planned in planned {
-        let Some(path) = planned.target.write_to() else {
-            continue;
-        };
-        if let Some(first) = seen.insert(path, planned.symbol) {
-            return Err(duck_error(format!(
-                "{}: symbols '{first}' and '{symbol}' both write to '{path}' — give every symbol its own \
-                 output path (for example 'reports/' || symbol || '.html')",
-                kind.function,
-                symbol = planned.symbol
-            )));
-        }
-    }
-
-    Ok(())
+    Ok(agreed.unwrap_or_default())
 }
 
 /// 渲染报告，并把 quantstats-rs 的错误转成 DuckDB 查询错误。
 ///
 /// Render the report, turning quantstats-rs errors into DuckDB query errors.
-fn render(kind: SeriesKind, series: &ReturnSeries, options: HtmlReportOptions<'_>) -> DuckResult<String> {
+fn render(
+    kind: SeriesKind,
+    series: &ReturnSeries,
+    options: HtmlReportOptions<'_>,
+) -> DuckResult<String> {
     let function = kind.function;
-    html(series, options)
-        .map_err(|err| duck_error(format!("{function}: cannot render the report: {err}")))
+    html(series, options).map_err(|err| duck_error(format!("{function}: cannot render the report: {err}")))
 }
 
-/// 报告的去处：写到哪个路径（可能不写），以及要不要在浏览器里打开。
+/// 报告的去处：写到哪个文件（可能不写），以及要不要在浏览器里打开。
 ///
 /// 「写」与「打开」是两套路径，因此分开存：
 ///
-/// - `write_to` 是配置里的 `output` 原样（相对路径就还是相对路径），由 DuckDB 的 VFS 去解释；它同时
-///   也是返回行里 `file_path` 的来源；
+/// - `write_to` 是**函数自己定的完整路径** —— `output_dir` 下一个自动命名的文件（见 `report_path`），
+///   或者没有 `output_dir` 时要打开浏览器而新建的临时文件；它同时也是返回行里 `file_path` 的来源；
 /// - `open_with_browser` 是**本地绝对路径**，只给系统浏览器用 —— VFS 路径里可能有 `s3://` 这种浏览器
 ///   打不开的东西，相对路径也得先补成绝对路径。
 ///
-/// 每个 symbol 各定一份（配置是逐行的，见 html_report_options.rs）：两者在 [`ReportTarget::new`] 里
-/// 一次定下来，配置错误因此发生在渲染**之前**，不会白渲染几十份几百 KB 的报告。`output` 没写而又要在
-/// 浏览器里打开时，落盘路径退化成 `browser::temporary_file` 建好的那个临时文件（浏览器需要一个真实
-/// 存在的文件）。
+/// 每个 (标的, 基准) 对各定一份：两者在 [`ReportTarget::new`] 里一次定下来，配置错误因此发生在渲染
+/// **之前**，不会白渲染几十份几百 KB 的报告。
 ///
-/// Where a report goes: the path to write it to (possibly none) and whether to open it in a browser.
+/// Where a report goes: the file to write it to (possibly none) and whether to open it in a browser.
 ///
 /// Writing and opening are two different paths and are kept apart:
 ///
-/// - `write_to` is the configured `output`, verbatim (a relative path stays relative), interpreted by
-///   DuckDB's VFS; it is also where the returned `file_path` comes from;
+/// - `write_to` is the **full path the function picked for itself** — an auto-named file under
+///   `output_dir` (see `report_path`), or a freshly created temporary file when there is no `output_dir`
+///   but the browser was asked for; it is also where the returned `file_path` comes from;
 /// - `open_with_browser` is an **absolute local path** for the system browser only — a VFS path may be
 ///   something like `s3://…` that no browser can open, and a relative path has to be made absolute first.
 ///
-/// There is one of these per symbol (the options are per row, see html_report_options.rs): both are
-/// settled in [`ReportTarget::new`], so a bad configuration is reported **before** anything is rendered
-/// rather than after dozens of few-hundred-KB reports. When `output` is not set but the browser was asked
-/// for, the write target falls back to the temporary file `browser::temporary_file` created (a browser
-/// needs a file that actually exists).
+/// There is one of these per (symbol, benchmark) pair: both are settled in [`ReportTarget::new`], so a bad
+/// configuration is reported **before** anything is rendered rather than after dozens of few-hundred-KB
+/// reports.
 pub(super) struct ReportTarget {
-    /// 落盘路径，配置原样；`None` 表示不落盘。
+    /// 落盘路径，函数自己命名的；`None` 表示不落盘。
     ///
-    /// The path to write to, verbatim from the configuration; `None` means nothing is written.
+    /// The path to write to, named by the function itself; `None` means nothing is written.
     write_to: Option<String>,
     /// 要交给浏览器的本地绝对路径；`None` 表示不打开。
     ///
@@ -377,28 +372,33 @@ pub(super) struct ReportTarget {
 }
 
 impl ReportTarget {
-    /// 按配置定下报告的去处，顺带校验与它相关的取值（`output` 是不是空串、非本地路径能不能打开）。
+    /// 按配置定下这一份报告的去处，顺带校验与它相关的取值（`output_dir` 是不是空串、非本地路径能不能
+    /// 打开）。
     ///
-    /// Resolve where the report goes from the configuration, validating the related option values on the way
-    /// (whether `output` is an empty string, whether a non-local path could be opened at all).
-    pub(super) fn new(options: &QuantstatsHtmlOptions) -> DuckResult<Self> {
-        // 先看要不要打开（wasm 下恒为 false）：它同时决定「要不要校验 `output` 能不能打开」与
-        // 「没有 `output` 时要不要先落一个临时文件」。
+    /// Resolve where this one report goes from the options, validating the related values on the way
+    /// (whether `output_dir` is an empty string, whether a non-local path could be opened at all).
+    pub(super) fn new(
+        options: &QuantstatsHtmlOptions,
+        symbol: &str,
+        benchmark: Option<&str>,
+    ) -> DuckResult<Self> {
+        // 先看要不要打开（wasm 下恒为 false）：它同时决定「要不要校验落盘路径能不能打开」与
+        // 「没有 `output_dir` 时要不要先落一个临时文件」。
         //
-        // Is the browser wanted at all (always false on wasm)? That one answer decides both whether `output`
-        // has to be openable and whether a temporary file is needed when it is unset.
+        // Is the browser wanted at all (always false on wasm)? That one answer decides both whether the
+        // write path has to be openable and whether a temporary file is needed when `output_dir` is unset.
         let open_in_browser = browser::is_requested(options);
 
-        // 空字符串的 `output` 在这里就报掉（`output_path`）。
+        // 空字符串的 `output_dir` 在这里就报掉（`output_dir_path`）。
         //
-        // An empty `output` is reported right here, by `output_path`.
-        let write_to = match options.output_path()? {
-            Some(path) => Some(path.to_owned()),
-            // 要在浏览器里打开却没有落盘路径：让 browser 那边先把临时文件建好，报告写进去就是。
+        // An empty `output_dir` is reported right here, by `output_dir_path`.
+        let write_to = match options.output_dir_path()? {
+            Some(dir) => Some(report_path(dir, options, symbol, benchmark)?),
+            // 要在浏览器里打开却没有落盘目录：让 browser 那边先把临时文件建好，报告写进去就是。
             //
-            // The browser was asked for but no path was configured: let the browser side create the
+            // The browser was asked for but no directory was configured: let the browser side create the
             // temporary file first, then write the report into it.
-            None if open_in_browser => browser::temporary_file(options)?,
+            None if open_in_browser => browser::temporary_file(options, symbol, benchmark)?,
             None => None,
         };
 
@@ -421,9 +421,9 @@ impl ReportTarget {
         self.write_to.as_deref()
     }
 
-    /// 落盘（配置里写了路径时）并按需用系统默认浏览器打开 —— 先写后开，浏览器打开时文件一定已经在了。
+    /// 落盘（有路径时）并按需用系统默认浏览器打开 —— 先写后开，浏览器打开时文件一定已经在了。
     ///
-    /// Write the report (when a path was configured) and open it in the system default browser when asked —
+    /// Write the report (when there is a path) and open it in the system default browser when asked —
     /// the write comes first, so the file is always there by the time the browser looks at it.
     pub(super) fn deliver(&self, report: &str) -> DuckResult<()> {
         if let Some(path) = &self.write_to {
@@ -437,7 +437,58 @@ impl ReportTarget {
     }
 }
 
-/// 把渲染好的报告按配置里的 `output` 落盘。
+/// 名字撞上上限时重试几次：随机尾缀是 32 位，撞上几乎不可能，但「不覆盖已有文件」要是保证而不是概率。
+///
+/// How many times to retry when a name is taken: the random suffix is 32 bits wide, so a collision is
+/// practically impossible, but "nothing existing is overwritten" should be a guarantee, not a probability.
+const MAX_NAME_ATTEMPTS: usize = 8;
+
+/// 在 `output_dir` 下挑一个没被占用的文件名，返回完整路径。
+///
+/// 名字由 naming.rs 按「时间 + 策略名 + 基准名 + 随机尾缀」生成，这里只解决「万一撞上已存在的文件」：
+/// 换一个尾缀重试；重试到上限仍然撞上就报错（先查 `duck_vfs::exists`，所以不会拿别人的文件去覆盖）。
+///
+/// Pick a free file name under `output_dir` and return the full path.
+///
+/// naming.rs builds the name from "time + strategy + benchmark + random suffix"; all this does is handle
+/// "what if that file already exists": it retries with another suffix, and errors out if it keeps colliding
+/// (`duck_vfs::exists` is checked first, so somebody else's file is never overwritten).
+fn report_path(
+    dir: &str,
+    options: &QuantstatsHtmlOptions,
+    symbol: &str,
+    benchmark: Option<&str>,
+) -> DuckResult<String> {
+    for _ in 0..MAX_NAME_ATTEMPTS {
+        let path = join(dir, &naming::file_name(options, symbol, benchmark));
+        if !duck_vfs::exists(&path) {
+            return Ok(path);
+        }
+    }
+
+    Err(duck_error(format!(
+        "qs_html_report_options.output_dir={dir}: could not find a free report file name in \
+         {MAX_NAME_ATTEMPTS} attempts"
+    )))
+}
+
+/// 目录 + 文件名。
+///
+/// 刻意不用 `Path::join`：它按**平台**的分隔符拼，而这里的目录可能是 `s3://bucket/reports` 这种 VFS
+/// 路径 —— 在 Windows 上会被拼成 `s3://bucket/reports\name.html`。DuckDB 的本地文件系统两边都认，所以
+/// 统一用 `/`，只把用户写在末尾的分隔符去掉（`/` 与 `\` 都算）。
+///
+/// Directory + file name.
+///
+/// `Path::join` is deliberately not used: it joins with the **platform** separator, while the directory here
+/// may be a VFS path like `s3://bucket/reports` — on Windows that would come out as
+/// `s3://bucket/reports\name.html`. DuckDB's local file system accepts either, so `/` is used throughout and
+/// only a trailing separator the user wrote (either `/` or `\`) is trimmed.
+fn join(dir: &str, file_name: &str) -> String {
+    format!("{}/{}", dir.trim_end_matches(['/', '\\']), file_name)
+}
+
+/// 把渲染好的报告写到 [`ReportTarget`] 定下的路径。
 ///
 /// 走 duckfn 的便捷层 [`duck_vfs::write_string`]，它内部经 **DuckDB 的 VFS** 写入，而不是 `std::fs`：
 /// 本地磁盘、内存文件系统、wasm 构建里的文件系统、装了 httpfs 的 `s3://` / `http(s)://` 是同一条通路、
@@ -448,7 +499,7 @@ impl ReportTarget {
 /// 所以这里只是两件事的收尾：写、把错误原样抛出。错误里已经带了操作名与路径
 /// （`duckfn::duck_vfs::write: '<path>': ...`），不必再包一层。
 ///
-/// Persists the rendered report to the configured `output` path.
+/// Persists the rendered report to the path [`ReportTarget`] settled on.
 ///
 /// It goes through duckfn's convenience layer [`duck_vfs::write_string`], which writes via **DuckDB's
 /// VFS** rather than `std::fs`: local disk, in-memory file systems, the wasm build's file system and

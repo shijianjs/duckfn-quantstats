@@ -4,11 +4,11 @@
 
 A DuckDB extension (loadable extension) that wraps
 [quantstats-rs](https://crates.io/crates/quantstats-rs): hand it one date-ordered long table and it groups it by
-`symbol` internally, produces **one complete quantstats HTML report per instrument**, and returns those reports
-— together with each one's display name and the path it was actually written to — as **a single list**. All in
-SQL.
+`symbol` internally, produces **one complete quantstats HTML report per instrument** (one per benchmark as
+well, when the options name benchmarks), and returns those reports — together with each one's benchmark,
+display name and the path it was actually written to — as **a single list**. All in SQL.
 
-**Requires DuckDB 1.5 or newer.** The host file system used to write the report (`output`) only reached
+**Requires DuckDB 1.5 or newer.** The host file system used to write the reports (`output_dir`) only reached
 DuckDB's C API in 1.5, so there is no 1.4 compatibility path; the extension is built and tested against
 v1.5.5.
 
@@ -33,16 +33,19 @@ SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quant
 -- cloned the repo? then simply read_csv('demo/prices.csv')
 ```
 
+All of the blocks below write their reports into a `reports` directory — **create it first**
+(`mkdir reports`; the function does not create it for you).
+
 ```sql
--- 1. The whole table in one call: one report per instrument, each written to its own file,
---    with the paths coming back in the result
+-- 1. The whole table in one call: one report per instrument, each written to its own file
+--    (output_dir only takes the directory; the function names the files)
 SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'title': symbol,
                 'strategy_title': symbol,
-                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 
@@ -52,21 +55,36 @@ SELECT (r).symbol, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': 'SPX',
+               {'benchmark': ['SPX'],
                 'benchmark_title': 'S&P 500',
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
-                'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 
--- 3. Already have returns? The other function; the pct_change has to sit in a subquery
+-- 3. One instrument against several benchmarks: one report per benchmark (`benchmark` is a list,
+--    and its order is the order of the reports). Naming SPX and GOOGL here leaves MSFT as the only
+--    instrument that gets reports — one per benchmark. ("Several instruments against one benchmark"
+--    is a different thing: that is just one report per instrument and needs no list.)
+SELECT (r).symbol, (r).benchmark, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX', 'GOOGL'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': 'reports'}::qs_html_report_options)) AS r
+    FROM prices
+);
+
+-- 4. Already have returns? The other function; the pct_change has to sit in a subquery
 SELECT (r).symbol, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports(
                symbol, date, period_return,
-               {'benchmark': 'SPX'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX']}::qs_html_report_options)) AS r
     FROM (SELECT symbol, date,
                  price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
           FROM prices)
@@ -74,15 +92,15 @@ FROM (
 ```
 
 A report is a few hundred KB of HTML (a dozen inline SVGs) and `unnest(...)` spreads them into rows, so in a
-terminal `output` (write to a file) or `open_in_browser` (open it) is the friendlier route. When all you want
+terminal `output_dir` (write them) or `open_in_browser` (open them) is the friendlier route. When all you want
 is the list of reports, `list_transform` picks just the fields you need:
 
 ```sql
--- The report list: symbol and written path only
+-- The report list: symbol, benchmark and written path only
 SELECT list_transform(
            qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': 'SPX', 'output': 'report-' || symbol || '.html'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM prices;
 ```
 
@@ -92,7 +110,7 @@ Two aggregate function names, **one signature each**, folding one long table int
 
 | Signature | Input | Returns |
 | --- | --- | --- |
-| `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, strategy_title, html, file_path)[]` |
+| `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, benchmark, strategy_title, html, file_path)[]` |
 | `qs_html_reports_by_prices(symbol, date, price, options)` | price/NAV series | the same; returns are derived inside the function |
 
 The essentials:
@@ -101,22 +119,25 @@ The essentials:
   the grouping key, the function splits by it internally and renders one full report per symbol. A hundred
   instruments mean a hundred full reports (each with a dozen inline SVGs), so time and memory grow linearly
   with the number of instruments — that is expected, not a performance bug.
-- **The result is a list**, each element being `{symbol, strategy_title, html, file_path}`: `unnest(...)`
-  spreads it into rows, `list_transform(...)` picks fields, or `(qs_html_reports(...))[1].html` grabs one
-  report directly.
-- **The order is ascending by `symbol`**, independent of input order and thread count.
-- **The benchmark is an ordinary symbol in the table**: put its name in the `benchmark` option (**a single
-  name**, not a list) and that symbol's data becomes the benchmark while **it does not appear in the result**
-  (one benchmark among 100 instruments → 99 rows back). Wanting a different benchmark per instrument, or a
-  report for the benchmark itself, is expressed by filtering and calling again.
+- **The result is a list**, each element being `{symbol, benchmark, strategy_title, html, file_path}`:
+  `unnest(...)` spreads it into rows, `list_transform(...)` picks fields, or `(qs_html_reports(...))[1].html`
+  grabs one report directly.
+- **The order is ascending by `symbol`**, and within one symbol the order of the `benchmark` list; it is
+  independent of input order and thread count.
+- **The benchmark is one or more ordinary symbols in the table**: the `benchmark` option is a **list**
+  (`['SPX', 'NDX']`) and the symbols it names are input only — **they do not appear in the result**. A report
+  can carry one benchmark, so "one instrument against M benchmarks" is **M reports**: the same `symbol` shows
+  up in M rows, told apart by the `benchmark` field (several instruments sharing one benchmark is a different
+  thing — that is simply one report per instrument). A report for the benchmark itself, or a different
+  benchmark per instrument, is expressed by filtering and calling again.
 - `symbol` is a `VARCHAR`, `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and `price`
   is that day's price or NAV (`DOUBLE`). A row whose value is `NULL` in any of the four is **skipped
   entirely** (an empty-string `symbol` too), like any other SQL aggregate.
 - The options argument always comes **last** and is **required** — pass `NULL` when you need no options. It is
   a **nullable** config whose type is the named STRUCT `qs_html_report_options`, created at load time.
 - The options are **evaluated per row** (see [Config fields](#config-fields)), which is exactly how "each
-  instrument gets its own title, display name and output path" works: build the struct out of the `symbol`
-  column, e.g. `{'title': symbol, 'output': 'report-' || symbol || '.html'}`.
+  instrument gets its own title and display name" works: build the struct out of the `symbol` column, e.g.
+  `{'title': symbol, 'output_dir': 'reports'}`.
 - **No `ORDER BY` is needed**: the aggregate only concatenates and lets the report sort by date.
 - Why two names: `(symbol, date, price, options)` and `(symbol, date, period_return, options)` have exactly
   the same type sequence (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch them.
@@ -163,13 +184,13 @@ Every field of `qs_html_report_options` is **nullable**; keys you omit take thei
 | --- | --- | --- | --- |
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | Report title |
 | `strategy_title` | `VARCHAR` | the symbol | Strategy display name; falls back to the `symbol` |
-| `benchmark_title` | `VARCHAR` | the benchmark symbol | Benchmark display name (presentation only); falls back to the `benchmark` symbol |
-| `benchmark` | `VARCHAR` | `NULL` | Which **symbol** is the benchmark; it is input only and gets no report |
+| `benchmark_title` | `VARCHAR` | the benchmark symbol | Benchmark display name (presentation only); falls back to the benchmark symbol **that report uses**. It cannot be set with more than one benchmark (it would have no single answer there) |
+| `benchmark` | `VARCHAR[]` | `NULL` | Which **symbols** are benchmarks (a **list**, whose order is the order of the reports); they are input only and get no report. Even a single benchmark is written `['SPX']` |
 | `rf` | `DOUBLE` | `0.0` | Risk-free rate, **annualized** (`0.04` = 4%), matching quantstats' `rf` convention |
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
 | `match_dates` | `BOOLEAN` | `true` | Whether to align the start dates of strategy and benchmark |
-| `output` | `VARCHAR` | `NULL` | Also write the HTML to this path, through DuckDB's VFS (see below) |
-| `open_in_browser` | `BOOLEAN` | `false` | Open the report in the system default browser; with no `output` it writes a temporary file first (see below) |
+| `output_dir` | `VARCHAR` | `NULL` | Also write every report into this **directory**, with file names generated by the function (see below); through DuckDB's VFS |
+| `open_in_browser` | `BOOLEAN` | `false` | Open the reports in the system default browser; with no `output_dir` it writes a temporary file first (see below) |
 
 Apart from the two display names, the defaults come straight from quantstats-rs'
 `HtmlReportOptions::default()`; this extension does not invent a second set.
@@ -183,17 +204,23 @@ returned `strategy_title` in agreement.
 **The options are a per-row column** and each symbol uses the copy from its first row, hence:
 
 ```sql
--- Every instrument's own title, display name and output path, all built out of the symbol column
+-- Every instrument's own title and display name, built out of the symbol column
+-- (the output directory is one for the whole call; the file names are the function's business)
 SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'title': symbol,
             'strategy_title': symbol,
-            'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
+            'output_dir': 'reports'}::qs_html_report_options)) AS report
 FROM prices;
 ```
 
-One symbol's options have to agree row by row; `benchmark` additionally has to **agree across the whole call**
-(a disagreement is an error).
+One symbol's options have to agree row by row; `benchmark` additionally has to be **the same list for every
+instrument in the call** (same entries, same order — a disagreement is an error), otherwise "which one is the
+benchmark" would have no single answer.
+
+Customising anything along the benchmark dimension needs no extra work: `benchmark_title` falls back to each
+report's own benchmark symbol, and the file names are generated from "time + strategy + benchmark + random"
+(see below), so both already carry that part.
 
 `rf` is **annualized** (`0.04` = 4%) and converted to a per-period rate inside the report; the crate has two
 conversions that differ slightly — Sharpe (and rolling Sharpe / Sortino) uses
@@ -210,10 +237,16 @@ FROM daily_returns WHERE symbol = 'FUND';
 -- The whole table with a benchmark: the benchmark is an ordinary symbol in it
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'benchmark': 'SPX',
+           {'benchmark': ['SPX'],
             'title': symbol,
             'strategy_title': symbol,
             'benchmark_title': 'S&P 500'}::qs_html_report_options)) AS report
+FROM daily_returns;
+
+-- One instrument against two benchmarks: two reports for it, each against its own benchmark
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- A price (or NAV) series: the shortcut saves writing the pct_change window
@@ -221,14 +254,15 @@ SELECT unnest(qs_html_reports_by_prices(
            symbol, trade_date, nav, {'title': symbol}::qs_html_report_options)) AS report
 FROM nav_table;
 
--- Also write each report to a file (through DuckDB's VFS, so this works on wasm too)
+-- Also write them to a directory (only the directory is given, the function names the files;
+-- through DuckDB's VFS, so this works on wasm too)
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
-           {'title': symbol, 'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS report
+           {'title': symbol, 'output_dir': 'reports'}::qs_html_report_options)) AS report
 FROM daily_returns;
 
--- Write it and open it in your browser (with no 'output' the report goes to a temp file first;
--- one tab per instrument)
+-- Write them and open them in your browser (with no 'output_dir' each report goes to a temp file
+-- first; one tab per report)
 SELECT unnest(qs_html_reports(
            symbol, trade_date, daily_return,
            {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
@@ -237,22 +271,24 @@ FROM daily_returns;
 -- Just the list, no HTML (a report is a few hundred KB, spreading them into rows gets noisy)
 SELECT list_transform(
            qs_html_reports(symbol, trade_date, daily_return,
-               {'output': 'report-' || symbol || '.html'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'file': x.file_path}) AS reports
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
 FROM daily_returns;
 ```
 
 ## Behaviours worth knowing
 
 - **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
-  anonymous `STRUCT(title VARCHAR)` whose field count differs from the options type, and DuckDB reports that
-  no function matches.
+  anonymous `STRUCT(title VARCHAR)` that matches no signature, and DuckDB reports that no function matches.
 - **`'...'::JSON::qs_html_report_options` must spell out all 9 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
-- **`benchmark` names a symbol, not a value series.** It has to be one of the values in the `symbol` column
-  and identical across the whole call; the symbol it names acts as the benchmark only and never shows up in
-  the returned list.
-- **The result is ordered ascending by `symbol`**, regardless of input order or thread count.
+- **`benchmark` names symbols (a list), not a value series.** Every entry has to be one of the values in the
+  `symbol` column and the list has to be identical across the whole call; the symbols it names act as the
+  benchmarks only and never show up in the returned list. Even a single benchmark is written `['SPX']`.
+- **Do not set `benchmark_title` with more than one benchmark**: it would have no single answer (whose name
+  is it?), and the display names fall back to each report's own benchmark symbol instead.
+- **The result is ordered ascending by `symbol`, and within one symbol by the benchmark list order**,
+  regardless of input order or thread count.
 
 ## Error paths
 
@@ -260,69 +296,75 @@ FROM daily_returns;
 | --- | --- |
 | Not a single row, or no instrument able to produce a report | `NULL` |
 | An instrument has no valid point left after conversion | that instrument is left out of the result |
-| The `benchmark` symbol has no row in the table | Error `no row for the benchmark symbol '…'` |
-| `benchmark` disagrees between instruments | Error `every symbol must use the same benchmark` |
-| `benchmark = ''` | Error `benchmark must not be an empty string` |
+| A `benchmark` symbol has no row in the table | Error `no row for the benchmark symbol '…'` |
+| The `benchmark` list disagrees between instruments (entries or order) | Error `every symbol must use the same benchmark list` |
+| The `benchmark` list holds an empty string / a NULL element / a duplicate | Error `must not contain an empty string` / `… a NULL element` / `lists '…' twice` |
+| `benchmark_title` set alongside several benchmarks | Error `benchmark_title cannot be set with 2 benchmarks` |
 | Price branch: the benchmark yields no return (fewer than two valid points) | Error `produced no returns` |
-| Two instruments writing to the same `output` path | Error `both write to '…'` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
-| `output = ''` | Error `output must not be an empty string` |
-| The `output` path contains a NUL byte | Error `contains a NUL byte` |
-| The `output` path cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
-| `open_in_browser` with an `output` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
+| `output_dir = ''` | Error `output_dir must not be an empty string` |
+| The `output_dir` contains a NUL byte | Error `contains a NUL byte` |
+| The `output_dir` cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
+| `open_in_browser` with an `output_dir` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
 
 Every error message starts with the registered function name (`qs_html_reports: …`), so it is obvious which
 function reported it.
 
-## Writing the report to a file
+## Writing the reports to files
 
-`output` writes the rendered HTML through **DuckDB's VFS** rather than `std::fs`, so local disk, in-memory
-file systems, whatever file system the wasm build exposes, and `s3://` / `http(s)://` once `httpfs` is loaded
-all go through the same path with the same semantics.
+`output_dir` takes a **directory** and writes one file per report, with the name generated by the function:
+`<time>-<strategy>-<benchmark>-<random>.html` (the benchmark part is absent when no benchmark is configured).
+That arrangement buys three things:
 
-`output` **replaces** the target: afterwards the file holds exactly the report, even when it previously held
-something longer.
+- **no path to build in SQL**: a name has to carry "which instrument, against which benchmark, at what time",
+  which only the function knows — and with one instrument against several benchmarks, a path built from the
+  instrument alone would necessarily overwrite itself;
+- **no overwriting, ever**: the random suffix plus an existence check before writing (retrying with another
+  suffix on a collision) means two calls each write their own files and nothing existing is ever replaced;
+- **names you can read**: the last two parts are the display names the report itself uses (`strategy_title`
+  and the benchmark's), so a directory full of reports still says which is which.
 
-The options are evaluated per row, so "one file per instrument" is a path built from the `symbol` column
-(`'report-' || symbol || '.html'`). **Two instruments pointing at the same path is an error** rather than a
-silent overwrite. Directories are not created for you, so any directory in the path has to exist already.
+The directory **has to exist already** (it is not created for you). The write goes through **DuckDB's VFS**
+rather than `std::fs`, so local disk, in-memory file systems, whatever file system the wasm build exposes, and
+`s3://` / `http(s)://` once `httpfs` is loaded all go through the same path with the same semantics (VFS paths
+are joined with `/`, so `output_dir` can be `s3://bucket/reports`).
 
 The `file_path` in each returned row is the path that very call wrote to (`NULL` when nothing was written), so
 "which files were written" can be read off the result instead of guessed:
 
 ```sql
-SELECT (r).symbol, (r).file_path FROM (
+SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
     SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'output': 'report-' || symbol || '.html'}::qs_html_report_options)) AS r
+               {'benchmark': ['SPX'], 'output_dir': 'reports'}::qs_html_report_options)) AS r
     FROM prices
 );
 ```
 
 ## Opening the report in a browser
 
-`open_in_browser` hands the report to the system default browser once it has been generated, so a terminal
+`open_in_browser` hands the reports to the system default browser once they have been generated, so a terminal
 session does not have to end with "…and now go find that file and double-click it". A browser needs a local
 file that actually exists, which decides the rest:
 
-- with `output` set, the report is written there and that file is opened;
-- without it, the report is written to a temporary file first —
-  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time, then
-  `strategy_title` (falling back to `title`) and `benchmark_title` (falling back to the benchmark symbol),
-  with characters a file name cannot hold replaced by `_`. Nothing existing is ever overwritten, and two
-  reports from the same second cannot collide;
-- an `output` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op, since
-  no browser can open it. That is checked **before** the report is rendered.
+- with `output_dir` set, those files are written there and then opened;
+- without it, each report is written to a temporary file first —
+  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`, the same naming rule `output_dir` uses. The name
+  is for humans: the time, then `strategy_title` (falling back to `title`) and `benchmark_title` (falling back
+  to the benchmark symbol), with characters a file name cannot hold replaced by `_`. Nothing existing is ever
+  overwritten, and two reports from the same second cannot collide;
+- an `output_dir` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op,
+  since no browser can open it. That is checked **before** anything is rendered.
 
-The browser is started in a non-blocking way: the report is already on disk, so the query neither waits for
-the browser nor looks at what the browser does with the file. The only failure reported is the launcher
+The browser is started in a non-blocking way: the reports are already on disk, so the query neither waits for
+the browser nor looks at what the browser does with the files. The only failure reported is the launcher
 itself not starting.
 
-One call opens one tab per instrument (and, without `output`, writes one temporary file each, so at least
-nothing overwrites anything).
+One call opens one tab per **report** (one instrument against two benchmarks is two tabs; and, without
+`output_dir`, each report writes its own temporary file, so at least nothing overwrites anything).
 
 ## WebAssembly
 
-`output` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the native one and
+`output_dir` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the native one and
 the file lands wherever DuckDB's own file system points in that environment.
 
 `open_in_browser` is the one deliberate exception: a wasm build has no browser process to launch, so the

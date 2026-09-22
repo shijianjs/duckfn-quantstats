@@ -27,7 +27,8 @@ src/extension/functions/aggregate_html/
     kind.rs           一条路径在 SQL 侧的名字：宏生成的 `SQL_NAME`
     series.rs         内部点表示、序列构造、价格差分
     slots.rs          参数槽：symbol 表 +「每个 symbol 的配置只解析一次」
-    report.rs         收尾：按 symbol 逐份渲染、落盘、按需打开浏览器、回填每份的路径
+    report.rs         收尾：按 (标的, 基准) 逐份渲染、落盘、按需打开浏览器、回填每份的路径
+    naming.rs         报告文件名：`<时间>-<策略名>-<基准名>[-<随机尾缀>].html`（落盘与临时文件共用主干）
     browser.rs        用系统默认浏览器打开报告（wasm 下整个功能被忽略）
 src/extension/types/
     html_report_options.rs  命名 STRUCT 类型 `qs_html_report_options`
@@ -86,18 +87,25 @@ merge 顺序。
 SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `ReturnSeries::new`（价格路径上则先按日期排序
 再差分）。
 
-### 为什么基准是表里的一个 symbol
+### 为什么基准是表里的 symbol（而且是列表）
 
 基准本来就在同一张长表里（它也是一个 symbol），所以让它由配置里的 `benchmark` 键指名、函数自己去表里取，
 是最短的路径：一句 `SELECT`、没有 `GROUP BY`、没有 `cross join`、带不带基准只差配置里一个键。
 
 早先的做法是「一次性传入的列表参数」（`list(...)` + `cross join` + `GROUP BY` 三步走）。它确实让基准只
 求值一次，但代价是「带基准」这个常态反而比不带基准多一个参数、多一个重载，而且 SQL 侧要绕两步。
-基准是 symbol 之后，多基准那种「N 个策略 × M 个基准」的笛卡尔积也就不进 API 了：想要的人自己
-`GROUP BY` / 过滤后分几次调用。
 
-被指为基准的 symbol **只作输入、不出报告**；它的序列只转换一次（价格路径上先差分），所有标的共用。
-配置里的 `benchmark` 还要求整次调用一致，否则「谁把谁当基准」没有单一答案 —— 不一致直接报错。
+`benchmark` 是**列表**（`['SPX', 'NDX']`），因为真实场景是「一个标的对多个基准序列」：quantstats-rs 的
+`HtmlReportOptions` 只装得下一个 `Option<&ReturnSeries>`（指标表的一列、图里的一条基准线、rolling beta
+都围绕它建），所以多基准只能落成**多份报告** —— 1 标的 × M 基准 = M 行，`benchmark` 字段负责区分，
+列表顺序就是报告顺序。
+
+要注意「一个基准多个标的」与「一个标的多个基准」不是一回事：前者只是每个标的各出一份（不需要列表），
+后者才是这里说的多份报告。真想要「N 个策略 × M 个基准」的笛卡尔积，自己 `GROUP BY` / 过滤后多调几次。
+
+被指为基准的 symbol **只作输入、不出报告**；每个基准的序列只转换一次（价格路径上先差分），所有标的共用。
+配置里的 `benchmark` 还要求整次调用一致（元素与顺序都算），否则「谁把谁当基准」没有单一答案 ——
+不一致直接报错；列表本身的问题（空串、NULL 元素、重复、与 `benchmark_title` 冲突）见配置类型那一节。
 
 ### 返回行类型不注册命名类型
 
@@ -130,74 +138,88 @@ DuckDB 渲染 `typeof` 时不加引号。`file_path` 是唯一的 `Option<String
 规则）。这不是美化 —— 一次调用出几十份报告时，默认的 `'Strategy'` 对每份都一样，图例、浏览器临时文件名
 与返回行里的显示名都会失去区分度。
 
-`output` 刻意不交给它转发：quantstats-rs 落盘用的是 `std::fs`，而本扩展要的是 DuckDB 的 VFS（见下），
-所以路径由 `report.rs` 在拿到渲染结果后自己写。
+`output_dir` 刻意不交给它转发：quantstats-rs 落盘用的是 `std::fs`，而本扩展要的是 DuckDB 的 VFS（见下），
+所以目录由 `report.rs` 在拿到渲染结果后自己写。
 
 配置是**逐行求值的一列**，每个 symbol 只取用第一行那份（见「symbol 表」）；`benchmark` 还要求整次调用里
-所有非 NULL 取值一致，`report.rs` 的 `benchmark_symbol()` 负责这条校验。
+所有标的给同一个列表（元素与顺序都算），`report.rs` 的 `benchmark_names()` 负责这条校验。
 
-`periods_per_year = 0`、`output = ''` 与 `benchmark = ''` 是配置错误，都在这里就报掉，不会变成后面一次
-莫名其妙的文件系统调用或「找不到基准 symbol」。
+`benchmark` 是唯一的列表字段（`Option<Vec<Option<String>>>`），于是列表本身的问题都在
+`QuantstatsHtmlOptions::benchmark_names()` 里一次拦掉，校验规则集中在它一处：元素不能是 NULL、不能是空串、
+不能在同一个列表里重复；列表长度大于 1 时还不能写 `benchmark_title`（那时它没有单一答案）。另外
+`periods_per_year = 0`、`output_dir = ''` 也是在这里就报掉的配置错误 —— 都发生在渲染与文件系统调用之前。
 
 ## 报告落盘
 
-`output` 用 duckfn 的便捷层 `duck_vfs::write_string` 落盘，也就是经 **DuckDB 的 VFS** 而不是 `std::fs`：
+`output_dir` 只给**目录**，文件名由 `naming.rs` 生成：
+`<时间>-<策略名>-<基准名>-<随机尾缀>.html`（没有基准时中间那一段不出现）。把命名收进函数有三个理由：
+
+- 名字要带「哪个标的、对哪个基准、什么时候」，只有函数知道；而且一个标的对多个基准时，按标的拼出来的
+  路径必然互相覆盖 —— 那正是旧版「配置里写完整路径」在多基准下过不去的坎；
+- 后两段就是报告里的显示名（`strategy_title` 与基准显示名），所以目录里的名字自然认得出来；
+- 随机尾缀（`fastrand`）+ 落盘前查一次 `duck_vfs::exists`（撞上就换个尾缀重试，见 `report_path`），
+  于是「不覆盖已有文件」是保证而不是概率 —— 两次调用各写各的。
+
+合法性与随机都交给库：`sanitize-filename` 管非法字符 / 控制字符 / Windows 保留设备名 / 结尾的点与空格，
+`fastrand` 管随机尾缀（它本来就是 tempfile 内部用的那个随机源）。本文件只补两条自己的策略：空格并成 `_`、
+每段最多 32 个字符。
+
+写文件本身用 duckfn 的便捷层 `duck_vfs::write_string`，也就是经 **DuckDB 的 VFS** 而不是 `std::fs`：
 
 - 本地磁盘、内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` /
   `http(s)://`，都是同一条通路、同一套语义；
 - 这也是聚合函数唯一写得进去的路子：DuckDB 的 C API 不给聚合函数客户端上下文（没有 bind 回调，也没有
   `duckdb_aggregate_function_get_client_context`），所以 duckfn 在注册期留了一条自有长连接，
-  从这里现取 `ClientContext` → `FileSystem`。
+  从这里现取 `ClientContext` → `FileSystem`；
+- 目录按 `/` 拼（`report.rs::join`），刻意不用 `Path::join`：后者按平台分隔符拼，Windows 上会把
+  `s3://bucket/reports` 拼成 `s3://bucket/reports\name.html`。
 
-`output` 是**替换**：写完之后文件里恰好就是这份报告，哪怕它以前更长。这件事由 duckfn 负责 ——
-DuckDB 的 C API 没有 truncate（`DUCKDB_FILE_FLAG_CREATE` 只表示「需要时新建」，映射到 `O_TRUNC` /
-`CREATE_ALWAYS` 的标志在 C++ 侧），所以 duckfn 的 `duck_vfs` 层会先把更长的旧文件清零再写正文，
-本扩展只调 `duck_vfs::write_string`。于是 `read_text()` 读回来的与函数返回值逐字节一致 —— 测试里用
-`md5` 钉住了这一点，其中就包含「旧文件更长」这个用例。
+`write_string` 是**替换**：写完之后文件里恰好就是这份报告，哪怕它以前更长（C API 没有 truncate 这件事由
+duckfn 的 `duck_vfs` 层处理 —— 旧文件更长时先清零再写正文）。本扩展因为文件名从不撞名，实际上走不到覆盖
+那一步，但读回来的内容与函数返回值逐字节一致这件事仍然成立，测试里用 `md5` 钉住了它。
 
-每个 symbol 各有一份 `output`（配置是逐行的），所以一次调用可能写好几个文件。`report.rs` 的收尾分两趟：
-先把所有标的的 `ReportTarget` 定下来（顺带校验 `output` 非空、`open_in_browser` 指的路径能不能交给
-浏览器），**查出两个标的写同一个路径就报错**（静默互相覆盖是最难排查的那种「成功」），然后才逐个渲染 +
-落盘 + 按需开浏览器，最后把真正写出去的路径回填进返回行。路径按字面比较，不做规范化 —— `a/../b.html`
-与 `b.html` 会当成两个路径。
+一次调用可能写好几个文件（标的数 × 基准数）。`report.rs` 的收尾分两趟：先把每个 (标的, 基准) 的
+`ReportTarget` 定下来（顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器），
+然后才逐个渲染 + 落盘 + 按需开浏览器，最后把真正写出去的路径回填进返回行。
 
 ## 用浏览器打开报告
 
 `open_in_browser` 在报告生成之后把它交给系统默认浏览器，于是终端里的一套流程不必以「现在去找那个文件、
 双击打开」收尾。浏览器要的是一个真实存在的本地文件，其余都由这件事决定：
 
-- 写了 `output`：先落盘，再打开那个文件；
-- 没写：先把报告落到系统临时目录里的
+- 写了 `output_dir`：先落盘，再打开那些文件；
+- 没写：先把每份报告落到系统临时目录里的
   `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html`，文件由
-  [tempfile](https://crates.io/crates/tempfile) 新建。前缀是给人看的 —— 时间（因此按名字排序临时目录，
-  排出来正好是时间顺序）、`strategy_title`（没写就退回 `title`）与 `benchmark_title`；这两段显示名过一遍
-  [sanitize-filename](https://crates.io/crates/sanitize-filename)，文件名的合法性（非法字符、控制字符、
-  Windows 保留设备名、结尾的点与空格）由它按规则处理、换成 `_`，本扩展只在其上补两条自己的策略：空格并
-  成 `_`、每段最多 32 个字符（名字里有两段，而平台上限是 255）。随机尾缀、`.html` 后缀（决定系统把它交给
-  浏览器渲染而不是当成下载）以及「这个名字当时一定是空的」都由 tempfile 负责，所以既不会覆盖已有文件，
-  同一秒里连着出几份报告也不会撞名；
-- `output` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种路径。
-  这个检查发生在渲染**之前**。
+  [tempfile](https://crates.io/crates/tempfile) 新建 —— 主干（时间 + 两段显示名）复用 `naming.rs`，
+  随机尾缀与「这个名字当时一定是空的」（新建失败就换个尾缀重试）则由它负责。前缀是给人看的：时间在最前，
+  所以按名字排序临时目录正好排成时间顺序；两段显示名分别是 `strategy_title`（没写就退回 `title`）与
+  `benchmark_title`，文件名的合法性交给 [sanitize-filename](https://crates.io/crates/sanitize-filename)
+  （见 naming.rs）。`.html` 后缀决定系统把它交给浏览器渲染而不是当成下载；
+- `output_dir` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种
+  路径。这个检查发生在渲染**之前**。
 
 「把浏览器叫起来」是 [open](https://crates.io/crates/open) 的事，而且用的是不阻塞的 `that_detached`：
 报告已经落盘了，所以这次查询既不等待浏览器、也不关心浏览器怎么处理这个文件。Windows 上就是一次
 `ShellExecute` 调用（开了 `shellexecute-on-windows`，不用它默认的那条 PowerShell 路线）；macOS 与其他
 平台则是 `open` / `xdg-open` 加上它自带的后备序列。唯一会报错的情形是启动器本身起不来。
 
-这个选项是为单份报告准备的。`GROUP BY` 下每个分组都会被依次打开 —— 而且没写 `output` 时每个分组各自落
-一个临时文件，至少不会互相覆盖。
+一次调用会为**每一份报告**各开一个标签页（一个标的对两个基准就是两个标签页）—— 而且没写 `output_dir` 时
+每份报告各自落一个临时文件，至少不会互相覆盖。
 
 ## WebAssembly
 
-`output` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
-这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
+`output_dir` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统
+里。这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
 文件系统）。
+
+命名逻辑（`naming.rs`）因此是**共享**的：wasm 上一样要拼文件名，所以它用到的 `sanitize-filename` 与
+`fastrand` 是普通依赖，而非 wasm 限定的那两个。
 
 `open_in_browser` 是唯一一处**有意保留**的平台分支，也是本扩展仅剩的平台相关代码（`browser.rs`）：wasm
 构建里没有可以启动的浏览器进程，所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时文件。报告
-字符串原样返回给宿主，展示是宿主页面的事：blob URL + `window.open`、`<iframe>`，或者别的。它背后那三个
-crate 声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下，wasm 构建连编都不编它们 ——
-这其实是硬要求：`open` 根本没有 emscripten 的实现，编不过。
+字符串原样返回给宿主，展示是宿主页面的事：blob URL + `window.open`、`<iframe>`，或者别的。它背后那两个
+crate（`open`、`tempfile`）声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下，wasm
+构建连编都不编它们 —— 这其实是硬要求：`open` 根本没有 emscripten 的实现，编不过。
 
 `just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
 能正常编过；运行时行为由 DuckDB 的 VFS 决定，而不是由本扩展决定。
@@ -205,7 +227,7 @@ crate 声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下�
 ## 依赖
 
 - [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开了两个 feature：
-  `duckdb-1-5`（`output` 用的宿主文件系统 `duckfn::duck_vfs` 在它下面）与 `chrono`（时间包装类型的互转，
+  `duckdb-1-5`（`output_dir` 用的宿主文件系统 `duckfn::duck_vfs` 在它下面）与 `chrono`（时间包装类型的互转，
   如 `DuckDate::to_naive_date`）。属性宏还会为每个签名生成 `SQL_NAME` 常量 —— 真正注册进 DuckDB 的名字 ——
   错误信息前缀读它，不再手抄一份函数名字面量。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
@@ -216,14 +238,18 @@ crate 声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下�
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
   一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两条路径都基于它，
   不自己重算指标 —— 那会与报告里的数字形成两套真相。
-- [open](https://crates.io/crates/open)、[tempfile](https://crates.io/crates/tempfile) 与
-  [sanitize-filename](https://crates.io/crates/sanitize-filename)：`open_in_browser` 的三件事 —— 把浏览器
-  叫起来、新建一个不重名的临时文件、以及知道平台认哪些文件名。**只用于非 wasm 目标**（见上面的
-  WebAssembly 一节），所以它们挂在 target 专属的依赖表里，而不是主依赖表。
-- [chrono](https://crates.io/crates/chrono)：本扩展自己用的是**本地时间** —— `open_in_browser` 拼的临时文件名
-  以 `%Y%m%d-%H%M%S` 时间戳开头（`chrono::Local`）。日期那头由 duckfn 的 `chrono` feature 换算
-  （`DuckDate::to_naive_date`），它产出的 `NaiveDate` 正是 quantstats-rs 的 `ReturnSeries::new` 要的；
-  三个 crate 共用同一个 chrono 0.4。
+- [sanitize-filename](https://crates.io/crates/sanitize-filename) 与
+  [fastrand](https://crates.io/crates/fastrand)：报告文件名的两半 —— 「哪几段合法」（非法字符、控制字符、
+  Windows 保留设备名、结尾的点与空格）与「随机尾缀」。两者都是**共享**依赖：`naming.rs` 在 wasm 上同样要
+  拼文件名。fastrand 本来就在依赖树里（tempfile 内部用的就是它），显式依赖不增加编译成本。
+- [open](https://crates.io/crates/open) 与 [tempfile](https://crates.io/crates/tempfile)：
+  `open_in_browser` 的两件事 —— 把浏览器叫起来、在没有 `output_dir` 时新建一个不重名的临时文件。
+  **只用于非 wasm 目标**（见上面的 WebAssembly 一节），所以它们挂在 target 专属的依赖表里，
+  而不是主依赖表。
+- [chrono](https://crates.io/crates/chrono)：本扩展自己用的是**本地时间** —— 报告文件名（落盘与临时文件
+  共用）以 `%Y%m%d-%H%M%S` 时间戳开头（`chrono::Local`，见 naming.rs）。日期那头由 duckfn 的 `chrono`
+  feature 换算（`DuckDate::to_naive_date`），它产出的 `NaiveDate` 正是 quantstats-rs 的
+  `ReturnSeries::new` 要的；三个 crate 共用同一个 chrono 0.4。
 
 ## 构建
 
@@ -258,10 +284,10 @@ make debug && make test    # make test 不会自动重新构建，改完 Rust �
 
 | 文件 | 覆盖什么 | 额外依赖 |
 | --- | --- | --- |
-| `test/sql/quantstats/html_reports.test` | **收益率路径的行为**：注册面（两个名字各一个签名）、结果形状与按 symbol 排序、显示名退回 symbol、`NULL` 行跳过与被跳空的标的、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、每 symbol 的配置与 `output` 落盘（含路径回填、覆盖写、NUL 路径） | 无 |
-| `test/sql/quantstats/html_reports_by_prices.test` | **价格路径的行为**：与 `lag()` 差分的结果逐字节一致、基准侧同样先差分、前值为 0 时跳过、单点标的略过、基准 symbol 不存在 / 点数不足 | 无 |
-| `test/sql/quantstats/html_reports_errors.test` | **错误路径**：基准 symbol 不存在、基准取值跨 symbol 不一致、`benchmark = ''`、两个标的写同一个 `output`、`periods_per_year = 0`、`output = ''`、NUL 路径、`open_in_browser` 配非本地路径、没 cast 的配置字面量、旧 API 已不存在 | 无 |
-| `test/sql/quantstats/html_reports_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列、每个 symbol 各自的标题与落盘路径回填 | 社区扩展 `webbed` |
+| `test/sql/quantstats/html_reports.test` | **收益率路径的行为**：注册面（两个名字各一个签名）、结果形状与排序（symbol 升序 + 标的内按基准列表顺序）、无基准时 `benchmark` 为 NULL、显示名退回 symbol、`NULL` 行跳过与被跳空的标的、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、`output_dir` 自动命名与路径回填、两次调用互不覆盖 | 无 |
+| `test/sql/quantstats/html_reports_by_prices.test` | **价格路径的行为**：与 `lag()` 差分的结果逐字节一致、多个基准时每一份都与对应基准的差分结果一致、基准侧同样先差分、前值为 0 时跳过、单点标的略过、基准 symbol 不存在 / 点数不足 | 无 |
+| `test/sql/quantstats/html_reports_errors.test` | **错误路径**：基准列表的四种写法错误（symbol 不存在 / 空串 / NULL 元素 / 重复）、基准列表跨 symbol 不一致（含顺序）、多基准时写 `benchmark_title`、`periods_per_year = 0`、`output_dir = ''`、NUL 路径、`open_in_browser` 配非本地路径、没 cast 的配置字面量、旧 API 已不存在 | 无 |
+| `test/sql/quantstats/html_reports_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列、**多基准时每份报告各自带自己的基准列**、每个 symbol 各自的标题与文件名 | 社区扩展 `webbed` |
 
 `webbed` 的安装写在测试文件里（`INSTALL webbed FROM community;`），**首次运行需要网络**，之后走本机
 DuckDB 扩展缓存。不想要这个依赖就删掉该文件，其余文件不受影响。

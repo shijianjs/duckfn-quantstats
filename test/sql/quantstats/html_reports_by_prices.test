@@ -1,11 +1,11 @@
 # name: test/sql/quantstats/html_reports_by_prices.test
-# description: qs_html_reports_by_prices 价格/净值路径：一次调用按 symbol 分组出整套报告、与「先在 SQL 里用 lag 差分再走收益率路径」逐字节一致、基准侧同样先差分、前值为 0 时跳过、单点/空输入略过、基准 symbol 不存在与基准点数不足的错误路径
+# description: qs_html_reports_by_prices 价格/净值路径：一次调用按 symbol 分组、与「先在 SQL 里用 lag 差分再走收益率路径」逐字节一致、多个基准（策略与每个基准都先差分）、前值为 0 时跳过、单点/空输入略过、基准 symbol 不存在与基准点数不足的错误路径
 # group: [quantstats]
 
 require duckfn_quantstats
 
 # ============================================================================
-# 注册面：价格路径必须另起一个名字
+# 价格路径必须另起一个名字
 #
 # `(symbol, date, price, options)` 与 `(symbol, date, period_return, options)` 的类型序列完全一样
 # （都是 VARCHAR, DATE, DOUBLE, STRUCT），同一个名字下无法分派；两个名字各只有一个签名。
@@ -23,12 +23,12 @@ SELECT len(parameters) FROM duckdb_functions() WHERE function_name = 'qs_html_re
 4
 
 # ============================================================================
-# 数据：一张表里三个 symbol —— 两个标的 + 一个基准（基准就是普通的 symbol）
+# 数据：一张表里三个 symbol —— 一个标的 + 两个基准（基准就是普通的 symbol）
 # ============================================================================
 
 statement ok
 CREATE TABLE nav_all AS SELECT
-    CASE WHEN i % 3 = 2 THEN 'SPX' WHEN i % 3 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
+    CASE WHEN i % 3 = 0 THEN 'NAV_A' WHEN i % 3 = 1 THEN 'BM1' ELSE 'BM2' END AS symbol,
     (DATE '2024-01-01' + CAST(i // 3 AS INTEGER))::DATE AS trade_date,
     CAST(100.0 + (i % 9) * 0.5 + (i // 3) * 0.25 AS DOUBLE) AS nav
 FROM range(90) t(i);
@@ -39,7 +39,7 @@ SELECT list((r).symbol) FROM (
     SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS r FROM nav_all
 );
 ----
-[AAA, BBB, SPX]
+[BM1, BM2, NAV_A]
 
 # ============================================================================
 # 核心断言：价格路径与「SQL 里先差分好」的收益率路径**逐字节一致**
@@ -49,19 +49,48 @@ SELECT list((r).symbol) FROM (
 # 算好 —— 这也正是价格这个快捷方式存在的理由。
 # ============================================================================
 
+statement ok
+CREATE TABLE returns_all AS
+SELECT symbol, trade_date,
+       nav / lag(nav) OVER (PARTITION BY symbol ORDER BY trade_date) - 1.0 AS period_return
+FROM nav_all;
+
 query T
 SELECT (SELECT md5((r).html) FROM (
             SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS r
-            FROM nav_all WHERE symbol = 'AAA'))
+            FROM nav_all WHERE symbol = 'NAV_A'))
      = (SELECT md5((r).html) FROM (
             SELECT unnest(qs_html_reports(symbol, trade_date, period_return, NULL)) AS r
-            FROM (
-                SELECT symbol, trade_date,
-                       nav / lag(nav) OVER (ORDER BY trade_date) - 1.0 AS period_return
-                FROM nav_all WHERE symbol = 'AAA'
-            ) WHERE period_return IS NOT NULL)) AS same_as_returns;
+            FROM returns_all WHERE symbol = 'NAV_A')) AS same_as_returns;
 ----
 true
+
+# 多个基准：一个标的对两个基准 = 两份报告，每份都只跟它自己那个基准比
+query T
+SELECT list((r).symbol || '/' || (r).benchmark) FROM (
+    SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav,
+                   {'benchmark': ['BM1', 'BM2']}::qs_html_report_options)) AS r FROM nav_all
+);
+----
+[NAV_A/BM1, NAV_A/BM2]
+
+# 两份都逐字节等于「两侧先差分好再走收益率路径」的结果（基准侧同样先差分，且只算一次）
+query I
+SELECT count(*) FROM (
+    SELECT (r).benchmark AS benchmark, (r).html AS html FROM (
+        SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav,
+                       {'benchmark': ['BM1', 'BM2']}::qs_html_report_options)) AS r FROM nav_all
+    )
+) price_report
+JOIN (
+    SELECT (r).benchmark AS benchmark, (r).html AS html FROM (
+        SELECT unnest(qs_html_reports(symbol, trade_date, period_return,
+                       {'benchmark': ['BM1', 'BM2']}::qs_html_report_options)) AS r FROM returns_all
+    )
+) return_report USING (benchmark)
+WHERE md5(price_report.html) = md5(return_report.html);
+----
+2
 
 # ============================================================================
 # 边界：一行都没有、点数不足 2 个（差分不出收益），都按「没有可出的报告」返回 NULL
@@ -76,7 +105,7 @@ true
 # 单个点：第一个点没有前值，差分后什么都不剩
 query T
 SELECT qs_html_reports_by_prices(symbol, trade_date, nav, NULL) IS NULL AS is_null
-FROM nav_all WHERE symbol = 'AAA' AND trade_date = DATE '2024-01-01';
+FROM nav_all WHERE symbol = 'NAV_A' AND trade_date = DATE '2024-01-01';
 ----
 true
 
@@ -106,48 +135,11 @@ true
 query T
 SELECT (SELECT md5((r).html) FROM (
             SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS r
-            FROM nav_all WHERE symbol = 'AAA'))
+            FROM nav_all WHERE symbol = 'NAV_A'))
      = (SELECT md5((r).html) FROM (
             SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS r
-            FROM (SELECT * FROM nav_all WHERE symbol = 'AAA' ORDER BY trade_date DESC)))
+            FROM (SELECT * FROM nav_all WHERE symbol = 'NAV_A' ORDER BY trade_date DESC)))
      AS same_as_sorted;
-----
-true
-
-# ============================================================================
-# 带基准：策略与基准两侧都是价格/净值，各差分一次，且基准那个 symbol 不出报告
-# ============================================================================
-
-statement ok
-CREATE TABLE nav_pair AS SELECT * FROM nav_all WHERE symbol <> 'BBB';
-
-statement ok
-CREATE TABLE returns_pair AS
-SELECT symbol, trade_date,
-       nav / lag(nav) OVER (PARTITION BY symbol ORDER BY trade_date) - 1.0 AS period_return
-FROM nav_pair;
-
-# 结果里只有标的，没有基准自己
-query T
-SELECT list((r).symbol) FROM (
-    SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav,
-                   {'benchmark': 'SPX'}::qs_html_report_options)) AS r
-    FROM nav_pair
-);
-----
-[AAA]
-
-# 与「两侧都先差分好、再走收益率路径」逐字节一致
-query T
-SELECT (SELECT md5((r).html) FROM (
-            SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav,
-                           {'benchmark': 'SPX'}::qs_html_report_options)) AS r
-            FROM nav_pair))
-     = (SELECT md5((r).html) FROM (
-            SELECT unnest(qs_html_reports(symbol, trade_date, period_return,
-                           {'benchmark': 'SPX'}::qs_html_report_options)) AS r
-            FROM returns_pair))
-     AS same_as_returns;
 ----
 true
 
@@ -157,15 +149,15 @@ true
 
 # 基准那个 symbol 在表里根本没有行
 statement error
-SELECT qs_html_reports_by_prices(symbol, trade_date, nav, {'benchmark': 'NOPE'}::qs_html_report_options)
-FROM nav_all WHERE symbol = 'AAA';
+SELECT qs_html_reports_by_prices(symbol, trade_date, nav, {'benchmark': ['NOPE']}::qs_html_report_options)
+FROM nav_all WHERE symbol = 'NAV_A';
 ----
 no row for the benchmark symbol 'NOPE'
 
 # 基准只有一个价格点，差分不出任何收益率 —— 基准是配置里明确要的，所以这是报错而不是静默出无基准报告
 statement error
-SELECT qs_html_reports_by_prices(symbol, trade_date, nav, {'benchmark': 'SPX'}::qs_html_report_options)
-FROM nav_all WHERE symbol = 'AAA' OR (symbol = 'SPX' AND trade_date = DATE '2024-01-01');
+SELECT qs_html_reports_by_prices(symbol, trade_date, nav, {'benchmark': ['BM1']}::qs_html_report_options)
+FROM nav_all WHERE symbol = 'NAV_A' OR (symbol = 'BM1' AND trade_date = DATE '2024-01-01');
 ----
 produced no returns
 

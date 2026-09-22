@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_reports.test
-# description: qs_html_reports 收益率路径：单签名（4 参，不再有重载）、命名配置类型（9 字段，含 benchmark）、一次调用按 symbol 分组出整套 list<struct>、结果形状与排序、显示名退回 symbol、NULL 行跳过、空输入 NULL、多线程 combine 一致性、每 symbol 的配置与 output 落盘（含路径回填）
+# description: qs_html_reports 收益率路径：单签名（4 参）、结果形状 list<struct{symbol, benchmark, strategy_title, html, file_path}>、无基准时 benchmark 为 NULL、一个标的对多个基准出多份（按基准列表顺序）、基准只作输入、显示名退回 symbol、NULL 行跳过、空输入 NULL、多线程 combine 一致性、output_dir 自动命名与路径回填、两次调用互不覆盖
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -7,8 +7,8 @@ require duckfn_quantstats
 # ============================================================================
 # 注册面：两个名字、各一个签名
 #
-# 基准不再是「额外一个参数」，而是配置里的一个键（一个 symbol 名），所以两个函数都只剩 4 参这一个
-# 签名，`duckdb_functions()` 里每个名字也就只有一行。
+# 基准是配置里的一个键（一个 symbol 列表），不占参数位，所以两个函数都只剩 4 参这一个签名。
+# 落盘也从「给完整路径」变成了「只给目录」的 output_dir：文件名由函数按 naming.rs 的规则生成。
 # ============================================================================
 
 query I
@@ -20,7 +20,7 @@ SELECT count(*) FROM duckdb_types() WHERE type_name = 'qs_html_report_options';
 query T
 SELECT typeof(NULL::qs_html_report_options);
 ----
-STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR, open_in_browser BOOLEAN)
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark VARCHAR[], rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output_dir VARCHAR, open_in_browser BOOLEAN)
 
 query I
 SELECT count(*) FROM duckdb_functions()
@@ -43,55 +43,70 @@ SELECT qs_html_report(1, 2, 3);
 Scalar Function with name qs_html_report does not exist
 
 # ============================================================================
-# 数据：两个标的，各 60 天
+# 数据：四个 symbol —— AAA/BBB 出报告，SPX/NDX 当基准（基准就是普通的 symbol）
 # ============================================================================
 
 statement ok
 CREATE TABLE daily_returns AS SELECT
-    CASE WHEN i % 2 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
-    (DATE '2024-01-01' + CAST(i // 2 AS INTEGER))::DATE AS trade_date,
+    CASE WHEN i % 4 = 3 THEN 'SPX' WHEN i % 4 = 2 THEN 'NDX' WHEN i % 4 = 0 THEN 'AAA' ELSE 'BBB' END AS symbol,
+    (DATE '2024-01-01' + CAST(i // 4 AS INTEGER))::DATE AS trade_date,
     CAST(0.001 * ((i % 7) - 3) AS DOUBLE) AS daily_return
-FROM range(120) t(i);
+FROM range(160) t(i);
 
 # ============================================================================
-# 返回形状：list<struct{symbol, strategy_title, html, file_path}>
+# 返回形状与分组
 # ============================================================================
 
 query T
 SELECT typeof(qs_html_reports(symbol, trade_date, daily_return, NULL)) FROM daily_returns;
 ----
-STRUCT(symbol VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path VARCHAR)[]
+STRUCT(symbol VARCHAR, benchmark VARCHAR, strategy_title VARCHAR, html VARCHAR, file_path VARCHAR)[]
 
-# 一次调用给全部标的出报告，顺序按 symbol 升序（不依赖 HashMap 与 combine 顺序）
+# 不带基准：每个 symbol 一行、benchmark 为 NULL、顺序按 symbol 升序
 query T
-SELECT list((r).symbol) FROM (
+SELECT list((r).symbol || '/' || coalesce((r).benchmark, 'none')) FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
 );
 ----
-[AAA, BBB]
+[AAA/none, BBB/none, NDX/none, SPX/none]
 
+# 一个标的对两个基准 = 两份报告；被指为基准的 symbol 自己不出报告
+query T
+SELECT list((r).symbol || '/' || coalesce((r).benchmark, 'none')) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'benchmark': ['SPX', 'NDX']}::qs_html_report_options)) AS r FROM daily_returns
+);
+----
+[AAA/SPX, AAA/NDX, BBB/SPX, BBB/NDX]
+
+# 基准列表的顺序就是同一标的下各份报告的顺序
+# （只留 AAA 与两个基准：基准行必须在表里，而 BBB 的行在这里不需要）
+query T
+SELECT list((r).benchmark) FROM (
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'benchmark': ['NDX', 'SPX']}::qs_html_report_options)) AS r
+    FROM daily_returns WHERE symbol <> 'BBB'
+);
+----
+[NDX, SPX]
+
+# 每一份报告说的都是它自己那个基准（基准显示名缺省退回基准 symbol）
 query I
 SELECT count(*) FROM (
-    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
-);
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'benchmark': ['SPX', 'NDX']}::qs_html_report_options)) AS r FROM daily_returns
+) WHERE position('Benchmark is ' || (r).benchmark IN (r).html) > 0;
 ----
-2
+4
 
-# 每份都是一份完整报告（不是空串），且没配 output 时 file_path 是 NULL
+# 显示名没写就退回 symbol；没配 output_dir 时 file_path 是 NULL；html 确实是一份完整报告
 query I
 SELECT count(*) FROM (
-    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
-) WHERE length((r).html) > 1000 AND (r).file_path IS NULL;
+    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
+                   {'benchmark': ['SPX', 'NDX']}::qs_html_report_options)) AS r FROM daily_returns
+) WHERE (r).strategy_title = (r).symbol AND (r).file_path IS NULL AND length((r).html) > 1000;
 ----
-2
-
-# 显示名没写就退回 symbol（报告里的图例、返回行都是这个名字）
-query T
-SELECT list((r).strategy_title) FROM (
-    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
-);
-----
-[AAA, BBB]
+4
 
 # 整体 NULL 配置 = 全默认：默认标题 "Strategy Tearsheet"
 query I
@@ -99,7 +114,7 @@ SELECT count(*) FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS r FROM daily_returns
 ) WHERE position('Strategy Tearsheet' IN (r).html) > 0;
 ----
-2
+4
 
 # 每个标的那一份用的是**它自己**那份配置（这里用 symbol 列把标题与显示名拼出来）
 query I
@@ -109,7 +124,7 @@ SELECT count(*) FROM (
     FROM daily_returns
 ) WHERE (r).strategy_title = (r).symbol AND position('Metrics' IN (r).html) > 0;
 ----
-2
+4
 
 # periods_per_year 真的传下去了：改了它，报告里的年化数字会变，所以 md5 不同
 query T
@@ -169,7 +184,7 @@ SELECT count(*) FROM (
 # combine：多线程会把一张表拆成多个状态再合并，结果必须与单线程逐字节一致
 #
 # 这是「combine 只合并 symbol 表、点的排序交给 ReturnSeries::new」以及「每个 symbol 的配置只解析一次、
-# 合并时只搬运解析结果」两条设计的端到端验证。
+# 合并时只搬运解析结果」两条设计的端到端验证；带基准时每个标的还会多出几份报告，一并核对。
 # ============================================================================
 
 statement ok
@@ -184,11 +199,11 @@ PRAGMA threads=1;
 
 statement ok
 CREATE TABLE big_single_thread AS
-SELECT list((r).symbol) AS symbols,
-       md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol)) AS digests
+SELECT list((r).symbol || '/' || coalesce((r).benchmark, 'none')) AS rows,
+       md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol, (r).benchmark)) AS digests
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'title': 'T'}::qs_html_report_options)) AS r
+                   {'benchmark': ['F0', 'F1']}::qs_html_report_options)) AS r
     FROM big_returns
 );
 
@@ -196,11 +211,11 @@ statement ok
 PRAGMA threads=4;
 
 query T
-SELECT (list((r).symbol) = (SELECT symbols FROM big_single_thread))
-   AND (md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol)) = (SELECT digests FROM big_single_thread)) AS same_as_single_thread
+SELECT (list((r).symbol || '/' || coalesce((r).benchmark, 'none')) = (SELECT rows FROM big_single_thread))
+   AND (md5(string_agg(md5((r).html), ',' ORDER BY (r).symbol, (r).benchmark)) = (SELECT digests FROM big_single_thread)) AS same_as_single_thread
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'title': 'T'}::qs_html_report_options)) AS r
+                   {'benchmark': ['F0', 'F1']}::qs_html_report_options)) AS r
     FROM big_returns
 );
 ----
@@ -210,81 +225,67 @@ statement ok
 PRAGMA threads=1;
 
 # ============================================================================
-# 报告落盘（output）：经 **DuckDB 的 VFS**，不是 std::fs
+# 报告落盘（output_dir）：只给目录，文件名由函数生成
 #
-# 同一套语义在本地与 wasm 上成立：写路径是 duckfn 便捷层（duck_vfs::write_string）背后的 DuckDB 文件
-# 系统，而 std::fs 在 wasm 目标下根本没有可写的地方。每个 symbol 各写一份（路径由 symbol 列拼出来），
-# 写完之后用 DuckDB 自己的 read_text 读回来 —— 读写走同一个文件系统，内容必须逐字节一致。
+# 走 **DuckDB 的 VFS**（duckfn 便捷层 duck_vfs::write_string 背后的 DuckDB 文件系统），不是 std::fs。
 # __TEST_DIR__ 是测试运行器给的临时目录。
 # ============================================================================
 
 statement ok
 CREATE TABLE written AS
-SELECT (r).symbol AS symbol, (r).html AS html, (r).file_path AS file_path
+SELECT (r).symbol AS symbol, (r).benchmark AS benchmark, (r).html AS html, (r).file_path AS file_path
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX', 'NDX'],
+                    'output_dir': '__TEST_DIR__'}::qs_html_report_options)) AS r
     FROM daily_returns
 );
 
-# 回填的 file_path 就是配置里那个路径原样（`__TEST_DIR__` 由运行器替换成它的临时目录，
-# 所以这里只断言路径的结尾 —— 期望结果里的 `__TEST_DIR__` 不会被替换）
-query I
-SELECT count(*) FROM written WHERE ends_with(file_path, 'dfn_qs_reports-' || symbol || '.html');
-----
-2
-
-# 两份文件都写出来了，且内容与返回行里的 html 逐字节一致
+# 每份报告一个文件，路径落在 output_dir 下、后缀是 .html
 query I
 SELECT count(*) FROM written
-WHERE (symbol = 'AAA' AND md5(html) = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')))
-   OR (symbol = 'BBB' AND md5(html) = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-BBB.html')));
+WHERE starts_with(file_path, '__TEST_DIR__/') AND ends_with(file_path, '.html');
 ----
-2
+4
 
-# 再写一次同一个路径：可重复写
-statement ok
-CREATE TABLE rewritten AS
-SELECT (r).html AS html FROM (
-    SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
-    FROM daily_returns
-) WHERE (r).symbol = 'AAA';
-
+# 文件名由函数按 naming.rs 的规则生成：`<时间>-<策略名>-<基准名>-<随机尾缀>.html`。
+# 去掉时间戳与随机尾缀之后，剩下的正好是「显示名」那两段。
 query T
-SELECT (SELECT md5(html) FROM rewritten)
-     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')) AS same_content;
+SELECT list_sort(list(
+           regexp_replace(
+               regexp_replace(regexp_extract(file_path, '[^/]+$'), '^[0-9]{8}-[0-9]{6}-', ''),
+               '-[0-9a-f]{8}\.html$', ''
+           )
+       ))
+FROM written;
 ----
-true
+[AAA-NDX, AAA-SPX, BBB-NDX, BBB-SPX]
 
-# 旧文件比报告长：覆盖写就是覆盖写 —— duckfn 的便捷层内部会先把更长的旧文件清零再写正文
-# （C API 没有 truncate 这件事由它处理），所以尾部不会留下旧内容的残渣。
-statement ok
-COPY (SELECT repeat('x', 200000) AS filler)
-TO '__TEST_DIR__/dfn_qs_reports-AAA.html' (FORMAT csv, HEADER false);
+# 落盘内容与返回行里的 html 逐字节一致（read_text 读回来的是文件内容；glob 覆盖所有刚写下的文件）
+query I
+SELECT count(*) FROM written w
+WHERE NOT EXISTS (
+    SELECT 1 FROM read_text('__TEST_DIR__/*.html') f WHERE md5(f.content) = md5(w.html)
+);
+----
+0
 
+# 再跑一次同样的查询：文件名带时间与随机尾缀，所以没有任何一份盖掉上一份
 statement ok
-CREATE TABLE report_over_longer_file AS
-SELECT (r).html AS html FROM (
+CREATE TABLE written_again AS
+SELECT (r).symbol AS symbol, (r).benchmark AS benchmark, (r).file_path AS file_path
+FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'output': '__TEST_DIR__/dfn_qs_reports-' || symbol || '.html'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX', 'NDX'],
+                    'output_dir': '__TEST_DIR__'}::qs_html_report_options)) AS r
     FROM daily_returns
-) WHERE (r).symbol = 'AAA';
+);
 
-query T
-SELECT (SELECT md5(html) FROM report_over_longer_file)
-     = (SELECT md5(content) FROM read_text('__TEST_DIR__/dfn_qs_reports-AAA.html')) AS same_content;
+query I
+SELECT count(*) FROM written w JOIN written_again a USING (symbol, benchmark)
+WHERE w.file_path = a.file_path;
 ----
-true
-
-# 路径里有 NUL 字节：转成 C 字符串时就失败，不进入文件系统
-# （只取一个标的：多个标的写同一个路径会先撞上「路径重复」那条报错，见 html_reports_errors.test）
-statement error
-SELECT qs_html_reports(symbol, trade_date, daily_return,
-           {'output': 'a' || chr(0) || 'b'}::qs_html_report_options)
-FROM daily_returns WHERE symbol = 'AAA';
-----
-contains a NUL byte
+0
 
 # ============================================================================
 # open_in_browser：测试只覆盖能安全断言的两件事
@@ -304,11 +305,12 @@ SELECT (SELECT md5((r).html) FROM (
 ----
 true
 
-# 浏览器只能打开本地文件：output 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
+# 浏览器只能打开本地文件：output_dir 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
 # （这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
 statement error
 SELECT qs_html_reports(symbol, trade_date, daily_return,
-           {'output': 's3://bucket/report.html',
+           {'benchmark': ['SPX'],
+            'output_dir': 's3://bucket/reports',
             'open_in_browser': true}::qs_html_report_options)
 FROM daily_returns;
 ----
