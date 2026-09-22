@@ -98,6 +98,7 @@ GROUP BY fund;
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
 | `output` | `VARCHAR` | `NULL` | 额外把 HTML 落盘到该路径，走 DuckDB 的 VFS（见下） |
+| `open_in_browser` | `BOOLEAN` | `false` | 用系统默认浏览器打开报告；没写 `output` 时会先落一个临时文件（见下） |
 
 默认值直接取自 quantstats-rs 的 `HtmlReportOptions::default()`，本扩展不另立一套。
 
@@ -143,6 +144,12 @@ SELECT qs_html_report(
            trade_date, daily_return,
            {'title': 'My Fund', 'output': 'fund.html'}::qs_html_report_options)
 FROM daily_returns;
+
+-- 落盘之后直接用浏览器打开（不写 output 就先落一个临时文件，再打开它）
+SELECT qs_html_report(
+           trade_date, daily_return,
+           {'title': 'My Fund', 'open_in_browser': true}::qs_html_report_options)
+FROM daily_returns;
 ```
 
 `benchmark` 也可以写成标量子查询（实测可行），效果与 `cross join` 单行一样：
@@ -162,7 +169,7 @@ GROUP BY fund;
 - **配置的 struct 字面量必须显式写 `::qs_html_report_options`。** 不写的话它是匿名的
   `STRUCT(title VARCHAR)`，字段个数与配置类型不同，DuckDB 会直接说找不到匹配的函数 —— 注册这个
   命名类型就是为了这一步 cast。
-- **`'...'::JSON::qs_html_report_options` 要把 7 个键写全**（DuckDB 的 JSON→STRUCT 转换
+- **`'...'::JSON::qs_html_report_options` 要把 8 个键写全**（DuckDB 的 JSON→STRUCT 转换
   不允许缺键），所以推荐直接用 struct 字面量。
 - **基准点的键名固定是 `date` / `period_return`**（duckfn 的 `DuckStruct` 派生不支持字段改名）。
   它和匿名 `STRUCT(date DATE, period_return DOUBLE)` 完全一致，所以**不需要 cast**；只有当列类型不是
@@ -181,6 +188,7 @@ GROUP BY fund;
 | `output = ''` | 报错 `output must not be an empty string` |
 | `output` 路径里有 NUL 字节 | 报错 `contains a NUL byte` |
 | `output` 路径写不进去（目录不存在、远端不可写等） | 报错里带 `duckfn::duck_vfs::write` 与路径 |
+| `open_in_browser` 配的 `output` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
 
 ### 报告落盘（`output`）
 
@@ -201,11 +209,36 @@ DuckDB 的 C API 没有 truncate（`DUCKDB_FILE_FLAG_CREATE` 只表示「需要�
 路径是配置的一部分，所以在 `GROUP BY` 下要给每个分组各自的文件（`'report-' || symbol || '.html'`），
 而不是所有分组都指向同一个路径。
 
+### 用浏览器打开报告（`open_in_browser`）
+
+`open_in_browser` 在报告生成之后把它交给系统默认浏览器，于是终端里的一套流程不必以「现在去找那个文件、
+双击打开」收尾。浏览器要的是一个真实存在的本地文件，其余都由这件事决定：
+
+- 写了 `output`：先落盘，再打开那个文件；
+- 没写：先把报告落到系统临时目录里的
+  `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html`。前缀是给人看的 —— 时间（因此按名字排序临时
+  目录，排出来正好是时间顺序）、`strategy_title`（没写就退回 `title`）与 `benchmark_title`，其中文件名
+  里出现不了的字符换成 `_`；随机尾缀保证同一秒里连着出几份报告也不会互相覆盖；`.html` 后缀则让系统把
+  文件交给浏览器渲染，而不是当成下载；
+- `output` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种路径。
+  这个检查发生在渲染**之前**。
+
+它只负责「把浏览器叫起来」：报告已经落盘了，所以既不等待浏览器、也不关心浏览器怎么处理这个文件。唯一会
+报错的情形是启动器本身起不来（比如系统里没有 `xdg-open`）。
+
+这个选项是为单份报告准备的。`GROUP BY` 下每个分组都会被依次打开 —— 而且没写 `output` 时每个分组各自落
+一个临时文件，至少不会互相覆盖。
+
 ### WebAssembly
 
-代码里已经没有任何 wasm 专属分支：`output` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径。
+`output` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
 这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
-文件系统）—— 现在文件落在该环境下 DuckDB 自己的文件系统里，本扩展不做任何特殊处理。
+文件系统）。
+
+`open_in_browser` 是唯一一处**有意保留**的平台分支：wasm 构建里没有可以启动的浏览器进程（就是
+`browser.rs`，本扩展仅剩的平台相关代码），所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时
+文件。报告字符串原样返回给宿主，展示是宿主页面的事：blob URL + `window.open`、`<iframe>`，或者别的。
+
 `just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
 能正常编过；运行时行为由 DuckDB 的 VFS 决定，而不是由本扩展决定。
 
@@ -310,7 +343,8 @@ SELECT qs_html_report_by_prices(date, price,
 FROM prices WHERE symbol = 'MSFT';
 ```
 
-一份报告是几百 KB 的 HTML（内嵌十几张 SVG），所以终端里更适合让 `output` 落盘，再用浏览器打开。
+一份报告是几百 KB 的 HTML（内嵌十几张 SVG），所以终端里更适合让 `output` 落盘，再用浏览器打开；
+`open_in_browser` 可以把这两步合成一步。
 
 **为什么是快照、而不是实时 URL。** 写这份文档时，个股日线没有「免费 + 免 key + 稳定」的 HTTP 端点：
 stooq 的 CSV 下载被套上了 JavaScript 校验，Yahoo 的接口回的是地区跳转页，EODHD 的公开 `demo` token

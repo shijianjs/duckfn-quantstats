@@ -92,6 +92,37 @@ pub(crate) struct QuantstatsHtmlOptions {
     /// all. **Replace really replaces**: an existing target ends up holding exactly this report (a
     /// longer file leaves no tail; the C API's missing truncate is handled inside that layer).
     pub output: Option<String>,
+
+    /// 生成后直接用**系统默认浏览器**打开这份报告。缺省 false（不打开）。
+    ///
+    /// 浏览器要的是一个真实存在的本地文件，而报告在这里只是一个字符串，所以：
+    ///
+    /// - 写了 `output`：先落盘，再打开那个文件；
+    /// - 没写：报告先落到系统临时目录里一个形如 `<时间>-<策略名>-<基准名>-<随机尾缀>.html` 的文件（名字里
+    ///   出现不了的字符换成 `_`），再打开它；
+    /// - `output` 指向非本地路径（`s3://` 之类）时报错 —— 系统浏览器打不开它。
+    ///
+    /// 打开的时机是报告生成之后，且只负责把浏览器叫起来（不等它、也不看它怎么处理文件）。
+    ///
+    /// **wasm 构建下忽略**：那里没有可以启动的浏览器进程，报告字符串原样返回给宿主，展示是宿主页面的事
+    /// （因此也不会为了打开而写临时文件）。
+    ///
+    /// Open the report in the **system default browser** once it has been generated. Defaults to false.
+    ///
+    /// A browser needs a local file that actually exists, while all we have here is a string, hence:
+    ///
+    /// - with `output` set, that file is written and then opened;
+    /// - without it, the report is written to `<temp>/<time>-<strategy>-<benchmark>-<random>.html` first
+    ///   (characters that cannot appear in a file name become `_`) and that file is opened;
+    /// - an `output` pointing somewhere non-local such as `s3://` is an error, since no browser can open it.
+    ///
+    /// It happens after the report has been generated, and all it does is get the browser started (it neither
+    /// waits for it nor looks at what it does with the file).
+    ///
+    /// **Ignored in the wasm build**: there is no browser process to launch there, so the report string goes
+    /// back to the host untouched and displaying it is the host page's business (which is also why no
+    /// temporary file is written just to open it).
+    pub open_in_browser: Option<bool>,
 }
 
 impl QuantstatsHtmlOptions {

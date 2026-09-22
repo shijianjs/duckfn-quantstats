@@ -1,18 +1,20 @@
 // ============================================================================
-// 收尾：点 → ReturnSeries → 渲染 HTML
+// 收尾：点 → ReturnSeries → 渲染 HTML → 落盘 / 打开浏览器
 //
 // 四条路径的最后一步都一样，差别只在「单序列还是带基准」，所以收敛成这两个函数。
 //
 // 配置直接从状态里的配置槽取（`DuckLazySlot<QuantstatsHtmlOptions>`）：整列配置是 `NULL`、或这一组一行
 // 都没有过时，槽里没有解析结果，退化成 quantstats-rs 自己的全默认。
 //
-// 配置里写了 `output` 就顺带落盘：经 duckfn 的便捷层走 DuckDB 的 VFS（本地磁盘 / 内存文件系统 /
-// wasm 上的文件系统是同一条通路），而不是 `std::fs`；细节见 `write_report`。
+// 报告的去处由 `ReportTarget` 定下：配置里写了 `output` 就落盘（经 duckfn 的便捷层走 DuckDB 的 VFS ——
+// 本地磁盘 / 内存文件系统 / wasm 上的文件系统是同一条通路 —— 而不是 `std::fs`，细节见 `write_report`）；
+// 另外要了 `open_in_browser` 就在落盘之后用系统默认浏览器打开它（没写 `output` 则先落一个临时文件，
+// 见 browser.rs）。
 //
 // 空输入（一行都没有，或价格差分后没有有效点）返回 `Ok(None)`，即 SQL `NULL` —— 不要交给 `html()`，
 // 那边会报 `EmptySeries` 错误。
 //
-// The tail: points → ReturnSeries → rendered HTML.
+// The tail: points → ReturnSeries → rendered HTML → written to disk / opened in a browser.
 //
 // The last step is the same on all four paths and only differs in "single series or with a benchmark",
 // hence these two functions.
@@ -21,19 +23,24 @@
 // the whole column was NULL, or the group never had a row, the slot holds no parse result and the report
 // falls back to quantstats-rs' own all-defaults.
 //
-// When the configuration asks for `output`, persisting the report is part of this tail too — through
-// duckfn's convenience layer on DuckDB's VFS (local disk / in-memory file systems / the wasm build's
-// file system all take the same path) rather than `std::fs`, see `write_report`.
+// Where the report goes is decided by `ReportTarget`: a configured `output` is written through duckfn's
+// convenience layer on DuckDB's VFS (local disk / in-memory file systems / the wasm build's file system all
+// take the same path) rather than `std::fs`, see `write_report`; and when `open_in_browser` was asked for,
+// the report is opened with the system default browser afterwards (via a temporary file when no `output` was
+// given, see browser.rs).
 //
 // Empty input (no row at all, or no valid point after differencing prices) yields `Ok(None)`, i.e. SQL
 // `NULL` — do not hand it to `html()`, which would fail with `EmptySeries`.
 // ============================================================================
+
+use std::path::PathBuf;
 
 use duckfn::{DuckLazySlot, DuckOptionResult, DuckResult, duck_error, duck_vfs};
 use quantstats_rs::{HtmlReportOptions, ReturnSeries, html};
 
 use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 
+use super::browser;
 use super::kind::SeriesKind;
 use super::series::{SeriesPoint, build_series};
 
@@ -64,16 +71,13 @@ pub(super) fn render_single(
 
     let series = build_series(points, None)?;
     let options = options.get().unwrap_or_default();
-    // 先校验 `output`（空路径直接报错），免得白渲染一份报告才失败。
+    // 先把报告的去处定下来（顺带校验 `output` 与 `open_in_browser`），免得白渲染一份报告才失败。
     //
-    // Validate `output` first (an empty path fails right away) instead of rendering a report for
-    // nothing and only then reporting the bad configuration.
-    let output_path = options.output_path()?;
+    // Settle where the report goes first (validating `output` and `open_in_browser` on the way) instead of
+    // rendering a report for nothing and only then reporting the bad configuration.
+    let target = ReportTarget::new(&options)?;
     let report = render(kind, &series, options.to_report_options()?)?;
-
-    if let Some(path) = output_path {
-        write_report(path, &report)?;
-    }
+    target.deliver(&report)?;
 
     Ok(Some(report))
 }
@@ -94,17 +98,94 @@ pub(super) fn render_with_benchmark(
     let strategy_series = build_series(strategy_points, None)?;
     let benchmark_series = build_series(benchmark_points, None)?;
     let options = options.get().unwrap_or_default();
-    let output_path = options.output_path()?;
+    let target = ReportTarget::new(&options)?;
     let report_options = options
         .to_report_options()?
         .with_benchmark(&benchmark_series);
     let report = render(kind, &strategy_series, report_options)?;
-
-    if let Some(path) = output_path {
-        write_report(path, &report)?;
-    }
+    target.deliver(&report)?;
 
     Ok(Some(report))
+}
+
+/// 报告的去处：写到哪个路径（可能不写），以及要不要在浏览器里打开。
+///
+/// 「写」与「打开」是两套路径，因此分开存：
+///
+/// - `write_to` 是配置里的 `output` 原样（相对路径就还是相对路径），由 DuckDB 的 VFS 去解释；
+/// - `open_with_browser` 是**本地绝对路径**，只给系统浏览器用 —— VFS 路径里可能有 `s3://` 这种浏览器
+///   打不开的东西，相对路径也得先补成绝对路径。
+///
+/// 两者在 [`ReportTarget::new`] 里一次定下来，配置错误因此发生在渲染**之前**，不会白渲染一份几百 KB
+/// 的报告。`output` 没写而又要在浏览器里打开时，落盘路径退化成临时目录里的一个随机文件名（浏览器需要
+/// 一个真实存在的文件），名字由 `browser::temporary_report_path` 负责。
+///
+/// Where a report goes: the path to write it to (possibly none) and whether to open it in a browser.
+///
+/// Writing and opening are two different paths and are kept apart:
+///
+/// - `write_to` is the configured `output`, verbatim (a relative path stays relative), interpreted by
+///   DuckDB's VFS;
+/// - `open_with_browser` is an **absolute local path** for the system browser only — a VFS path may be
+///   something like `s3://…` that no browser can open, and a relative path has to be made absolute first.
+///
+/// Both are settled in [`ReportTarget::new`], so a bad configuration is reported **before** anything is
+/// rendered rather than after a few hundred KB of work. When `output` is not set but the browser was asked
+/// for, the write target falls back to a randomly named file in the temp directory (a browser needs a file
+/// that actually exists) — `browser::temporary_report_path` names it.
+pub(super) struct ReportTarget {
+    /// 落盘路径，配置原样；`None` 表示不落盘。
+    ///
+    /// The path to write to, verbatim from the configuration; `None` means nothing is written.
+    write_to: Option<String>,
+    /// 要交给浏览器的本地绝对路径；`None` 表示不打开。
+    ///
+    /// The absolute local path handed to the browser; `None` means nothing is opened.
+    open_with_browser: Option<PathBuf>,
+}
+
+impl ReportTarget {
+    /// 按配置定下报告的去处，顺带校验与它相关的取值（`output` 是不是空串、非本地路径能不能打开）。
+    ///
+    /// Resolve where the report goes from the configuration, validating the related option values on the way
+    /// (whether `output` is an empty string, whether a non-local path could be opened at all).
+    pub(super) fn new(options: &QuantstatsHtmlOptions) -> DuckResult<Self> {
+        let open_in_browser = browser::is_requested(options);
+
+        // 空字符串的 `output` 在这里就报掉（`output_path`）。
+        //
+        // An empty `output` is reported right here, by `output_path`.
+        let write_to = match options.output_path()? {
+            Some(path) => Some(path.to_owned()),
+            None if open_in_browser => Some(browser::temporary_report_path(options)),
+            None => None,
+        };
+
+        let open_with_browser = match write_to.as_deref() {
+            Some(path) if open_in_browser => Some(browser::local_path(path)?),
+            _ => None,
+        };
+
+        Ok(Self {
+            write_to,
+            open_with_browser,
+        })
+    }
+
+    /// 落盘（配置里写了路径时）并按需用系统默认浏览器打开 —— 先写后开，浏览器打开时文件一定已经在了。
+    ///
+    /// Write the report (when a path was configured) and open it in the system default browser when asked —
+    /// the write comes first, so the file is always there by the time the browser looks at it.
+    pub(super) fn deliver(&self, report: &str) -> DuckResult<()> {
+        if let Some(path) = &self.write_to {
+            write_report(path, report)?;
+        }
+        if let Some(path) = &self.open_with_browser {
+            browser::open_report(path)?;
+        }
+
+        Ok(())
+    }
 }
 
 /// 把渲染好的报告按配置里的 `output` 落盘。

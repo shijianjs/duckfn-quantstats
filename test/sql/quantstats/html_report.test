@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_report.test
-# description: qs_html_report 单序列报告：命名配置类型（7 字段）、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组、output 落盘（经 DuckDB VFS），以及配置取值错误
+# description: qs_html_report 单序列报告：命名配置类型（8 字段）、配置参数放最后、缺字段取默认值、必须显式 cast、空输入 NULL、NULL 行跳过、多线程 combine 一致性、GROUP BY 多组、output 落盘（经 DuckDB VFS）、open_in_browser 的取值校验，以及配置取值错误
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -17,7 +17,7 @@ SELECT count(*) FROM duckdb_types() WHERE type_name = 'qs_html_report_options';
 query T
 SELECT typeof(NULL::qs_html_report_options);
 ----
-STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR)
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output VARCHAR, open_in_browser BOOLEAN)
 
 # 两个重载挂在同一个名字下，靠参数个数分派：
 #   3 参 = (date, period_return, options)               单序列
@@ -300,3 +300,30 @@ SELECT qs_html_report(
 FROM daily_returns;
 ----
 contains a NUL byte
+
+# ============================================================================
+# 用浏览器打开（open_in_browser）
+#
+# 真正「把浏览器叫起来」没法在这里断言（那会在跑测试的机器上弹出窗口），所以测试只覆盖能安全断言的
+# 两件事：开关本身不改变报告，以及「打不开的路径」在渲染之前就被挡下。
+# ============================================================================
+
+# 关着的开关与不写这个键完全等价：md5 相同（新增字段没有扰动任何既有行为）
+query T
+SELECT md5(qs_html_report(trade_date, daily_return, NULL))
+     = md5(qs_html_report(trade_date, daily_return,
+           {'open_in_browser': false}::qs_html_report_options)) AS same_as_unset
+FROM daily_returns;
+----
+true
+
+# 浏览器只能打开本地文件：output 指向 s3:// 这类 VFS 路径时直接报错，
+# 而且要报在渲染之前（这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
+statement error
+SELECT qs_html_report(
+           trade_date, daily_return,
+           {'output': 's3://bucket/report.html',
+            'open_in_browser': true}::qs_html_report_options)
+FROM daily_returns;
+----
+only local file paths can be opened in a browser

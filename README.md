@@ -112,6 +112,7 @@ Every field of `qs_html_report_options` is **nullable**; keys you omit take thei
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
 | `match_dates` | `BOOLEAN` | `true` | Whether to align the start dates of strategy and benchmark |
 | `output` | `VARCHAR` | `NULL` | Also write the HTML to this path, through DuckDB's VFS (see below) |
+| `open_in_browser` | `BOOLEAN` | `false` | Open the report in the system default browser; with no `output` it writes a temporary file first (see below) |
 
 Defaults come straight from quantstats-rs' `HtmlReportOptions::default()`; this extension does not invent a
 second set.
@@ -159,6 +160,12 @@ SELECT qs_html_report(
            trade_date, daily_return,
            {'title': 'My Fund', 'output': 'fund.html'}::qs_html_report_options)
 FROM daily_returns;
+
+-- Write it and open it in your browser (with no 'output' the report goes to a temp file first)
+SELECT qs_html_report(
+           trade_date, daily_return,
+           {'title': 'My Fund', 'open_in_browser': true}::qs_html_report_options)
+FROM daily_returns;
 ```
 
 A scalar subquery works just as well as the cross join (verified), with the same effect:
@@ -178,7 +185,7 @@ GROUP BY fund;
 - **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
   anonymous `STRUCT(title VARCHAR)` whose field count differs from the options type, and DuckDB reports that
   no function matches — registering that named type is exactly what makes the cast possible.
-- **`'...'::JSON::qs_html_report_options` must spell out all 7 keys** (DuckDB's JSON→STRUCT
+- **`'...'::JSON::qs_html_report_options` must spell out all 8 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
 - **The benchmark point keys are fixed to `date` / `period_return`** (duckfn's `DuckStruct` derive has no
   field renaming). They match the anonymous `STRUCT(date DATE, period_return DOUBLE)` exactly, so **no cast is
@@ -198,6 +205,7 @@ GROUP BY fund;
 | `output = ''` | Error `output must not be an empty string` |
 | The `output` path contains a NUL byte | Error `contains a NUL byte` |
 | The `output` path cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
+| `open_in_browser` with an `output` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
 
 ### Writing the report to a file
 
@@ -220,12 +228,41 @@ including the "existing file is longer" case.
 The path is part of the configuration, so under `GROUP BY` give each group its own file
 (`'report-' || symbol || '.html'`) instead of pointing every group at one path.
 
+### Opening the report in a browser
+
+`open_in_browser` hands the report to the system default browser once it has been generated, so a terminal
+session does not have to end with "…and now go find that file and double-click it". A browser needs a local
+file that actually exists, which decides the rest:
+
+- with `output` set, the report is written there and that file is opened;
+- without it, the report is written to a temporary file first —
+  `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`. The prefix is for humans: the time (sorting the
+  temp directory by name therefore sorts it by time), then `strategy_title` (falling back to `title`) and
+  `benchmark_title`, with anything that cannot appear in a file name replaced by `_`. The random suffix keeps
+  two reports generated within the same second from overwriting each other, and the `.html` suffix is what
+  makes the browser render the file instead of downloading it;
+- an `output` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op, since
+  no browser can open it. That is checked **before** the report is rendered.
+
+Launching is all it does: the report is already on disk, so it neither waits for the browser nor looks at what
+the browser does with the file. The only failure it reports is the launcher itself not starting (no `xdg-open`
+on the machine, say).
+
+The option is meant for a single report. Under `GROUP BY` every group is opened in turn — and, without
+`output`, each group gets its own temporary file, so at least nothing overwrites anything.
+
 ### WebAssembly
 
-Nothing in the code is wasm-specific any more: `output` goes through DuckDB's VFS, so the wasm build uses
-exactly the same code path as the native one. That replaces the earlier behaviour, where the path was dropped
-on `wasm32-unknown-emscripten` because `std::fs` has no writable file system there — the file now lands
-wherever DuckDB's own file system points in that environment, without this extension special-casing anything.
+`output` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the native one and
+the file lands wherever DuckDB's own file system points in that environment. That replaces the earlier
+behaviour, where the path was dropped on `wasm32-unknown-emscripten` because `std::fs` has no writable file
+system there.
+
+`open_in_browser` is the one deliberate exception: a wasm build has no browser process to launch (that is
+`browser.rs`, the only platform-specific code left in the extension), so the option is ignored there — no
+browser, and no temporary file either. The report string comes back to the host as it is, and showing it is
+the host page's job: a blob URL and `window.open`, an `<iframe>`, or whatever else fits.
+
 `just build_wasm` (`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`)
 compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
 
@@ -337,7 +374,7 @@ FROM prices WHERE symbol = 'MSFT';
 ```
 
 A report is a few hundred KB of HTML (a dozen inline SVGs), so in a terminal `output` is the friendlier
-route: write the file, then open it in a browser.
+route: write the file, then open it in a browser — or let `open_in_browser` write it and pop it open for you.
 
 **Why a snapshot and not a live URL.** When this was written there was no free, key-less *and* stable HTTP
 endpoint for the daily closes of individual tickers: stooq puts a JavaScript challenge in front of its CSV
