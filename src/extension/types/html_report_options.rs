@@ -61,19 +61,19 @@ pub(crate) struct QuantstatsHtmlOptions {
     /// `strategy_title` in the returned rows all use it, so all three always agree.
     pub strategy_title: Option<String>,
 
-    /// 基准的显示名，纯展示用。缺省是**那一份报告所用的基准 symbol**（见
-    /// [`Self::benchmark_title_or`]）。
+    /// 基准的显示名，纯展示用：**列表**，与 `benchmark` 按下标一一对应。
     ///
-    /// 多个基准时**不能**写这个键（那时它没有单一答案，见 [`Self::benchmark_names`]）：显示名会各自
-    /// 退回对应的基准 symbol。
+    /// 这一项没给（列表短了、这一项是 NULL 或空串、或者整个键没写）时，退回那一份报告所用的基准
+    /// symbol（见 [`Self::benchmark_title_or`]）。它只是展示，所以**宽松**：多余的表项直接忽略，
+    /// 不做 `benchmark` 那套校验。
     ///
-    /// Display name of the benchmark, presentation only; defaults to **the benchmark symbol that
-    /// report uses** (see [`Self::benchmark_title_or`]).
+    /// Display name of the benchmark, presentation only: a **list**, paired with `benchmark` by index.
     ///
-    /// It must **not** be set when there is more than one benchmark (it would have no single answer,
-    /// see [`Self::benchmark_names`]): each display name then falls back to its own benchmark
-    /// symbol.
-    pub benchmark_title: Option<String>,
+    /// An entry that was not given (the list is shorter, the entry is NULL or an empty string, or the
+    /// key is absent) falls back to the benchmark symbol that report uses (see
+    /// [`Self::benchmark_title_or`]). It is presentation only, hence **lenient**: extra entries are
+    /// ignored rather than validated the way `benchmark` is.
+    pub benchmark_title: Option<Vec<Option<String>>>,
 
     /// 哪个（哪些）**symbol** 当基准：表里 `symbol` 列的取值，**列表**，顺序有意义。
     ///
@@ -198,36 +198,35 @@ impl QuantstatsHtmlOptions {
     /// 转成 quantstats-rs 的 [`ReportOptions`]，做法是「从它的 `default()` 出发、逐字段覆盖
     /// 用户显式写了的那些」—— 默认值因此只有一份真相，不会在这里再抄一套。
     ///
-    /// 两个参数只服务显示名的退回：`strategy_title` 缺省用 `symbol`、`benchmark_title` 缺省用这一份
-    /// 报告所用的基准 symbol。这不是美化 —— 一次调用会出几十份报告，默认的 `'Strategy'` 对每份都一样，
-    /// 图例、文件名与返回行里的显示名都会失去区分度。
+    /// 两个显示名由调用方**解析好再传进来**（[`Self::strategy_title_or`] 与
+    /// [`Self::benchmark_title_or`]，见 report.rs）：同一份名字还要用于文件名，解析一次、两处使用，
+    /// 报告图例与磁盘上的文件名才不会各说各话。
     ///
     /// 生命周期是泛型的：调用方要往返回值上挂基准（`with_benchmark`），由它自己决定借用多久。
     ///
     /// Convert to quantstats-rs' [`ReportOptions`] by starting from its `default()` and overriding
     /// only the fields the user actually wrote, so defaults have a single source of truth.
     ///
-    /// The two arguments only serve the display-name fallbacks: `strategy_title` defaults to the
-    /// `symbol` and `benchmark_title` to the benchmark symbol this very report uses. That is not
-    /// cosmetics — one call produces dozens of reports, and the default `'Strategy'` is identical for
-    /// every one of them, so the legend, the file names and the returned display names would all lose
-    /// their distinguishing power.
+    /// The two display names are **resolved by the caller** ([`Self::strategy_title_or`] and
+    /// [`Self::benchmark_title_or`], see report.rs): the same names also go into the file name, so
+    /// resolving once and using them twice is what keeps the report legend and the file on disk in
+    /// agreement.
     ///
     /// The lifetime is generic: callers that want to attach a benchmark (`with_benchmark`) pick how
     /// long the returned value borrows for.
     pub(crate) fn to_report_options<'a>(
         &self,
-        symbol: &str,
-        benchmark: Option<&str>,
+        strategy_title: &str,
+        benchmark_title: Option<&str>,
     ) -> DuckResult<ReportOptions<'a>> {
         let mut options = ReportOptions::default();
 
         if let Some(title) = &self.title {
             options.title = title.clone();
         }
-        options.strategy_title = Some(self.strategy_title_or(symbol));
-        if let Some(benchmark) = benchmark {
-            options.benchmark_title = Some(self.benchmark_title_or(benchmark));
+        options.strategy_title = Some(strategy_title.to_string());
+        if let Some(benchmark_title) = benchmark_title {
+            options.benchmark_title = Some(benchmark_title.to_string());
         }
         if let Some(rf) = self.rf {
             options.rf = rf;
@@ -266,31 +265,49 @@ impl QuantstatsHtmlOptions {
             .to_string()
     }
 
-    /// 这一份报告所用基准的显示名：写了 `benchmark_title` 就用它，否则退回基准 symbol 本身。
+    /// 第 `index` 个基准（也就是 `benchmark[index]`）在报告里的显示名：取 `benchmark_title[index]`，
+    /// 那一项没给就退回基准 symbol 本身。
     ///
-    /// The display name of the benchmark this report uses: the configured `benchmark_title` when
-    /// there is one, the benchmark symbol itself otherwise.
-    pub(crate) fn benchmark_title_or(&self, benchmark: &str) -> String {
-        self.benchmark_title
-            .as_deref()
-            .unwrap_or(benchmark)
-            .to_string()
+    /// 显示名与基准按下标对齐，是因为它俩本来就是同一份列表的两列；缺项退回 symbol 而不是报错 —— 它只是
+    /// 展开展示，`benchmark` 那套校验（空串、NULL、重复）在这儿不适用。
+    ///
+    /// The display name of the `index`-th benchmark (i.e. `benchmark[index]`): `benchmark_title[index]`
+    /// when it was given, the benchmark symbol itself otherwise.
+    ///
+    /// The display names are paired with the benchmarks by index because they are two columns of the
+    /// same list; a missing entry falls back to the symbol rather than erroring — this is presentation
+    /// only, so the validation `benchmark` gets (empty strings, NULLs, duplicates) does not apply here.
+    pub(crate) fn benchmark_title_or(&self, index: usize, benchmark: &str) -> String {
+        self.benchmark_title_at(index).unwrap_or(benchmark).to_string()
+    }
+
+    /// `benchmark_title` 里的第 `index` 项；没有这一项、它是 NULL、或是空串时返回 `None`。
+    ///
+    /// 空串按「没写」处理：空着的图例（`Benchmark is `）不如退回 symbol 有用。
+    ///
+    /// The `index`-th entry of `benchmark_title`; `None` when there is no such entry, it is NULL or it
+    /// is an empty string.
+    ///
+    /// An empty string counts as "not written": an empty legend entry (`Benchmark is `) is less useful
+    /// than falling back to the symbol.
+    fn benchmark_title_at(&self, index: usize) -> Option<&str> {
+        let title = self.benchmark_title.as_ref()?.get(index)?.as_deref()?;
+        if title.is_empty() { None } else { Some(title) }
     }
 
     /// 配置里的基准 symbol 列表（按写入顺序）；没配基准时是空数组。
     ///
     /// 逐条校验，任何一条不成立都是配置错误：元素不能是 NULL（`['SPX', NULL]`）、不能是空串、不能在
-    /// 同一个列表里重复。另外，`benchmark_title` 在列表长度大于 1 时也必须为空 —— 那时它没有单一答案，
-    /// 显示名只能用各自的基准 symbol。
+    /// 同一个列表里重复。`benchmark_title` 不参与校验 —— 它按下标对齐、缺项退回 symbol（见
+    /// [`Self::benchmark_title_or`]）。
     ///
     /// The configured benchmark symbols, in the order they were written; empty when no benchmark was
     /// configured.
     ///
     /// Every entry is validated and any failure is a configuration error: an element may not be NULL
-    /// (`['SPX', NULL]`), may not be an empty string and may not repeat inside one list. On top of
-    /// that, `benchmark_title` has to be unset as soon as the list holds more than one benchmark — it
-    /// would have no single answer there, and the display names can only come from the benchmark
-    /// symbols themselves.
+    /// (`['SPX', NULL]`), may not be an empty string and may not repeat inside one list.
+    /// `benchmark_title` is not validated — it pairs up by index and falls back to the symbol (see
+    /// [`Self::benchmark_title_or`]).
     pub(crate) fn benchmark_names(&self) -> DuckResult<Vec<&str>> {
         let Some(benchmarks) = &self.benchmark else {
             return Ok(Vec::new());
@@ -315,14 +332,6 @@ impl QuantstatsHtmlOptions {
                 )));
             }
             names.push(name);
-        }
-
-        if names.len() > 1 && self.benchmark_title.is_some() {
-            return Err(duck_error(format!(
-                "qs_html_report_options.benchmark_title cannot be set with {} benchmarks — the display name \
-                 comes from each benchmark symbol instead",
-                names.len()
-            )));
         }
 
         Ok(names)

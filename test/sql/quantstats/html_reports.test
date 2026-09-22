@@ -16,11 +16,12 @@ SELECT count(*) FROM duckdb_types() WHERE type_name = 'qs_html_report_options';
 ----
 1
 
-# 字段名都不是 SQL 关键字，所以 DuckDB 渲染 typeof 时不加引号
+# 字段名都不是 SQL 关键字，所以 DuckDB 渲染 typeof 时不加引号。
+# `benchmark` 与 `benchmark_title` 都是列表：前者是 symbol 名，后者按下标与它一一对应。
 query T
 SELECT typeof(NULL::qs_html_report_options);
 ----
-STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR, benchmark VARCHAR[], rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output_dir VARCHAR, open_in_browser BOOLEAN)
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR[], benchmark VARCHAR[], rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, output_dir VARCHAR, open_in_browser BOOLEAN)
 
 query I
 SELECT count(*) FROM duckdb_functions()

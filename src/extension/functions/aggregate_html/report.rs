@@ -14,13 +14,19 @@
 //
 // 基准的序列每个只转换一次（价格路径上是差分），所有标的共用；被指为基准的 symbol 只作输入、不出报告。
 //
+// # 两个显示名：解析一次，两个地方用
+//
+// 每份报告要两个名字：策略显示名与**那一份报告所用基准**的显示名（`benchmark_title` 按下标对齐
+// `benchmark`，缺项退回基准 symbol）。它们在同一个地方解析一次，然后同时交给报告与文件名
+// （`ReportTarget` → naming.rs），所以目录里的文件名与报告里的图例不会各说各话。
+//
 // # 顺序与落盘
 //
 // 顺序是刻意定的：
 //
-//   1. 先把每个标的的序列、以及每个 (标的, 基准) 对的落盘目标（[`ReportTarget`]）都定下来，顺带校验
-//      `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器 —— 配置错误因此发生在渲染之前，
-//      不会白渲染几十份几百 KB 的报告；
+//   1. 先建好每个标的的序列，再把每个 (标的, 基准) 对的显示名与落盘目标（[`ReportTarget`]）都定下来，
+//      顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器 —— 配置错误因此发生在渲染
+//      之前，不会白渲染几十份几百 KB 的报告；
 //   2. 再逐个渲染、落盘、按需开浏览器；
 //   3. 最后把「实际写到哪」回填进返回行（没落盘就是 NULL）。
 //
@@ -52,13 +58,21 @@
 // Each benchmark's series is converted exactly once (differenced first, on the price branch) and shared by
 // every instrument; a symbol named as a benchmark is input only and gets no report.
 //
+// # The two display names: resolved once, used twice
+//
+// Every report needs two names: the strategy's and **that very report's benchmark's** (`benchmark_title` pairs
+// up with `benchmark` by index and falls back to the benchmark symbol). They are resolved in one place and
+// then handed to both the report and the file name (`ReportTarget` → naming.rs), so the name on disk and the
+// legend inside the report cannot drift apart.
+//
 // # Order and persistence
 //
 // The order is deliberate:
 //
-//   1. settle every instrument's series and every (symbol, benchmark) pair's destination ([`ReportTarget`]),
-//      validating `output_dir` and `open_in_browser` on the way — a bad configuration is therefore reported
-//      before anything is rendered, rather than after dozens of few-hundred-KB reports;
+//   1. build every instrument's series, then settle every (symbol, benchmark) pair's display names and
+//      destination ([`ReportTarget`]), validating `output_dir` and `open_in_browser` on the way — a bad
+//      configuration is therefore reported before anything is rendered, rather than after dozens of
+//      few-hundred-KB reports;
 //   2. render, persist and open each one;
 //   3. fill the actual path into the returned row (NULL when nothing was written).
 //
@@ -111,23 +125,68 @@ pub(super) fn render_price_reports(
     render_reports(kind, symbols, prices_to_returns)
 }
 
-/// 一个标的的「一份报告」所需的一切：序列、配置、落盘目标（基准由外部按列表顺序给出）。
+/// 一个标的：配置与序列。同一个标的的每一份报告（每个基准一份）共用这两样。
 ///
-/// Everything one report of one instrument needs: its series, its options and its destination (the
-/// benchmark comes from the outer list order).
-struct StrategyReport<'a> {
-    /// 报告对应的 symbol。
+/// One instrument: its options and its series. Every report of that instrument (one per benchmark) shares
+/// both.
+struct Strategy<'a> {
+    /// 这个标的的名字，也就是它在输入列里的取值。
     ///
-    /// The symbol this report belongs to.
+    /// The name of this instrument, i.e. the value it had in the input column.
     symbol: &'a str,
     /// 该 symbol 的配置；没解析到就是全默认。
     ///
     /// This symbol's options; all defaults when nothing was parsed.
     options: Arc<QuantstatsHtmlOptions>,
-    /// 已经换算成收益率的策略序列。同一个标的的所有基准共用它。
+    /// 已经换算成收益率的序列。
     ///
-    /// The strategy series, already converted into returns. Every benchmark of this instrument shares it.
+    /// The series, already converted into returns.
     series: ReturnSeries,
+}
+
+/// 一份待渲染的报告：谁、对哪个基准、用哪条序列、写到哪。
+///
+/// 两个显示名在这里就已经解析完（见模块头「解析一次，两个地方用」），所以渲染那一步不需要再算一遍。
+///
+/// One report waiting to be rendered: which instrument, against which benchmark, from which series, written
+/// where.
+///
+/// Both display names are already resolved here (see "resolved once, used twice" in the module header), so
+/// the rendering step does not compute them again.
+struct PlannedReport<'a> {
+    /// 报告对应的 symbol。
+    ///
+    /// The symbol this report belongs to.
+    symbol: &'a str,
+    /// 这一份报告对上的基准 symbol；没配基准时是 `None`（单序列报告）。
+    ///
+    /// The benchmark symbol this report is against; `None` when no benchmark was configured (a
+    /// single-series report).
+    benchmark: Option<&'a str>,
+    /// 那条基准序列（与 `benchmark` 同生同灭），渲染时挂到报告上。
+    ///
+    /// That benchmark's series (born and gone with `benchmark`), attached to the report when it is rendered.
+    benchmark_series: Option<&'a ReturnSeries>,
+    /// 报告与文件名里用的策略显示名。
+    ///
+    /// The strategy display name used in the report and the file name.
+    strategy_title: String,
+    /// 报告与文件名里用的基准显示名；没有基准时是 `None`。
+    ///
+    /// The benchmark display name used in the report and the file name; `None` without a benchmark.
+    benchmark_title: Option<String>,
+    /// 这个标的的序列。
+    ///
+    /// This instrument's series.
+    series: &'a ReturnSeries,
+    /// 这个标的的配置（渲染时要读 `title` / `rf` / `periods_per_year` / `match_dates`）。
+    ///
+    /// This instrument's options (rendering reads `title` / `rf` / `periods_per_year` / `match_dates`).
+    options: Arc<QuantstatsHtmlOptions>,
+    /// 报告的去处（`output_dir` / `open_in_browser` 已经在这里校验过）。
+    ///
+    /// Where the report goes (`output_dir` / `open_in_browser` were validated here).
+    target: ReportTarget,
 }
 
 /// 收尾的实现：`to_returns` 是两条路径唯一的差别（收益率路径是恒等，价格路径是差分）。
@@ -186,13 +245,12 @@ fn render_reports(
         benchmark_series.push(build_series(&returns, None)?);
     }
 
-    // 第一遍：把要出报告的标的挑出来（基准只作输入）并建好序列。换算后没有有效点的标的略过 ——
-    // 「没有报告可出」与「一行都没有 → NULL」是同一套语义，不是错误。
+    // 第一遍：建好每个标的的序列（基准只作输入；换算后没有有效点的标的略过 —— 「没有报告可出」与
+    // 「一行都没有 → NULL」是同一套语义，不是错误）。
     //
-    // First pass: pick the instruments that get a report (the benchmark is input only) and build their
-    // series. An instrument with no valid point after conversion is left out — the same semantics as
-    // "no row at all → NULL", not an error.
-    let mut strategies: Vec<StrategyReport<'_>> = Vec::with_capacity(configured.len());
+    // First pass: build every instrument's series (the benchmark is input only; an instrument with no valid
+    // point after conversion is left out — the same semantics as "no row at all → NULL", not an error).
+    let mut strategies: Vec<Strategy<'_>> = Vec::with_capacity(configured.len());
     for (symbol, options) in &configured {
         if benchmarks.contains(symbol) {
             continue;
@@ -204,76 +262,94 @@ fn render_reports(
             continue;
         }
 
-        strategies.push(StrategyReport {
+        strategies.push(Strategy {
             symbol,
             options: Arc::clone(options),
             series: build_series(&returns, None)?,
         });
     }
 
-    // 每个标的的落盘目标：没配基准时一个（单序列报告），否则每个基准一个。全部在这里定下来，所以
-    // `output_dir` / `open_in_browser` 的配置错误发生在渲染之前。
+    // 第二遍：每个 (标的, 基准) 对的显示名与落盘目标都定下来，所以 `output_dir` / `open_in_browser` 的
+    // 配置错误发生在渲染之前。
     //
-    // Every instrument's destinations: one when no benchmark is configured (a single-series report),
-    // otherwise one per benchmark. They are all settled here, so `output_dir` / `open_in_browser`
-    // misconfiguration surfaces before anything is rendered.
-    let targets: Vec<Vec<ReportTarget>> = strategies
-        .iter()
-        .map(|strategy| -> DuckResult<Vec<ReportTarget>> {
-            if benchmarks.is_empty() {
-                return Ok(vec![ReportTarget::new(
-                    &strategy.options,
-                    strategy.symbol,
-                    None,
-                )?]);
-            }
-
-            benchmarks
-                .iter()
-                .map(|benchmark| {
-                    ReportTarget::new(&strategy.options, strategy.symbol, Some(benchmark))
-                })
-                .collect()
-        })
-        .collect::<DuckResult<_>>()?;
-
-    // 第二遍：渲染 → 落盘 / 开浏览器 → 回填路径。
+    // 没配基准时只有一个「槽」（那份单序列报告），否则每个基准一个槽 —— 这样下面渲染那一趟不必再分情况。
     //
-    // Second pass: render → write / open in a browser → fill the path in.
-    let mut reports = Vec::with_capacity(
-        strategies
-            .len()
-            .saturating_mul(benchmarks.len().max(1)),
-    );
-    for (strategy, targets) in strategies.iter().zip(&targets) {
-        for (index, target) in targets.iter().enumerate() {
-            // 没配基准时 `benchmarks` 是空的，`get(0)` 就是 `None` —— 与只有一个目标的那一支对上。
-            //
-            // With no benchmark configured `benchmarks` is empty and `get(0)` is `None`, which is what
-            // the single-destination branch means.
-            let benchmark = benchmarks.get(index).copied();
-            let mut report_options = strategy.options.to_report_options(strategy.symbol, benchmark)?;
-            if benchmark.is_some() {
-                report_options = report_options.with_benchmark(&benchmark_series[index]);
-            }
+    // Second pass: settle every (symbol, benchmark) pair's display names and destination, so
+    // `output_dir` / `open_in_browser` misconfiguration surfaces before anything is rendered.
+    //
+    // With no benchmark there is exactly one slot (the single-series report), otherwise one slot per
+    // benchmark — which is what keeps the rendering pass below branch-free.
+    let slots: Vec<Option<(&str, usize)>> = if benchmarks.is_empty() {
+        vec![None]
+    } else {
+        benchmarks
+            .iter()
+            .enumerate()
+            .map(|(index, benchmark)| Some((*benchmark, index)))
+            .collect()
+    };
 
-            let report = render(kind, &strategy.series, report_options)?;
-            target.deliver(&report)?;
-
-            reports.push(QuantstatsHtmlReport {
-                symbol: strategy.symbol.to_owned(),
-                benchmark: benchmark.map(str::to_owned),
-                strategy_title: strategy.options.strategy_title_or(strategy.symbol),
-                html: report,
-                // 回填的就是这一次真正写出去的路径：`output_dir` 下那个自动命名的文件，或只在浏览器里
-                // 打开时的临时文件，两者都没配则为 NULL。
+    let mut planned = Vec::with_capacity(strategies.len() * slots.len());
+    for strategy in &strategies {
+        for slot in &slots {
+            let strategy_title = strategy.options.strategy_title_or(strategy.symbol);
+            let (benchmark, benchmark_title) = match slot {
+                // `benchmark_title` 按下标对齐 `benchmark`，缺项退回基准 symbol。
                 //
-                // This is the path this very call wrote to: the auto-named file under `output_dir`, the
-                // temporary file when the browser was the only one asking for a file, and NULL when there
-                // is neither.
-                file_path: target.write_to().map(str::to_owned),
+                // `benchmark_title` pairs up with `benchmark` by index, falling back to the benchmark
+                // symbol when the entry is missing.
+                Some((benchmark, index)) => (
+                    Some(*benchmark),
+                    Some(strategy.options.benchmark_title_or(*index, benchmark)),
+                ),
+                None => (None, None),
+            };
+
+            planned.push(PlannedReport {
+                symbol: strategy.symbol,
+                benchmark,
+                benchmark_series: slot.as_ref().map(|(_, index)| &benchmark_series[*index]),
+                target: ReportTarget::new(
+                    &strategy.options,
+                    &strategy_title,
+                    benchmark_title.as_deref(),
+                )?,
+                strategy_title,
+                benchmark_title,
+                series: &strategy.series,
+                options: Arc::clone(&strategy.options),
             });
         }
+    }
+
+    // 第三遍：渲染 → 落盘 / 开浏览器 → 回填路径。
+    //
+    // Third pass: render → write / open in a browser → fill the path in.
+    let mut reports = Vec::with_capacity(planned.len());
+    for planned in &planned {
+        let mut report_options = planned
+            .options
+            .to_report_options(&planned.strategy_title, planned.benchmark_title.as_deref())?;
+        if let Some(benchmark_series) = planned.benchmark_series {
+            report_options = report_options.with_benchmark(benchmark_series);
+        }
+
+        let report = render(kind, planned.series, report_options)?;
+        planned.target.deliver(&report)?;
+
+        reports.push(QuantstatsHtmlReport {
+            symbol: planned.symbol.to_owned(),
+            benchmark: planned.benchmark.map(str::to_owned),
+            strategy_title: planned.strategy_title.clone(),
+            html: report,
+            // 回填的就是这一次真正写出去的路径：`output_dir` 下那个自动命名的文件，或只在浏览器里
+            // 打开时的临时文件，两者都没配则为 NULL。
+            //
+            // This is the path this very call wrote to: the auto-named file under `output_dir`, the
+            // temporary file when the browser was the only one asking for a file, and NULL when there
+            // is neither.
+            file_path: planned.target.write_to().map(str::to_owned),
+        });
     }
 
     if reports.is_empty() {
@@ -287,15 +363,14 @@ fn render_reports(
 ///
 /// 一次调用里所有标的必须给**同一个列表**（元素与顺序都一致），否则「谁把谁当基准」没有单一答案，
 /// 被指的 symbol 该不该出报告也就说不清了 —— 所以直接报错，而不是挑某一个用。列表本身的问题（空串、
-/// NULL 元素、重复、多基准时还写了 `benchmark_title`）由 [`QuantstatsHtmlOptions::benchmark_names`] 拦。
+/// NULL 元素、重复）由 [`QuantstatsHtmlOptions::benchmark_names`] 拦。
 ///
 /// The benchmark symbols configured; empty when no benchmark was configured.
 ///
 /// Every instrument in one call has to supply the **same list** (same entries, same order), otherwise "which
 /// one is the benchmark" has no single answer and whether the named symbol should also get a report becomes
 /// unanswerable — so this is an error instead of picking one. Problems inside the list itself (an empty
-/// string, a NULL element, a duplicate, a `benchmark_title` set alongside several benchmarks) are caught by
-/// [`QuantstatsHtmlOptions::benchmark_names`].
+/// string, a NULL element, a duplicate) are caught by [`QuantstatsHtmlOptions::benchmark_names`].
 fn benchmark_names<'b>(
     kind: SeriesKind,
     configured: &'b [(&str, Arc<QuantstatsHtmlOptions>)],
@@ -345,7 +420,8 @@ fn render(
 ///   打不开的东西，相对路径也得先补成绝对路径。
 ///
 /// 每个 (标的, 基准) 对各定一份：两者在 [`ReportTarget::new`] 里一次定下来，配置错误因此发生在渲染
-/// **之前**，不会白渲染几十份几百 KB 的报告。
+/// **之前**，不会白渲染几十份几百 KB 的报告。两个显示名由调用方传进来（它同时也交给报告），所以文件名
+/// 与报告图例用的是同一份名字。
 ///
 /// Where a report goes: the file to write it to (possibly none) and whether to open it in a browser.
 ///
@@ -359,7 +435,8 @@ fn render(
 ///
 /// There is one of these per (symbol, benchmark) pair: both are settled in [`ReportTarget::new`], so a bad
 /// configuration is reported **before** anything is rendered rather than after dozens of few-hundred-KB
-/// reports.
+/// reports. The two display names come from the caller (which also hands them to the report), so the file
+/// name and the report legend use one and the same name.
 pub(super) struct ReportTarget {
     /// 落盘路径，函数自己命名的；`None` 表示不落盘。
     ///
@@ -379,8 +456,8 @@ impl ReportTarget {
     /// (whether `output_dir` is an empty string, whether a non-local path could be opened at all).
     pub(super) fn new(
         options: &QuantstatsHtmlOptions,
-        symbol: &str,
-        benchmark: Option<&str>,
+        strategy_title: &str,
+        benchmark_title: Option<&str>,
     ) -> DuckResult<Self> {
         // 先看要不要打开（wasm 下恒为 false）：它同时决定「要不要校验落盘路径能不能打开」与
         // 「没有 `output_dir` 时要不要先落一个临时文件」。
@@ -393,12 +470,12 @@ impl ReportTarget {
         //
         // An empty `output_dir` is reported right here, by `output_dir_path`.
         let write_to = match options.output_dir_path()? {
-            Some(dir) => Some(report_path(dir, options, symbol, benchmark)?),
+            Some(dir) => Some(report_path(dir, strategy_title, benchmark_title)?),
             // 要在浏览器里打开却没有落盘目录：让 browser 那边先把临时文件建好，报告写进去就是。
             //
             // The browser was asked for but no directory was configured: let the browser side create the
             // temporary file first, then write the report into it.
-            None if open_in_browser => browser::temporary_file(options, symbol, benchmark)?,
+            None if open_in_browser => Some(browser::temporary_file(strategy_title, benchmark_title)?),
             None => None,
         };
 
@@ -445,22 +522,23 @@ const MAX_NAME_ATTEMPTS: usize = 8;
 
 /// 在 `output_dir` 下挑一个没被占用的文件名，返回完整路径。
 ///
-/// 名字由 naming.rs 按「时间 + 策略名 + 基准名 + 随机尾缀」生成，这里只解决「万一撞上已存在的文件」：
-/// 换一个尾缀重试；重试到上限仍然撞上就报错（先查 `duck_vfs::exists`，所以不会拿别人的文件去覆盖）。
+/// 名字由 naming.rs 按「时间 + 策略名 + 基准名 + 随机尾缀」生成（名字里的两段就是报告图例里那两段），
+/// 这里只解决「万一撞上已存在的文件」：换一个尾缀重试；重试到上限仍然撞上就报错（先查
+/// `duck_vfs::exists`，所以不会拿别人的文件去覆盖）。
 ///
 /// Pick a free file name under `output_dir` and return the full path.
 ///
-/// naming.rs builds the name from "time + strategy + benchmark + random suffix"; all this does is handle
-/// "what if that file already exists": it retries with another suffix, and errors out if it keeps colliding
-/// (`duck_vfs::exists` is checked first, so somebody else's file is never overwritten).
+/// naming.rs builds the name from "time + strategy + benchmark + random suffix" (the two display names in it
+/// are the ones the report legend shows); all this does is handle "what if that file already exists": it
+/// retries with another suffix, and errors out if it keeps colliding (`duck_vfs::exists` is checked first, so
+/// somebody else's file is never overwritten).
 fn report_path(
     dir: &str,
-    options: &QuantstatsHtmlOptions,
-    symbol: &str,
-    benchmark: Option<&str>,
+    strategy_title: &str,
+    benchmark_title: Option<&str>,
 ) -> DuckResult<String> {
     for _ in 0..MAX_NAME_ATTEMPTS {
-        let path = join(dir, &naming::file_name(options, symbol, benchmark));
+        let path = join(dir, &naming::file_name(strategy_title, benchmark_title));
         if !duck_vfs::exists(&path) {
             return Ok(path);
         }

@@ -32,8 +32,6 @@
 
 use chrono::Local;
 
-use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
-
 /// 报告文件的后缀。系统据此把它交给浏览器渲染，而不是当成下载。
 ///
 /// The report file's extension: what makes the system render it in a browser instead of downloading it.
@@ -51,23 +49,25 @@ const MAX_PART_CHARS: usize = 32;
 
 /// 报告文件名的主干：`<时间>-<策略名>-<基准名>`，没写的那几段跳过。
 ///
-/// 两段显示名取的是**报告里真正显示的那两个名字**（`strategy_title` 缺省退回 symbol、`benchmark_title`
-/// 缺省退回基准 symbol），所以目录里的文件名与报告里的图例永远对得上。都没有时主干只剩时间戳，功能不受
-/// 影响。返回的名字里**不含**随机尾缀与后缀，由调用方决定要不要加（浏览器那份交给 `tempfile`）。
+/// 两段显示名由调用方（report.rs）**解析好再传进来**，用的正是报告里显示的那两个名字
+/// （`strategy_title` 缺省退回 symbol、`benchmark_title` 按下标退回基准 symbol），所以目录里的文件名与
+/// 报告里的图例永远对得上 —— 一处解析、两处使用。都没有时主干只剩时间戳，功能不受影响。返回的名字里
+/// **不含**随机尾缀与后缀，由调用方决定要不要加（浏览器那份交给 `tempfile`）。
 ///
 /// The stem of a report file name: `<time>-<strategy>-<benchmark>`, skipping whichever parts are unset.
 ///
-/// The two display names are **the ones the report itself shows** (`strategy_title` falling back to the
-/// symbol, `benchmark_title` to the benchmark symbol), so the file name on disk and the legend inside the
-/// report always agree. When neither is set the stem is just the timestamp and nothing else changes. The name
-/// returned here carries **no** random suffix and no extension; the caller decides (the browser's copy hands
-/// that over to `tempfile`).
-pub(super) fn stem(options: &QuantstatsHtmlOptions, symbol: &str, benchmark: Option<&str>) -> String {
+/// The two display names are **resolved by the caller** (report.rs) and passed in, using exactly the names the
+/// report itself shows (`strategy_title` falling back to the symbol, `benchmark_title` falling back to its
+/// benchmark symbol), so the file name on disk and the legend inside the report always agree — resolved once,
+/// used twice. When neither is set the stem is just the timestamp and nothing else changes. The name returned
+/// here carries **no** random suffix and no extension; the caller decides (the browser's copy hands that over
+/// to `tempfile`).
+pub(super) fn stem(strategy_title: &str, benchmark_title: Option<&str>) -> String {
     let mut parts = vec![Local::now().format("%Y%m%d-%H%M%S").to_string()];
 
-    push_part(&mut parts, &options.strategy_title_or(symbol));
-    if let Some(benchmark) = benchmark {
-        push_part(&mut parts, &options.benchmark_title_or(benchmark));
+    push_part(&mut parts, strategy_title);
+    if let Some(benchmark_title) = benchmark_title {
+        push_part(&mut parts, benchmark_title);
     }
 
     parts.join("-")
@@ -85,14 +85,10 @@ pub(super) fn stem(options: &QuantstatsHtmlOptions, symbol: &str, benchmark: Opt
 /// within one second (the same (instrument, benchmark) pair twice in one call cannot happen). Callers also
 /// check whether the name already exists in the target directory, so "nothing existing is overwritten" is a
 /// guarantee rather than a probability (see report.rs).
-pub(super) fn file_name(
-    options: &QuantstatsHtmlOptions,
-    symbol: &str,
-    benchmark: Option<&str>,
-) -> String {
+pub(super) fn file_name(strategy_title: &str, benchmark_title: Option<&str>) -> String {
     format!(
         "{}-{:08x}{REPORT_EXTENSION}",
-        stem(options, symbol, benchmark),
+        stem(strategy_title, benchmark_title),
         fastrand::u32(..)
     )
 }

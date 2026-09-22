@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/html_reports_errors.test
-# description: 报告函数的错误路径：基准列表的四种写法错误（symbol 不存在、空串、NULL 元素、重复）、基准列表跨 symbol 不一致（含顺序不一致）、多基准时写 benchmark_title、output_dir 空串 / 含 NUL / 配浏览器但非本地路径、配置字面量没 cast，以及旧 API（qs_html_report / 带基准的第 4 个参数 / output 给完整路径）已经整体不存在
+# description: 报告函数的错误路径：基准列表的四种写法错误（symbol 不存在、空串、NULL 元素、重复）、基准列表跨 symbol 不一致（含顺序不一致）、output_dir 空串 / 含 NUL / 配浏览器但非本地路径、配置字面量没 cast，以及旧 API（qs_html_report / 带基准的第 4 个参数 / output 给完整路径）已经整体不存在
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -114,25 +114,22 @@ FROM daily_returns;
 every symbol must use the same benchmark list
 
 # ============================================================================
-# 多基准时 benchmark_title 没有单一答案
+# 基准显示名（`benchmark_title`）不参与校验：它按展示处理，缺项退回 symbol、多余项忽略
+#
+# 具体行为（每个基准各自拿到哪个名字、文件名那一段跟着怎么变）在 html_reports_values.test 里断言，
+# 这里只钉住「它不会让查询失败」这件事。
 # ============================================================================
 
-statement error
-SELECT qs_html_reports(symbol, trade_date, daily_return,
-           {'benchmark': ['SPX', 'NDX'], 'benchmark_title': 'Bench'}::qs_html_report_options)
-FROM daily_returns;
-----
-benchmark_title cannot be set with 2 benchmarks
-
-# 一个基准时可以写（这条通过）
+# 表里是 AAA/BBB/SPX/NDX：两个标的 × 两个基准 = 4 份报告，多出来的那个显示名被忽略
 query I
 SELECT count(*) FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'benchmark': ['SPX'], 'benchmark_title': 'Bench'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX', 'NDX'],
+                    'benchmark_title': ['Index A', 'Index B', 'Index C']}::qs_html_report_options)) AS r
     FROM daily_returns
 );
 ----
-3
+4
 
 # ============================================================================
 # 配置取值的错误路径

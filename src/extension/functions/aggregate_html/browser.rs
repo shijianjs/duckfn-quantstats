@@ -112,58 +112,61 @@ pub(super) fn local_path(path: &str) -> DuckResult<PathBuf> {
 
 /// 没有 `output_dir` 而又要在浏览器里打开时，替它**新建**一个临时文件并返回它的路径。
 ///
-/// 名字形如 `<时间>-<策略名>-<基准名>-<随机尾缀>.html`（前缀见 [`naming::stem`]），由 `tempfile` 在系统
-/// 临时目录里新建：它保证这个名字当时是空的（撞上就换一个随机尾缀重试），所以既不会覆盖已有文件，同一秒
-/// 里连着出几份报告也不会互相踩。
+/// 名字形如 `<时间>-<策略名>-<基准名>-<随机尾缀>.html`（前缀见 [`naming::stem`]，两段显示名由调用方解析
+/// 后传进来），由 `tempfile` 在系统临时目录里新建：它保证这个名字当时是空的（撞上就换一个随机尾缀重试），
+/// 所以既不会覆盖已有文件，同一秒里连着出几份报告也不会互相踩。
 ///
 /// 返回的是**已经存在的空文件**的路径：报告随后照常由 `write_report` 经 DuckDB 的 VFS 写进去 —— 临时
 /// 文件的「名字」和「内容」各归各的库，而写路径仍然只有一条。落盘要 `&str`，临时路径则是我们自己拼出来的
 /// （系统临时目录 + 前缀 + 随机尾缀），必定是合法 UTF-8，那次转换只是形状上的。
 ///
+/// 「要不要打开」由调用方判断（[`is_requested`]），所以这里只负责建文件。
+///
 /// When no `output_dir` was configured but the browser was asked for, **create** a temporary file for it and
 /// return its path.
 ///
-/// The name looks like `<time>-<strategy>-<benchmark>-<random>.html` (the prefix is [`naming::stem`]) and
-/// `tempfile` creates it in the system temp directory: it guarantees the name was free at that moment (a
-/// collision means another random suffix is tried), so nothing existing is overwritten and several reports
-/// generated within the same second do not step on each other.
+/// The name looks like `<time>-<strategy>-<benchmark>-<random>.html` (the prefix is [`naming::stem`], with the
+/// two display names resolved by the caller) and `tempfile` creates it in the system temp directory: it
+/// guarantees the name was free at that moment (a collision means another random suffix is tried), so nothing
+/// existing is overwritten and several reports generated within the same second do not step on each other.
 ///
 /// What comes back is the path of an **existing empty file**: the report then goes into it through DuckDB's
 /// VFS via `write_report` as usual — the temporary file's name and its content each come from the library
 /// that suits them, while there is still only one write path. Writing wants a `&str`, and the temporary path
 /// is one we assembled ourselves (system temp directory + prefix + random suffix), so it is valid UTF-8 by
 /// construction and that conversion is only about the type.
+///
+/// Whether the browser was wanted at all is the caller's call ([`is_requested`]), so all this does is create
+/// the file.
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn temporary_file(
-    options: &QuantstatsHtmlOptions,
-    symbol: &str,
-    benchmark: Option<&str>,
-) -> DuckResult<Option<String>> {
-    if !is_requested(options) {
-        return Ok(None);
-    }
-
-    let prefix = format!("{}-", naming::stem(options, symbol, benchmark));
+    strategy_title: &str,
+    benchmark_title: Option<&str>,
+) -> DuckResult<String> {
+    let prefix = format!("{}-", naming::stem(strategy_title, benchmark_title));
     let path = create_temporary_file(&prefix).map_err(|err| {
         duck_error(format!(
             "qs_html_report_options.open_in_browser cannot create a temporary file: {err}"
         ))
     })?;
 
-    Ok(Some(path.to_string_lossy().into_owned()))
+    Ok(path.to_string_lossy().into_owned())
 }
 
-/// wasm 构建里的 [`temporary_file`]：没有浏览器可以启动，也就没有「为了打开而建一个临时文件」这回事。
+/// wasm 构建里的 [`temporary_file`]：那里没有浏览器可以启动，调用方也就不会走到这里（[`is_requested`]
+/// 恒为 false）。真被调用到说明上层判断出了问题，所以直接报错，而不是给出一个不存在的路径。
 ///
-/// [`temporary_file`] for a wasm build: there is no browser to launch, hence no "create a temporary file just
-/// to open it" either.
+/// [`temporary_file`] for a wasm build: there is no browser to launch there, so callers never get here
+/// ([`is_requested`] is always false). Reaching it would mean the caller's check went wrong, hence an error
+/// instead of a path that does not exist.
 #[cfg(target_arch = "wasm32")]
 pub(super) fn temporary_file(
-    _options: &QuantstatsHtmlOptions,
-    _symbol: &str,
-    _benchmark: Option<&str>,
-) -> DuckResult<Option<String>> {
-    Ok(None)
+    _strategy_title: &str,
+    _benchmark_title: Option<&str>,
+) -> DuckResult<String> {
+    Err(duck_error(
+        "qs_html_report_options.open_in_browser is not supported in a wasm build",
+    ))
 }
 
 /// 用系统默认浏览器打开 [`local_path`] 给出的路径。

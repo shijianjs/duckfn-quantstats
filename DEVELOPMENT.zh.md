@@ -105,7 +105,10 @@ SQL 里**不需要 `ORDER BY`**：聚合内部只做拼接，排序交给 `Retur
 
 被指为基准的 symbol **只作输入、不出报告**；每个基准的序列只转换一次（价格路径上先差分），所有标的共用。
 配置里的 `benchmark` 还要求整次调用一致（元素与顺序都算），否则「谁把谁当基准」没有单一答案 ——
-不一致直接报错；列表本身的问题（空串、NULL 元素、重复、与 `benchmark_title` 冲突）见配置类型那一节。
+不一致直接报错；列表本身的问题（空串、NULL 元素、重复）见配置类型那一节。
+
+基准的显示名（`benchmark_title`）也是一个列表，**按下标**与 `benchmark` 对齐：它只用于展示，所以很宽松 ——
+缺项（列表短了、NULL、空串）就在那一份报告里退回基准 symbol，多余项忽略，都不报错。
 
 ### 返回行类型不注册命名类型
 
@@ -132,11 +135,13 @@ DuckDB 渲染 `typeof` 时不加引号。`file_path` 是唯一的 `Option<String
 「非 Option 字段为 NULL」时会让**整个 struct** 变成 NULL。那样用户写的 `{'rf': 0.1}` 会整体退化成默认值，
 他设的 rf 被静默丢掉。
 
-`to_report_options(symbol, benchmark)` 的做法是「从 quantstats-rs 的 `HtmlReportOptions::default()` 出发、
-逐字段覆盖用户显式写了的那些」，默认值因此只有一份真相。两个参数只服务显示名的退路：`strategy_title`
-缺省退回 symbol、`benchmark_title` 缺省退回基准 symbol（`strategy_title_or` / `benchmark_title_or` 各一处
-规则）。这不是美化 —— 一次调用出几十份报告时，默认的 `'Strategy'` 对每份都一样，图例、浏览器临时文件名
-与返回行里的显示名都会失去区分度。
+`to_report_options(strategy_title, benchmark_title)` 的做法是「从 quantstats-rs 的
+`HtmlReportOptions::default()` 出发、逐字段覆盖用户显式写了的那些」，默认值因此只有一份真相。两个参数是
+**已经解析好的显示名**（`report.rs` 调 `strategy_title_or` / `benchmark_title_or` 得到）：同一份名字还要
+用于文件名，解析一次、两处使用，报告图例与磁盘上的文件名才不会各说各话。退路规则本身不复杂 ——
+`strategy_title` 缺省用 symbol、`benchmark_title` 按下标取、缺项用那一个基准的 symbol —— 但它不能省：
+一次调用出几十份报告时，默认的 `'Strategy'` 对每份都一样，图例、浏览器临时文件名与返回行里的显示名都会
+失去区分度。
 
 `output_dir` 刻意不交给它转发：quantstats-rs 落盘用的是 `std::fs`，而本扩展要的是 DuckDB 的 VFS（见下），
 所以目录由 `report.rs` 在拿到渲染结果后自己写。
@@ -144,9 +149,10 @@ DuckDB 渲染 `typeof` 时不加引号。`file_path` 是唯一的 `Option<String
 配置是**逐行求值的一列**，每个 symbol 只取用第一行那份（见「symbol 表」）；`benchmark` 还要求整次调用里
 所有标的给同一个列表（元素与顺序都算），`report.rs` 的 `benchmark_names()` 负责这条校验。
 
-`benchmark` 是唯一的列表字段（`Option<Vec<Option<String>>>`），于是列表本身的问题都在
-`QuantstatsHtmlOptions::benchmark_names()` 里一次拦掉，校验规则集中在它一处：元素不能是 NULL、不能是空串、
-不能在同一个列表里重复；列表长度大于 1 时还不能写 `benchmark_title`（那时它没有单一答案）。另外
+`benchmark` 与 `benchmark_title` 都是列表字段（`Option<Vec<Option<String>>>`），但**校验只做在 `benchmark`
+上**，一次拦在 `QuantstatsHtmlOptions::benchmark_names()` 里：元素不能是 NULL、不能是空串、不能在同一个列表
+里重复 —— 它决定「谁把谁当基准」与「谁出报告」，写坏了不能猜。`benchmark_title` 只用于展示，所以宽松：
+按下标取，缺项（短了、NULL、空串）退回那一个基准 symbol，多余的项忽略（见 `benchmark_title_or`）。另外
 `periods_per_year = 0`、`output_dir = ''` 也是在这里就报掉的配置错误 —— 都发生在渲染与文件系统调用之前。
 
 ## 报告落盘
@@ -193,7 +199,8 @@ duckfn 的 `duck_vfs` 层处理 —— 旧文件更长时先清零再写正文�
   [tempfile](https://crates.io/crates/tempfile) 新建 —— 主干（时间 + 两段显示名）复用 `naming.rs`，
   随机尾缀与「这个名字当时一定是空的」（新建失败就换个尾缀重试）则由它负责。前缀是给人看的：时间在最前，
   所以按名字排序临时目录正好排成时间顺序；两段显示名分别是 `strategy_title`（没写就退回 `title`）与
-  `benchmark_title`，文件名的合法性交给 [sanitize-filename](https://crates.io/crates/sanitize-filename)
+  `benchmark_title`（按下标取，缺项退回基准 symbol），文件名的合法性交给
+  [sanitize-filename](https://crates.io/crates/sanitize-filename)
   （见 naming.rs）。`.html` 后缀决定系统把它交给浏览器渲染而不是当成下载；
 - `output_dir` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种
   路径。这个检查发生在渲染**之前**。
@@ -286,8 +293,8 @@ make debug && make test    # make test 不会自动重新构建，改完 Rust �
 | --- | --- | --- |
 | `test/sql/quantstats/html_reports.test` | **收益率路径的行为**：注册面（两个名字各一个签名）、结果形状与排序（symbol 升序 + 标的内按基准列表顺序）、无基准时 `benchmark` 为 NULL、显示名退回 symbol、`NULL` 行跳过与被跳空的标的、空输入返回 `NULL`、多线程 `combine` 一致性（单线程 vs 4 线程 md5 相等）、`output_dir` 自动命名与路径回填、两次调用互不覆盖 | 无 |
 | `test/sql/quantstats/html_reports_by_prices.test` | **价格路径的行为**：与 `lag()` 差分的结果逐字节一致、多个基准时每一份都与对应基准的差分结果一致、基准侧同样先差分、前值为 0 时跳过、单点标的略过、基准 symbol 不存在 / 点数不足 | 无 |
-| `test/sql/quantstats/html_reports_errors.test` | **错误路径**：基准列表的四种写法错误（symbol 不存在 / 空串 / NULL 元素 / 重复）、基准列表跨 symbol 不一致（含顺序）、多基准时写 `benchmark_title`、`periods_per_year = 0`、`output_dir = ''`、NUL 路径、`open_in_browser` 配非本地路径、没 cast 的配置字面量、旧 API 已不存在 | 无 |
-| `test/sql/quantstats/html_reports_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列、**多基准时每份报告各自带自己的基准列**、每个 symbol 各自的标题与文件名 | 社区扩展 `webbed` |
+| `test/sql/quantstats/html_reports_errors.test` | **错误路径**：基准列表的四种写法错误（symbol 不存在 / 空串 / NULL 元素 / 重复）、基准列表跨 symbol 不一致（含顺序）、`benchmark_title` 多余项被忽略（不报错）、`periods_per_year = 0`、`output_dir = ''`、NUL 路径、`open_in_browser` 配非本地路径、没 cast 的配置字面量、旧 API 已不存在 | 无 |
+| `test/sql/quantstats/html_reports_values.test` | **输出内容**：用 [webbed](https://duckdb.org/community_extensions/extensions/webbed) 的 XPath 解析生成的 HTML，断言标题、统计区间、`rf` 回显、逐行指标数字、图表/表格数量、带基准时多出的那一列、**多基准时每份报告各自带自己的基准列**、**基准显示名按下标对齐（缺项 / NULL / 空串退回 symbol）**、每个 symbol 各自的标题与文件名 | 社区扩展 `webbed` |
 
 `webbed` 的安装写在测试文件里（`INSTALL webbed FROM community;`），**首次运行需要网络**，之后走本机
 DuckDB 扩展缓存。不想要这个依赖就删掉该文件，其余文件不受影响。

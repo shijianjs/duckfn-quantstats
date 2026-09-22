@@ -123,8 +123,11 @@ The symbols named as benchmarks are **input only and get no report**; each bench
 once (differenced first, on the price branch) and shared by every instrument. The `benchmark` option
 additionally has to be the same list across the whole call (entries and order) — otherwise "which one is the
 benchmark" would have no single answer, so a disagreement is an error. Problems inside the list itself (an
-empty string, a NULL element, a duplicate, a clash with `benchmark_title`) are caught in the options type, see
-below.
+empty string, a NULL element, a duplicate) are caught in the options type, see below.
+
+The benchmark's display name (`benchmark_title`) is a list too, **paired by index** with `benchmark`. It is
+presentation only, hence lenient: a missing entry (shorter list, NULL, empty string) falls back to that report's
+benchmark symbol and extra entries are ignored — neither is an error.
 
 ### The result row type registers no named type
 
@@ -153,13 +156,15 @@ Every field is an `Option<T>` on purpose: DuckDB fills the missing keys of a str
 duckfn turns the **whole struct** into NULL when a non-Option field reads NULL — so a user's `{'rf': 0.1}`
 would silently fall back to all defaults and their `rf` would be dropped.
 
-`to_report_options(symbol, benchmark)` converts by starting from quantstats-rs'
+`to_report_options(strategy_title, benchmark_title)` converts by starting from quantstats-rs'
 `HtmlReportOptions::default()` and overriding only the fields the user actually wrote, so the defaults have a
-single source of truth. The two arguments only serve the display-name fallbacks: `strategy_title` falls back
-to the symbol and `benchmark_title` to the benchmark symbol (one rule each, in `strategy_title_or` /
-`benchmark_title_or`). That is not cosmetics — with dozens of reports out of one call, the default
-`'Strategy'` is identical for every one of them, so the legend, the temporary file name and the returned
-display name would all lose their distinguishing power.
+single source of truth. The two arguments are **the already-resolved display names** (`report.rs` gets them from
+`strategy_title_or` / `benchmark_title_or`): the same names also go into the file name, so resolving once and
+using them twice is what keeps the report legend and the file on disk in agreement. The fallback rules
+themselves are simple — `strategy_title` defaults to the symbol, `benchmark_title` is taken by index and falls
+back to that benchmark's symbol — but they cannot be dropped: with dozens of reports out of one call, the
+default `'Strategy'` is identical for every one of them, so the legend, the temporary file name and the
+returned display name would all lose their distinguishing power.
 
 `output_dir` is deliberately not forwarded: quantstats-rs writes with `std::fs`, while this extension wants
 DuckDB's VFS (see below) — the directory is handled by `report.rs` after the report has been rendered.
@@ -168,11 +173,13 @@ The options are a **per-row column**, and each symbol uses the copy from its fir
 table"); `benchmark` additionally has to be the same list for every instrument, which `benchmark_names()` in
 `report.rs` enforces.
 
-`benchmark` is the one list field (`Option<Vec<Option<String>>>`), so everything wrong with the list itself is
-caught in one place, `QuantstatsHtmlOptions::benchmark_names()`: an element may not be NULL, may not be an
-empty string and may not repeat; and a list longer than one entry may not be combined with `benchmark_title`
-(it would have no single answer there). `periods_per_year = 0` and `output_dir = ''` are configuration errors
-reported right here as well — all of them before anything is rendered or any file-system call happens.
+`benchmark` and `benchmark_title` are both list fields (`Option<Vec<Option<String>>>`), but **only `benchmark` is
+validated**, in one place, `QuantstatsHtmlOptions::benchmark_names()`: an element may not be NULL, may not be an
+empty string and may not repeat — it decides who is the benchmark and who gets a report, so a mistake there
+cannot be guessed around. `benchmark_title` is presentation only, hence lenient: it is taken by index, a missing
+entry (shorter list, NULL, empty string) falls back to that benchmark's symbol and extra entries are ignored
+(see `benchmark_title_or`). `periods_per_year = 0` and `output_dir = ''` are configuration errors reported right
+here as well — all of them before anything is rendered or any file-system call happens.
 
 ## Persisting the reports
 
@@ -231,7 +238,8 @@ file that actually exists, which decides the rest:
   instead of downloading it) and guarantees the name was free at that moment, so nothing existing is
   overwritten and two reports from the same second cannot collide. The time comes first so that sorting the
   temp directory by name sorts it by time; `strategy_title` (falling back to `title`) and `benchmark_title`
-  are there for humans, and their legality is `sanitize-filename`'s business (see naming.rs);
+  (taken by index, falling back to the benchmark symbol) are there for humans, and their legality is
+  `sanitize-filename`'s business (see naming.rs);
 - an `output_dir` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op,
   since no browser can open it. That is checked **before** anything is rendered.
 
@@ -334,8 +342,8 @@ They come in two kinds, and the split is deliberate:
 | --- | --- | --- |
 | `test/sql/quantstats/html_reports.test` | **Return-path behaviour**: the registration surface (two names, one signature each), the result shape and its ordering (symbols ascending, benchmarks in list order inside one symbol), `benchmark` NULL with none configured, display names falling back to the symbol, `NULL` rows skipped and instruments dropped with them, empty input → `NULL`, multi-threaded `combine` consistency (single vs 4 threads, md5-equal), `output_dir` auto-naming and path filling, two calls never overwriting each other | none |
 | `test/sql/quantstats/html_reports_by_prices.test` | **Price-path behaviour**: byte-identical to `lag()`-derived returns, each of several benchmarks byte-identical to its own differenced reference, the benchmark side differenced too, points with a zero predecessor skipped, single-point instruments dropped, benchmark symbol missing / too few points | none |
-| `test/sql/quantstats/html_reports_errors.test` | **Error paths**: the four ways a benchmark list can be wrong (symbol missing / empty string / NULL element / duplicate), the list disagreeing across symbols (order included), `benchmark_title` alongside several benchmarks, `periods_per_year = 0`, `output_dir = ''`, a NUL path, `open_in_browser` with a non-local path, an uncast options literal, the old API being gone | none |
-| `test/sql/quantstats/html_reports_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts, the extra benchmark column, **each report carrying its own benchmark column when there are several**, and each symbol's own title and file name | the `webbed` community extension |
+| `test/sql/quantstats/html_reports_errors.test` | **Error paths**: the four ways a benchmark list can be wrong (symbol missing / empty string / NULL element / duplicate), the list disagreeing across symbols (order included), extra `benchmark_title` entries being ignored (no error), `periods_per_year = 0`, `output_dir = ''`, a NUL path, `open_in_browser` with a non-local path, an uncast options literal, the old API being gone | none |
+| `test/sql/quantstats/html_reports_values.test` | **Output content**: parses the generated HTML with [webbed](https://duckdb.org/community_extensions/extensions/webbed)'s XPath and asserts the title, the date range, the `rf` echo, per-row metric numbers, the chart/table counts, the extra benchmark column, **each report carrying its own benchmark column when there are several**, **benchmark display names paired by index (missing / NULL / empty falling back to the symbol)**, and each symbol's own title and file name | the `webbed` community extension |
 
 `webbed` is installed from inside the test file (`INSTALL webbed FROM community;`), which needs **network on the
 first run** and then goes through the local DuckDB extension cache. Delete that file if you do not want the

@@ -56,7 +56,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX'],
-                'benchmark_title': 'S&P 500',
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
@@ -73,6 +73,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX', 'GOOGL'],
+                'benchmark_title': ['S&P 500', 'Alphabet'],   -- paired with `benchmark` by index
                 'title': symbol,
                 'strategy_title': symbol,
                 'output_dir': 'reports'}::qs_html_report_options)) AS r
@@ -184,7 +185,7 @@ Every field of `qs_html_report_options` is **nullable**; keys you omit take thei
 | --- | --- | --- | --- |
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | Report title |
 | `strategy_title` | `VARCHAR` | the symbol | Strategy display name; falls back to the `symbol` |
-| `benchmark_title` | `VARCHAR` | the benchmark symbol | Benchmark display name (presentation only); falls back to the benchmark symbol **that report uses**. It cannot be set with more than one benchmark (it would have no single answer there) |
+| `benchmark_title` | `VARCHAR[]` | the benchmark symbol | Benchmark display name (presentation only): a **list**, paired with `benchmark` by index. An entry that was not given (shorter list, NULL, empty string, or the whole key absent) falls back to the benchmark symbol **that report uses**; extra entries are ignored |
 | `benchmark` | `VARCHAR[]` | `NULL` | Which **symbols** are benchmarks (a **list**, whose order is the order of the reports); they are input only and get no report. Even a single benchmark is written `['SPX']` |
 | `rf` | `DOUBLE` | `0.0` | Risk-free rate, **annualized** (`0.04` = 4%), matching quantstats' `rf` convention |
 | `periods_per_year` | `UINTEGER` | `252` | Periods per year; must be greater than 0 |
@@ -218,9 +219,9 @@ One symbol's options have to agree row by row; `benchmark` additionally has to b
 instrument in the call** (same entries, same order — a disagreement is an error), otherwise "which one is the
 benchmark" would have no single answer.
 
-Customising anything along the benchmark dimension needs no extra work: `benchmark_title` falls back to each
-report's own benchmark symbol, and the file names are generated from "time + strategy + benchmark + random"
-(see below), so both already carry that part.
+Customising anything along the benchmark dimension needs no extra work: `benchmark_title` is a list paired with
+`benchmark` by index (a missing entry falls back to that report's own benchmark symbol), and the file names are
+generated from "time + strategy + benchmark + random" (see below), so both already carry that part.
 
 `rf` is **annualized** (`0.04` = 4%) and converted to a per-period rate inside the report; the crate has two
 conversions that differ slightly — Sharpe (and rolling Sharpe / Sortino) uses
@@ -240,7 +241,7 @@ SELECT unnest(qs_html_reports(
            {'benchmark': ['SPX'],
             'title': symbol,
             'strategy_title': symbol,
-            'benchmark_title': 'S&P 500'}::qs_html_report_options)) AS report
+            'benchmark_title': ['S&P 500']}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- One instrument against two benchmarks: two reports for it, each against its own benchmark
@@ -285,8 +286,9 @@ FROM daily_returns;
 - **`benchmark` names symbols (a list), not a value series.** Every entry has to be one of the values in the
   `symbol` column and the list has to be identical across the whole call; the symbols it names act as the
   benchmarks only and never show up in the returned list. Even a single benchmark is written `['SPX']`.
-- **Do not set `benchmark_title` with more than one benchmark**: it would have no single answer (whose name
-  is it?), and the display names fall back to each report's own benchmark symbol instead.
+- **`benchmark_title` is a list too, paired with `benchmark` by index**: `['S&P 500', 'Nasdaq 100']` belong to the
+  first and second benchmark respectively. It is presentation only, hence lenient — a missing entry (shorter
+  list, NULL, empty string) falls back to that report's own benchmark symbol, and extra entries are ignored.
 - **The result is ordered ascending by `symbol`, and within one symbol by the benchmark list order**,
   regardless of input order or thread count.
 
@@ -299,7 +301,7 @@ FROM daily_returns;
 | A `benchmark` symbol has no row in the table | Error `no row for the benchmark symbol '…'` |
 | The `benchmark` list disagrees between instruments (entries or order) | Error `every symbol must use the same benchmark list` |
 | The `benchmark` list holds an empty string / a NULL element / a duplicate | Error `must not contain an empty string` / `… a NULL element` / `lists '…' twice` |
-| `benchmark_title` set alongside several benchmarks | Error `benchmark_title cannot be set with 2 benchmarks` |
+| `benchmark_title` entry missing / empty / NULL / extra | **Not an error**: a missing entry falls back to that benchmark's symbol, extra entries are ignored |
 | Price branch: the benchmark yields no return (fewer than two valid points) | Error `produced no returns` |
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output_dir = ''` | Error `output_dir must not be an empty string` |
@@ -349,8 +351,8 @@ file that actually exists, which decides the rest:
 - with `output_dir` set, those files are written there and then opened;
 - without it, each report is written to a temporary file first —
   `<temp dir>/<time>-<strategy>-<benchmark>-<random>.html`, the same naming rule `output_dir` uses. The name
-  is for humans: the time, then `strategy_title` (falling back to `title`) and `benchmark_title` (falling back
-  to the benchmark symbol), with characters a file name cannot hold replaced by `_`. Nothing existing is ever
+  is for humans: the time, then `strategy_title` (falling back to `title`) and `benchmark_title` (taken by index,
+  falling back to the benchmark symbol), with characters a file name cannot hold replaced by `_`. Nothing existing is ever
   overwritten, and two reports from the same second cannot collide;
 - an `output_dir` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent no-op,
   since no browser can open it. That is checked **before** anything is rendered.

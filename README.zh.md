@@ -49,7 +49,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX'],
-                'benchmark_title': 'S&P 500',
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol,
                 'rf': 0.04,
@@ -65,6 +65,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX', 'GOOGL'],
+                'benchmark_title': ['S&P 500', 'Alphabet'],   -- 按下标对齐 benchmark
                 'title': symbol,
                 'strategy_title': symbol,
                 'output_dir': 'reports'}::qs_html_report_options)) AS r
@@ -167,7 +168,7 @@ FROM nav_table;
 | --- | --- | --- | --- |
 | `title` | `VARCHAR` | `'Strategy Tearsheet'` | 报告标题 |
 | `strategy_title` | `VARCHAR` | 该 symbol | 策略显示名；没写就退回 `symbol` 本身 |
-| `benchmark_title` | `VARCHAR` | 基准 symbol | 基准显示名（纯展示）；没写就退回**那一份报告所用的**基准 symbol。多基准时不能写（那时它没有单一答案） |
+| `benchmark_title` | `VARCHAR[]` | 基准 symbol | 基准显示名（纯展示）：**列表**，按下标与 `benchmark` 一一对应。这一项没给（列表短了、是 NULL 或空串、整个键没写）就退回**那一份报告所用的**基准 symbol；多余的表项忽略 |
 | `benchmark` | `VARCHAR[]` | `NULL` | 哪些 **symbol** 当基准（**列表**，顺序即报告顺序）；它们只作输入、不出报告。一个基准也要写成 `['SPX']` |
 | `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
@@ -196,8 +197,9 @@ FROM prices;
 同一个 symbol 的配置要逐行一致；`benchmark` 这一项还要求**整次调用里所有标的给出同一个列表**（元素与
 顺序都一致，不一致直接报错），否则「谁把谁当基准」就没有单一答案。
 
-想按基准维度定制文案或路径时不必纠结：`benchmark_title` 缺省就会退回各自的基准 symbol，落盘路径则由
-函数按「时间 + 策略名 + 基准名 + 随机尾缀」自动生成（见下），两处都自带基准那一段。
+想按基准维度定制文案或路径时不必纠结：`benchmark_title` 也是列表、按下标与 `benchmark` 对齐，缺哪一项就
+在那一份报告里退回对应的基准 symbol；落盘路径则由函数按「时间 + 策略名 + 基准名 + 随机尾缀」自动生成
+（见下），两处都自带基准那一段。
 
 `rf` 按**年化**口径传（`0.04` = 4%），报告内部再换算成周期利率；crate 里有两处换算略有差别 ——
 Sharpe（含滚动 Sharpe / Sortino）用 `(1 + rf)^(1/periods_per_year) - 1`，而指标表里的 PSR / Sortino 用
@@ -216,7 +218,7 @@ SELECT unnest(qs_html_reports(
            {'benchmark': ['SPX'],
             'title': symbol,
             'strategy_title': symbol,
-            'benchmark_title': 'S&P 500'}::qs_html_report_options)) AS report
+            'benchmark_title': ['S&P 500']}::qs_html_report_options)) AS report
 FROM daily_returns;
 
 -- 一个标的对两个基准：该标的两份报告，每份只跟它自己那个基准比
@@ -258,8 +260,9 @@ FROM daily_returns;
   所以推荐直接用 struct 字面量。
 - **`benchmark` 写的是 symbol 名（列表），不是值。** 每一项都必须是表里 `symbol` 列的某个取值，整次调用
   一致；列到的 symbol 只当基准，不出现在返回的数组里。一个基准也要写成 `['SPX']`。
-- **多基准时不要写 `benchmark_title`**：那时它没有单一答案（是哪个基准的名字？），显示名会各自退回对应
-  的基准 symbol。
+- **`benchmark_title` 也是列表，按下标与 `benchmark` 对齐**：`['S&P 500', 'Nasdaq 100']` 分别对应第一个与
+  第二个基准。它只是展示，所以很宽松 —— 缺项（列表短了、NULL、空串）就退回那一份报告所用的基准 symbol，
+  多出来的表项直接忽略。
 - **结果的顺序按 `symbol` 升序、同一标的内按基准列表顺序**，不随输入顺序或线程数变化。
 
 ## 错误路径
@@ -271,7 +274,7 @@ FROM daily_returns;
 | `benchmark` 指的 symbol 在表里没有行 | 报错 `no row for the benchmark symbol '…'` |
 | `benchmark` 列表在各标的之间不一致（元素或顺序不同） | 报错 `every symbol must use the same benchmark list` |
 | `benchmark` 列表里有空串 / NULL 元素 / 重复项 | 报错 `must not contain an empty string` / `… a NULL element` / `lists '…' twice` |
-| 多基准时写了 `benchmark_title` | 报错 `benchmark_title cannot be set with 2 benchmarks` |
+| `benchmark_title` 缺项 / 空串 / NULL / 多出来 | **不算错误**：缺项退回对应的基准 symbol，多余项忽略 |
 | 价格路径：基准差分不出收益率（有效点不足两个） | 报错 `produced no returns` |
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output_dir = ''` | 报错 `output_dir must not be an empty string` |
@@ -317,8 +320,8 @@ SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
 - 没写：先把每份报告落到系统临时目录里的
   `<临时目录>/<时间>-<策略名>-<基准名>-<随机尾缀>.html` 文件（与 `output_dir` 用的是同一套命名规则），
   再打开它。前缀是给人看的 —— 时间、`strategy_title`（没写就退回 `title`）与 `benchmark_title`
-  （没写就退回基准 symbol），文件名里放不下的字符换成 `_`；既不会覆盖已有文件，同一秒里连着出几份报告
-  也不会撞名；
+  （按下标取，缺项退回基准 symbol），文件名里放不下的字符换成 `_`；既不会覆盖已有文件，同一秒里连着出
+  几份报告也不会撞名；
 - `output_dir` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种
   路径。这个检查发生在渲染**之前**。
 
