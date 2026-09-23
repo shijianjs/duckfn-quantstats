@@ -29,6 +29,10 @@
   （`linux_amd64_musl` / `linux_arm64_musl`）在矩阵里都是 `opt_in`，不主动点名就不会构建，所以也不必写进
   排除列表 —— 本仓 CI 里那行 `exclude_archs: 'linux_amd64_musl'` 因此已删掉，它与 `opt_in` 是重复的。
 - `version`：写**要发布的那一版**，不要 `-dev.N`（本仓开发版本是 `0.1.0-dev.0`，发版流程把它抬成 `0.1.0`）。
+  因为它和 `ref: main` 是两条线：`ref` 跟着 main 走，而发完版 main 上很快又变成 `X.Y.Z-dev.N`，所以**社区仓构建
+  出来的二进制自称的版本会比这里的 `version` 新一档**。社区仓不校验这个（`scripts/build.py` 只读
+  `repo` / `name` / `excluded_platforms` / `opt_in_platforms` / `requires_toolchains` 等字段），所以不会构建
+  失败，只是文档页上的版本号会停在上一版 —— 每次发版时把这一行提到刚发布的号即可。
 - `license: MIT`：对应仓库根目录的 `LICENSE`。注意 duckdb.org 的社区扩展文档页把字段名写成 `licence`，
   那是**文档的错**，真实 schema 是 `license`（以已收录扩展的 `description.yml` 为准）。
 - `docs.hello_world`：社区文档页会把它渲染进代码块，所以必须是**可直接复制跑**的真实例子 —— 现在这两段
