@@ -49,6 +49,19 @@ release:
 lint:
     cargo clippy --all-targets -- -D warnings
 
+# 生成社区扩展文档页用的 function_descriptions.csv（只做转发，逻辑在 duckfn 的 cargo CLI 里）
+# 描述写在 #[duck_*] 属性的 description / comment / example 上，输出固定为 target/function_descriptions.csv；
+# 要连没写描述的函数一起导出（文件名带 _all 后缀）：cargo run --bin duckfn -- function_descriptions --all
+# 需要 src/bin/duckfn.rs 与 Cargo.toml 里的 duckfn feature "cli"。
+#
+# Export the function_descriptions.csv the community-extension doc page uses (a thin forwarder; the
+# logic lives in duckfn's cargo CLI). The text comes from the description / comment / example arguments
+# of the #[duck_*] attributes and always lands in target/function_descriptions.csv. Add --all (file name
+# gets an _all suffix) to include functions without any documentation. Needs src/bin/duckfn.rs and
+# duckfn's "cli" feature in Cargo.toml.
+docs_csv:
+    cargo run --bin duckfn -- function_descriptions
+
 # 初始化 extension-ci-tools（生成 configure/ 与 python venv）；跑 make 流程前先来一次
 ci-init:
     make configure

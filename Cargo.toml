@@ -24,7 +24,7 @@ path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-# 0.0.8 起提供本扩展用到的全部设施：
+# 0.0.8 起提供本扩展用到的全部设施，0.0.9 起多一个导出函数描述 CSV 的 CLI：
 #   - `DuckLazySlot<T>`：把 DuckLazy 参数「解析一次」这条路径固化成类型；
 #   - `duckdb-1-5` feature 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的
 #     `write_string` 就是「覆盖写」（内部处理了「C API 没有 truncate」，旧文件更长也照样写对），
@@ -32,9 +32,14 @@ crate-type = ["staticlib"]
 #   - `chrono` feature：时间包装类型与 chrono 的双向转换（`DuckDate::to_naive_date`、`from_naive_date`
 #     等），越界（含 `DATE 'infinity'`）返回错误而不是 panic，单位换算由方法负责；
 #   - 属性宏生成的 `SQL_NAME` 常量：注册进 DuckDB 时真正的函数名（单签名时就是 Rust 函数名）。
-#     错误信息前缀因此不必手写第二份字面量，而是从 `kind.rs` 指过去。
+#     错误信息前缀因此不必手写第二份字面量，而是从 `kind.rs` 指过去；
+#   - 属性宏上的 `description` / `comment` / `example`（`examples`）参数 + `cli` feature 里的
+#     `cargo run --bin duckfn -- function_descriptions`：DuckDB 的 C 扩展 API 没有设置函数描述与示例的
+#     接口，社区扩展文档页只能由导出的 `target/function_descriptions.csv` 覆盖，这里就是它的唯一来源
+#     （见 src/bin/duckfn.rs 与 Justfile 的 `just docs_csv`）。`cli` 给 duckfn 带上 clap 与 csv。
 #
-# Since 0.0.8 duckfn provides everything this project uses:
+# Since 0.0.8 duckfn provides everything this project uses; 0.0.9 adds the CLI that exports the
+# function-description CSV:
 #   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
 #   - `duckfn::duck_vfs` under the `duckdb-1-5` feature: host file system access plus one-line reads
 #     and writes. Its `write_string` *is* "replace" (a longer existing file is dealt with internally,
@@ -45,8 +50,13 @@ crate-type = ["staticlib"]
 #     `DATE 'infinity'`) are errors rather than panics and the unit conversion is the method's job;
 #   - the `SQL_NAME` constant each attribute macro generates: the name the function is really
 #     registered under (the Rust function name, since each name carries one signature). Error prefixes
-#     therefore read that constant — `kind.rs` points at it — instead of repeating the literal.
-duckfn = { version = "0.0.8", features = ["duckdb-1-5", "chrono"] }
+#     therefore read that constant — `kind.rs` points at it — instead of repeating the literal;
+#   - the `description` / `comment` / `example` (`examples`) arguments of the attribute macros plus
+#     `cargo run --bin duckfn -- function_descriptions` behind the `cli` feature: DuckDB's C extension
+#     API cannot set a function's description or examples, so the community-extension doc page can only
+#     be filled in from an exported `target/function_descriptions.csv` — this is its one source (see
+#     src/bin/duckfn.rs and the `just docs_csv` recipe). `cli` pulls clap and csv into duckfn.
+duckfn = { version = "0.0.9", features = ["duckdb-1-5", "chrono", "cli"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。

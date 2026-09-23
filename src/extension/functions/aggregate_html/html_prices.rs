@@ -89,7 +89,21 @@ pub(crate) struct HtmlPriceReportsState {
 // `pub(super)` is not about making this public API: the attribute macro wraps the function in a
 // same-named module that inherits the function's visibility, and kind.rs reads the generated `SQL_NAME`
 // from there (see kind.rs). The registered name is the Rust function name, so no `overloads_name`.
-#[duck_aggregate_function]
+//
+// `description` / `comment` / `examples` 的说明见 html_returns.rs：它们只被宏收进 inventory，供
+// `just docs_csv` 导出社区扩展文档页用的 CSV，不参与注册；文案一律英文。
+//
+// See html_returns.rs for what `description` / `comment` / `examples` are for: the macro collects them
+// into an inventory entry for the CSV behind the community-extension doc page (`just docs_csv`); they
+// take no part in registration and the text is English.
+#[duck_aggregate_function(
+    description = "Renders one quantstats HTML report per symbol from a long table of prices or NAVs, differencing them into returns first",
+    comment = "The value column is a level, not a change: every symbol, the benchmark included, is converted with price_t / price_{t-1} - 1 before rendering",
+    examples = [
+        "SELECT unnest(qs_html_reports_by_prices(symbol, date, price, NULL)) FROM prices",
+        "SELECT unnest(qs_html_reports_by_prices(symbol, date, price, {'benchmark': ['SPX'], 'title': symbol, 'output_dir': 'reports/'}::qs_html_report_options)) FROM prices"
+    ]
+)]
 pub(super) fn qs_html_reports_by_prices(
     symbol: String,
     date: DuckDate,

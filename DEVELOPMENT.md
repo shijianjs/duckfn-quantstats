@@ -20,6 +20,8 @@ duckfn's skeleton conventions (entry module, `EXTENSION_NAME`, dependency list).
 src/lib.rs            native crate root  ->  mod extension;
 src/wasm_lib.rs       wasm crate root    ->  mod extension;    (the same set of mods, mirrored)
 src/extension/mod.rs  ->  duckfn_entrypoint!("duckfn_quantstats");
+src/bin/duckfn.rs     duckfn CLI entry   ->  #[path] mod extension; + duckfn::cli::run(...)
+                      (only serves `just docs_csv`, not part of the extension runtime)
 
 src/extension/functions/mod.rs  ->  mod aggregate_html;
 src/extension/functions/aggregate_html/
@@ -281,11 +283,13 @@ compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
 ## Dependencies
 
 - [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions with
-  DuckDB. Two of its features are enabled: `duckdb-1-5`, which provides the host file system
-  (`duckfn::duck_vfs`) used by `output_dir`, and `chrono`, which converts the time wrapper types
-  (`DuckDate::to_naive_date` and friends). The macros also generate a `SQL_NAME` constant per signature —
+  DuckDB. Three of its features are enabled: `duckdb-1-5`, which provides the host file system
+  (`duckfn::duck_vfs`) used by `output_dir`; `chrono`, which converts the time wrapper types
+  (`DuckDate::to_naive_date` and friends); and `cli`, the command-line tool behind `src/bin/duckfn.rs`
+  (it pulls clap and csv into duckfn). The macros also generate a `SQL_NAME` constant per signature —
   the name the function is really registered under — so error prefixes read that instead of a hand-written
-  copy of the function-name literal.
+  copy of the function-name literal, while `description` / `comment` / `example` on the attribute are the
+  one source of the function-description CSV (see below).
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension` enabled —
@@ -331,7 +335,52 @@ make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.
 `make release` is the same flow with optimizations. On Windows, `make` must run in Git Bash.
 
 The `Justfile` in the repository root wraps both: `just build`, `just sql "SELECT …"`, `just repl`,
-`just test`, `just lint`, `just build_wasm`.
+`just test`, `just lint`, `just build_wasm`, `just docs_csv`.
+
+## Function descriptions (the community-extension doc page)
+
+DuckDB's C extension API has **no** way to set a function's description or examples:
+`duckdb_scalar_function_set_name`, `_set_return_type`, `_set_varargs`, `_set_volatile` … and that is it.
+There is no `_set_description` and no `_add_example`. So the `Added Functions` table on a community
+extension's page (<https://duckdb.org/community_extensions/list_of_extensions>) would be a bare list of
+names without help from somewhere else.
+
+That text sits next to the function it describes, on the `#[duck_*]` attribute (here: the two places in
+`functions/aggregate_html/html_returns.rs` and `html_prices.rs`):
+
+```rust
+#[duck_aggregate_function(
+    description = "Renders one quantstats HTML report per symbol from a long table of periodic returns",
+    comment = "Groups by symbol internally, so the SQL needs no GROUP BY …",
+    examples = ["SELECT unnest(qs_html_reports(…)) FROM daily_returns", "…"]
+)]
+```
+
+All three keys are optional (`example` for one, `examples` for several; the two are mutually exclusive) and
+take **no part in registration** — the macro only records them, along with the registered name, in an
+inventory entry. To export:
+
+```shell
+just docs_csv                                           # -> target/function_descriptions.csv
+cargo run --bin duckfn -- function_descriptions --all    # -> target/function_descriptions_all.csv
+                                                         #    (includes undocumented functions, as a checklist)
+```
+
+No extension is loaded, the catalog is never queried and DuckDB need not be around: this reads what the
+macros recorded at compile time, and the path is always the project's `target/`. The
+`#[path = "../extension/mod.rs"] mod extension;` in `src/bin/duckfn.rs` is essential — `inventory`'s static
+constructors only fire for object files that are really linked into the final binary, so switching to
+`use duckfn_quantstats::…` would make the CSV come out empty, silently.
+
+Three rules apply to the text itself: several examples are joined with `"; "` and lose their trailing
+semicolons on export; line breaks collapse to a single space (the generated page is a Markdown table, where
+a newline inside a cell ends the row); commas, quotes and non-ASCII text pass through unchanged. So write
+one full statement per entry. The text is English because it is pasted onto that page as it is.
+
+When the extension goes to the community repository, drop this CSV at
+`extensions/duckfn_quantstats/docs/function_descriptions.csv` in `community-extensions` (its
+`generate_md.sh` LEFT JOINs it on `function_name` to override the function tables). No copy needs to live in
+this repository — regenerate it after changing the code.
 
 ## Testing
 

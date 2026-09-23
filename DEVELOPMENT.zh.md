@@ -18,6 +18,8 @@ duckfn 自身的通用约定（入口链路、新增函数的流程、动手前�
 src/lib.rs            原生 crate root  ->  mod extension;
 src/wasm_lib.rs       wasm crate root  ->  mod extension;   （同一组 mod，镜像）
 src/extension/mod.rs  ->  duckfn_entrypoint!("duckfn_quantstats");
+src/bin/duckfn.rs     duckfn CLI 入口  ->  #[path] mod extension; + duckfn::cli::run(...)
+                      （只服务 `just docs_csv` 导出函数描述 CSV，不参与插件运行）
 
 src/extension/functions/mod.rs  ->  mod aggregate_html;
 src/extension/functions/aggregate_html/
@@ -237,10 +239,11 @@ crate（`open`、`tempfile`）声明在 `[target.'cfg(not(target_arch = "wasm32"
 
 ## 依赖
 
-- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开了两个 feature：
-  `duckdb-1-5`（`output_dir` 用的宿主文件系统 `duckfn::duck_vfs` 在它下面）与 `chrono`（时间包装类型的互转，
-  如 `DuckDate::to_naive_date`）。属性宏还会为每个签名生成 `SQL_NAME` 常量 —— 真正注册进 DuckDB 的名字 ——
-  错误信息前缀读它，不再手抄一份函数名字面量。
+- [duckfn](https://crates.io/crates/duckfn)：属性宏，把普通 Rust 函数注册成 DuckDB 函数。开了三个 feature：
+  `duckdb-1-5`（`output_dir` 用的宿主文件系统 `duckfn::duck_vfs` 在它下面）、`chrono`（时间包装类型的互转，
+  如 `DuckDate::to_naive_date`）与 `cli`（`src/bin/duckfn.rs` 用的命令行工具，给 duckfn 带上 clap 与 csv）。
+  属性宏还会为每个签名生成 `SQL_NAME` 常量 —— 真正注册进 DuckDB 的名字 —— 错误信息前缀读它，不再手抄一份
+  函数名字面量；属性上的 `description` / `comment` / `example` 则是函数描述 CSV 的唯一来源（见下）。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
@@ -281,7 +284,47 @@ make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.
 `make release` 是带优化的同一套流程。Windows 上 `make` 需要在 Git Bash 里跑。
 
 仓库根目录的 `Justfile` 把两者都包了一层：`just build`、`just sql "SELECT …"`、`just repl`、
-`just test`、`just lint`、`just build_wasm`。
+`just test`、`just lint`、`just build_wasm`、`just docs_csv`。
+
+## 函数描述（社区扩展文档页）
+
+DuckDB 的 C 扩展 API **没有**设置函数描述与示例的接口：`duckdb_scalar_function_set_name`、
+`_set_return_type`、`_set_varargs`、`_set_volatile`…… 就到这儿，没有 `_set_description`，
+也没有 `_add_example`。所以社区扩展页（<https://duckdb.org/community_extensions/list_of_extensions>）
+上那张 `Added Functions` 表要是没人帮忙，就只是一列光秃秃的函数名。
+
+这份文本紧挨着被描述的函数，写在 `#[duck_*]` 属性上（本扩展的两处分别在
+`functions/aggregate_html/html_returns.rs` 与 `html_prices.rs`）：
+
+```rust
+#[duck_aggregate_function(
+    description = "Renders one quantstats HTML report per symbol from a long table of periodic returns",
+    comment = "Groups by symbol internally, so the SQL needs no GROUP BY …",
+    examples = ["SELECT unnest(qs_html_reports(…)) FROM daily_returns", "…"]
+)]
+```
+
+三个键都可选（`example` 单条、`examples` 多条，二者互斥），**不参与注册**：宏只把它们连同注册名收进
+inventory。导出：
+
+```shell
+just docs_csv                                           # -> target/function_descriptions.csv
+cargo run --bin duckfn -- function_descriptions --all    # -> target/function_descriptions_all.csv
+                                                         #    （含还没写描述的函数，当清单用）
+```
+
+这一步不加载扩展、不查 catalog、也不需要 DuckDB 在场：纯粹读编译期记下来的东西，路径固定为项目的
+`target/` 下。`src/bin/duckfn.rs` 里那句 `#[path = "../extension/mod.rs"] mod extension;` 是必需的 ——
+inventory 的静态构造器只在**真正被链接进最终二进制**的目标文件里生效，改成 `use duckfn_quantstats::…`
+的话 CSV 会静默变空（不报错，只是没内容）。
+
+文本本身还有三条规矩：多条示例导出时用 `"; "` 拼接、每条去掉结尾分号；换行会压成一个空格（生成页是
+Markdown 表格，单元格里的换行会断行）；逗号、引号与非 ASCII 原样通过。所以照「一句一条完整 SQL」
+写即可。文案一律英文 —— 它会被原样贴到文档页上。
+
+发社区扩展时，把这份 CSV 放进 `community-extensions` 仓的
+`extensions/duckfn_quantstats/docs/function_descriptions.csv`（它由那个仓的 `generate_md.sh` 按
+`function_name` 左连接覆盖函数表）；本仓不必留副本，改完代码重新生成即可。
 
 ## 测试
 

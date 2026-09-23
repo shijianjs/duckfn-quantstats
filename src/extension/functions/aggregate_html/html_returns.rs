@@ -89,7 +89,27 @@ pub(crate) struct HtmlReportsState {
 // `pub(super)` is not about making this public API: the attribute macro wraps the function in a
 // same-named module that inherits the function's visibility, and kind.rs reads the generated `SQL_NAME`
 // from there (see kind.rs). The registered name is the Rust function name, so no `overloads_name`.
-#[duck_aggregate_function]
+//
+// `description` / `comment` / `examples` 不参与注册：它们只被宏收进 inventory，供
+// `cargo run --bin duckfn -- function_descriptions`（`just docs_csv`）导出
+// `target/function_descriptions.csv` —— 社区扩展文档页那张函数表的唯一数据来源（DuckDB 的 C 扩展
+// API 没有设置描述与示例的接口）。文案是**英文**：它会被原样贴进文档页。
+// 多条示例导出时用 `"; "` 拼接，所以这里只写「一句一条」的完整 SQL，不用带结尾分号。
+//
+// `description` / `comment` / `examples` take no part in registration: the macro collects them into an
+// inventory entry so that `cargo run --bin duckfn -- function_descriptions` (`just docs_csv`) can export
+// `target/function_descriptions.csv` — the one source behind the function table of the
+// community-extension doc page (DuckDB's C extension API cannot set a description or examples). The
+// text is **English** because it is pasted into that page as it is. Several examples are joined with
+// `"; "` on export, so each one is a full statement without its trailing semicolon.
+#[duck_aggregate_function(
+    description = "Renders one quantstats HTML report per symbol from a long table of periodic returns",
+    comment = "Groups by symbol internally, so the SQL needs no GROUP BY; a benchmark is just another symbol of the same table, serves as input only and gets no report of its own",
+    examples = [
+        "SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) FROM daily_returns",
+        "SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, {'benchmark': ['SPX'], 'title': symbol, 'output_dir': 'reports/'}::qs_html_report_options)) FROM daily_returns"
+    ]
+)]
 pub(super) fn qs_html_reports(
     symbol: String,
     date: DuckDate,
