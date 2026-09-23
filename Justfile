@@ -49,16 +49,17 @@ release:
 lint:
     cargo clippy --all-targets -- -D warnings
 
-# 生成社区扩展文档页用的 function_descriptions.csv（只做转发，逻辑在 duckfn 的 cargo CLI 里）
+# ==== 函数描述 CSV ====
+#
 # 描述写在 #[duck_*] 属性的 description / comment / example 上，输出固定为 target/function_descriptions.csv；
 # 要连没写描述的函数一起导出（文件名带 _all 后缀）：cargo run --bin duckfn -- function_descriptions --all
 # 需要 src/bin/duckfn.rs 与 Cargo.toml 里的 duckfn feature "cli"。
 #
-# Export the function_descriptions.csv the community-extension doc page uses (a thin forwarder; the
-# logic lives in duckfn's cargo CLI). The text comes from the description / comment / example arguments
-# of the #[duck_*] attributes and always lands in target/function_descriptions.csv. Add --all (file name
-# gets an _all suffix) to include functions without any documentation. Needs src/bin/duckfn.rs and
-# duckfn's "cli" feature in Cargo.toml.
+# The text comes from the description / comment / example arguments of the #[duck_*] attributes and always
+# lands in target/function_descriptions.csv. Add --all (file name gets an _all suffix) to include functions
+# without any documentation. Needs src/bin/duckfn.rs and duckfn's "cli" feature in Cargo.toml.
+#
+# 生成社区扩展文档页用的 function_descriptions.csv（只做转发，逻辑在 duckfn 的 cargo CLI 里）
 docs_csv:
     cargo run --bin duckfn -- function_descriptions
 
@@ -87,3 +88,29 @@ config_env:
     rustup override set 1.86.0
     rustup target add wasm32-unknown-emscripten
     rustup target list --installed
+
+# ==== 发版流程（完整步骤见根目录 AGENTS.md） ====
+#
+# Release flow (the full walkthrough lives in AGENTS.md). This project does **not** publish to
+# crates.io: it is a DuckDB loadable extension distributed as the `.duckdb_extension` files attached to
+# a GitHub Release.
+
+# 发版前检查：clippy（warning 视为错误）与构建都必须干净
+release_check: lint
+    cargo build --all-targets
+
+# 提升版本号（Cargo.toml + 文档 / README / CI 注释 / 本文件）：just release_bump 0.1.0
+release_bump new_version:
+    bash scripts/release.sh bump "{{new_version}}"
+
+# 打 tag 并推送，触发 CI 构建与 Release 发布：just release_tag 0.1.0
+release_tag version:
+    bash scripts/release.sh tag "{{version}}"
+
+# 查看最近的 CI 运行状态
+release_ci:
+    gh run list --limit 5
+
+# 切到下一开发版本（不打 tag、不发布）：just release_dev 0.1.1-dev.0
+release_dev new_version:
+    bash scripts/release.sh dev "{{new_version}}"
