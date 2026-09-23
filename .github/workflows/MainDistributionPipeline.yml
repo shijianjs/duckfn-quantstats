@@ -1,13 +1,27 @@
 #
-# 本工作流调用 DuckDB 的主分发流水线来构建、测试并按需发布扩展。
+# 本工作流调用 DuckDB 的主分发流水线来构建扩展，并在版本 tag 上发布 GitHub Release。
 #
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
+# 触发面三种：PR（只构建 + 测试，不发布 —— 发布那条由下面 `github-release` 的 `if` 把着）、
+# 版本 tag（构建后发布 Release）、手动触发。推 main **不**构建，那一段是有意注释掉的。
+#
+# 推一个版本 tag（例如 `git tag v0.1.0 && git push origin v0.1.0`）会为所有支持的平台构建扩展，然后
+# 为该 tag 发布一个 GitHub Release，把构建出的扩展二进制全部作为 release 资产挂上去。
+#
+# This workflow calls the main distribution pipeline from DuckDB to build the extension and publishes a
+# GitHub Release on version tags. It runs on pull requests (build and test only — publishing is gated by
+# the `if` on `github-release` below), on version tags (build, then publish) and on a manual dispatch;
+# pushes to main deliberately build nothing (that trigger is commented out).
+#
+# Pushing a version tag (e.g. v0.1.0) builds the extension for every supported platform and then publishes
+# a GitHub Release for that tag, with all built extension binaries attached as release assets.
 #
 name: Main Extension Distribution Pipeline
 on:
-  push:
-    branches: [main]
+#  push:
+#    branches: [main]
   pull_request:
+  push:
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 concurrency:
@@ -24,3 +38,131 @@ jobs:
       extension_name: duckfn_quantstats
       extra_toolchains: rust;python3
       exclude_archs: 'linux_amd64_musl'
+
+  # 发布 GitHub Release：把上面那个 job 为每个平台构建出的扩展二进制挂到当前 tag 的 Release 上
+  # （已经有 Release 就只补资产）。关键是那个 `if`：只有当前 ref 是版本 tag 才跑 —— PR 上
+  # `github.ref` 是 `refs/pull/<编号>/merge`、推 main 是 `refs/heads/main`，两者都不匹配，所以这两种触发
+  # 到构建 + 测试就结束了，不会发布任何东西（`needs` 也让这个 job 不会先于构建启动）。
+  # `workflow_dispatch` 恰好从 tag ref 发起时同样匹配。
+  #
+  # Publishes a GitHub Release for the pushed version tag and attaches every extension binary built
+  # above. The `if` is the gate: it only runs when the current ref is a version tag — on a pull request
+  # `github.ref` is `refs/pull/<n>/merge` and on a main push it is `refs/heads/main`, so neither matches
+  # and those triggers stop after the build-and-test job, publishing nothing (`needs` keeps this job from
+  # starting before that build either). A `workflow_dispatch` started from a tag ref matches as well.
+  github-release:
+    name: Publish GitHub Release
+    needs: duckdb-stable-build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      # `gh release create` / `upload` 要用仓库的 GITHUB_TOKEN 写 Release，默认只读不够。
+      #
+      # `gh release create` / `upload` write the release with the repository's GITHUB_TOKEN, which the
+      # default read-only permissions do not allow.
+      contents: write
+    env:
+      EXTENSION_NAME: duckfn_quantstats
+      # 与上面 `duckdb_version` 一致：它也是 ci-tools 给产物命名时用的那一段。
+      #
+      # Must match `duckdb_version` above: it is also the segment ci-tools uses to name the artifacts.
+      DUCKDB_VERSION: v1.5.5
+    steps:
+      # 取回全部 tag：生成 release notes 时要知道「上一个版本 tag 是哪个」。
+      #
+      # Needed to list the commits since the previous version tag when building the release notes.
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+
+      # ci-tools 的产物名固定为 `<扩展名>-<DuckDB 版本>-extension-<架构>[.wasm]`，所以按前缀取。
+      #
+      # ci-tools always names its artifacts `<extension>-<duckdb version>-extension-<arch>[.wasm]`, hence
+      # the pattern.
+      - name: Download extension artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: 'duckfn_quantstats-*-extension-*'
+          path: artifacts
+
+      # 把产物摊平：`<扩展名>-<架构>.duckdb_extension`（wasm 则 `.duckdb_extension.wasm`）。
+      # 架构从产物名里剥出来，中间那两段（扩展名、DuckDB 版本）在资产名里是冗余的。
+      #
+      # Flattens the artifacts into `<extension>-<arch>.duckdb_extension` (`.duckdb_extension.wasm` for
+      # wasm). The architecture is taken out of the artifact name; the extension name and the DuckDB
+      # version in the middle would be redundant in an asset name.
+      - name: Collect extension binaries
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          prefix="${EXTENSION_NAME}-${DUCKDB_VERSION}-extension-"
+          found=0
+          while IFS= read -r file; do
+            case "$file" in
+              *.duckdb_extension.wasm) suffix=".duckdb_extension.wasm" ;;
+              *.duckdb_extension)      suffix=".duckdb_extension" ;;
+              *) continue ;;
+            esac
+            artifact="${file#artifacts/}"
+            artifact="${artifact%%/*}"
+            arch="${artifact#"$prefix"}"
+            arch="${arch%.wasm}"
+            cp "$file" "release-assets/${EXTENSION_NAME}-${arch}${suffix}"
+            found=$((found + 1))
+          done < <(find artifacts -type f \( -name '*.duckdb_extension' -o -name '*.duckdb_extension.wasm' \) | sort)
+          # 一个二进制都没找到就直接失败：否则会发一个空 Release，比不发更难看出问题。
+          #
+          # Fail hard when nothing was found: an empty release is harder to notice than a failed job.
+          if [ "$found" -eq 0 ]; then
+            echo "::error::no extension binaries found in the downloaded artifacts"
+            exit 1
+          fi
+          ls -l release-assets
+
+      # 自建的 release notes：上一个版本 tag 到当前 tag 的提交列表（GitHub 自己的 notes 是基于 PR 的，
+      # 而本仓库直接推 main，那份 notes 里只会有个 compare 链接）。
+      #
+      # Commit list since the previous version tag. GitHub's own notes are PR based, and this repository
+      # pushes straight to main, so on their own they would only contain a compare link.
+      - name: Build release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          prev_tag=$(git describe --tags --abbrev=0 --match 'v*' --exclude "$TAG" 2>/dev/null || true)
+          if [ -n "$prev_tag" ]; then
+            {
+              echo "## Changes since ${prev_tag}"
+              echo
+              # 版本号提交本身没有信息量，跳过（没有这种提交时这句 grep 什么也不做）。
+              #
+              # Skip the version bump commit itself, it carries no information for the release (a no-op
+              # when no such commit exists).
+              git log --no-merges --pretty='- %s (%h)' "${prev_tag}..${TAG}" | grep -vE '^- chore\(release\)' || true
+            } > release-notes.md
+            echo "release notes built from ${prev_tag}..${TAG}"
+          else
+            echo "no previous version tag found, falling back to GitHub-generated notes"
+          fi
+
+      # 有 Release 就补资产（--clobber 覆盖同名），没有就建一个：手写的 notes 会被前置到 GitHub
+      # 自动生成的 notes 前面。
+      #
+      # Updates the release when it already exists (`--clobber` overwrites same-named assets) and creates
+      # it otherwise; hand-written notes are prepended to GitHub's generated ones.
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber
+          else
+            notes_args=()
+            if [ -s release-notes.md ]; then
+              notes_args+=(--notes-file release-notes.md)
+            fi
+            gh release create "$TAG" release-assets/* --title "$TAG" --generate-notes "${notes_args[@]}"
+          fi
