@@ -19,12 +19,13 @@ the test suite — are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
 `demo/prices.csv` is a committed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):
 1435 trading days each, 2021-01-04 … 2026-09-21, one shared calendar. The block below is meant to be copied
-and run as-is (the extension has to be built first — see [Building and loading](#building-and-loading));
-`read_csv` fetches the file over HTTPS by itself (DuckDB 1.5 reads `https://` URLs — no `httpfs`, no API
-key):
+and run as-is — the `INSTALL` line fetches the extension from DuckDB's community repository (see
+[Installing and loading](#installing-and-loading)) and `read_csv` fetches the file over HTTPS by itself
+(DuckDB 1.5 reads `https://` URLs — no `httpfs`, no API key):
 
 ```sql
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
+INSTALL duckfn_quantstats FROM community;   -- once; needs network
+LOAD duckfn_quantstats;
 
 CREATE TABLE prices AS
 SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
@@ -378,7 +379,23 @@ option is ignored there — no browser, and no temporary file either. The report
 as it is, and showing it is the host page's job: a blob URL and `window.open`, an `<iframe>`, or whatever
 else fits.
 
-## Building and loading
+## Installing and loading
+
+The extension is published in DuckDB's
+[community repository](https://duckdb.org/community_extensions/extensions/duckfn_quantstats), so one `INSTALL`
+fetches a signed build for the platform you are on — no `-unsigned`, nothing compiled locally:
+
+```sql
+INSTALL duckfn_quantstats FROM community;   -- once; needs network
+LOAD duckfn_quantstats;                     -- afterwards, this is all a session needs
+```
+
+Community extensions are built against the **latest stable DuckDB**, and this one uses DuckDB's unstable C
+API, so the build `INSTALL` fetches is tied to the exact DuckDB version it was built for. On an older DuckDB
+(1.4, say) there is no build at all — [build from source](#building-from-source) instead, which works for
+any version the C API requirements allow.
+
+### Building from source
 
 For day-to-day iteration use `cargo-duckdb-ext-tools` (a global cargo subcommand that adds no dependency to
 the project):
@@ -398,7 +415,8 @@ make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.
 
 `make release` is the same flow with optimizations. On Windows, `make` must run in Git Bash.
 
-The extension is built against DuckDB's unstable C API, so `-unsigned` is required when loading it:
+A binary you built yourself is unsigned and uses DuckDB's unstable C API, so loading it needs `-unsigned`
+(the community build does not — it is signed and matched to your version):
 
 ```shell
 duckdb -unsigned -c "

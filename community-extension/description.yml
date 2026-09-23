@@ -1,0 +1,129 @@
+# 提交到 duckdb/community-extensions 的草稿 —— PR 里其实只有两个文件，本目录就是那份内容的暂存处：
+#
+#   本文件                          -> extensions/duckfn_quantstats/description.yml
+#   docs/function_descriptions.csv  -> extensions/duckfn_quantstats/docs/function_descriptions.csv
+#
+# 目录名必须与 extension.name 逐字一致（社区仓库的 scripts/build.py 会校验），所以两边都叫
+# `duckfn_quantstats`。那份 CSV 是社区文档页「Added Functions」表里描述与示例的唯一来源 —— DuckDB 的
+# C 扩展 API 没有设置 description / example 的接口 —— 它由本仓的 `just docs_csv` 从属性宏上的
+# description / comment / example 生成，新增函数后重新生成一次即可。
+#
+# Draft for the pull request against duckdb/community-extensions; that PR carries two files, and this
+# directory is where they are staged:
+#
+#   this file                       -> extensions/duckfn_quantstats/description.yml
+#   docs/function_descriptions.csv  -> extensions/duckfn_quantstats/docs/function_descriptions.csv
+#
+# The directory name has to match extension.name exactly (community-extensions' scripts/build.py
+# enforces it), hence `duckfn_quantstats` on both sides. The CSV is the only source of the
+# descriptions and examples in that page's "Added Functions" table — DuckDB's C extension API cannot
+# set them — and `just docs_csv` regenerates it from the description / comment / example arguments of
+# the attribute macros.
+
+extension:
+  name: duckfn_quantstats
+  description: Complete quantstats HTML tearsheets from SQL - one long table in, one full report per instrument out, benchmarks included
+  # 写要发布的那一版：本仓开发版本是 0.1.0-dev.0，发版流程（AGENTS.md）会把它提升为 0.1.0，这里跟着写它，
+  # 不要写 `-dev.N` 那种预发布版本号。
+  #
+  # The version being released. This project develops as 0.1.0-dev.0 and the release flow raises that to
+  # 0.1.0; put the release version here, never a `-dev.N` one.
+  version: 0.1.0
+  language: Rust
+  # 本仓的 Makefile 就是官方 Rust 模板那一套（include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile），
+  # 对应社区仓库里的 `build: cargo`。
+  #
+  # This project's Makefile is the official Rust template's (it includes extension-ci-tools/makefiles/
+  # c_api_extensions/rust.Makefile), which is what `build: cargo` selects.
+  build: cargo
+  # 许可证：本仓根目录还缺一份 LICENSE 文件（模板是 MIT），提交前补上，别让声明与仓库不一致。
+  #
+  # License: the repository still lacks a LICENSE file (the template's is MIT); add it before submitting so
+  # that this declaration and the repository agree.
+  license: MIT
+  # 平台：除两个 musl 之外全部构建过 —— CI（.github/workflows/MainDistributionPipeline.yml）为 linux_amd64 /
+  # linux_arm64 / osx_amd64 / osx_arm64 / windows_amd64 / windows_amd64_mingw / wasm_mvp / wasm_eh /
+  # wasm_threads 都成功产出过扩展二进制；musl 那两个都是 opt_in 平台，本仓从未构建（linux_amd64_musl 在 CI 里
+  # 就是显式排除的），所以这里一并声明不支持。
+  #
+  # Platforms: everything but the two musl ones is built — the pipeline above has produced binaries for
+  # linux_amd64, linux_arm64, osx_amd64, osx_arm64, windows_amd64, windows_amd64_mingw and the three wasm
+  # platforms. Both musl targets are opt-in platforms this project never builds (linux_amd64_musl is even
+  # excluded in the CI), so they are declared unsupported here.
+  excluded_platforms: "linux_amd64_musl;linux_arm64_musl"
+  # 与 CI 里的 extra_toolchains 一致：rust 编扩展，python3 是 extension-ci-tools 的 configure/测试流程要的。
+  #
+  # Mirrors the CI's extra_toolchains: rust builds the extension, python3 is what extension-ci-tools'
+  # configure and test flow needs.
+  requires_toolchains: "rust;python3"
+  maintainers:
+    - shijianjs
+
+repo:
+  github: shijianjs/duckfn-quantstats
+  # 社区仓会照这个 ref 去 clone 并构建，所以它必须是 GitHub 上真实存在的 ref —— 现在钉的是 origin/main 的
+  # 提交（今天就能过社区 CI）。提交前换成你要发布的那一版：发完 v0.1.0 之后写 tag 名 `v0.1.0`（社区仓支持
+  # tag，已有先例），或者写它的提交 SHA。
+  #
+  # The community repository clones and builds exactly this ref, so it has to exist on GitHub. It currently
+  # pins the commit of origin/main, which the community CI can build today. Before submitting, point it at
+  # the version being released: the tag `v0.1.0` once the release flow has created it (tags are accepted —
+  # there is precedent), or that commit's SHA.
+  ref: a40035e0113df23348d656b9e633abe221d355cd
+
+docs:
+  # 自包含示例：只用 SQL 造一小段行情，不依赖任何外部文件，复制即跑（社区文档页会把它放在代码块里）。
+  #
+  # Self-contained: it builds its own little price series in SQL and depends on no external file.
+  hello_world: |
+    -- 20 daily prices for one instrument
+    CREATE TABLE nav AS
+    SELECT 'FUND' AS symbol, DATE '2026-01-01' + i::INTEGER AS date, 100.0 + i AS price
+    FROM range(1, 21) AS t(i);
+
+    -- One report per symbol; the aggregate groups by `symbol` itself, so no GROUP BY is needed
+    SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes
+    FROM (
+        SELECT unnest(qs_html_reports_by_prices(
+                   symbol, date, price,
+                   {'title': symbol,
+                    'strategy_title': symbol}::qs_html_report_options)) AS r
+        FROM nav
+    );
+  extended_description: |
+    Two aggregate functions that turn one date-ordered long table into a whole set of
+    [quantstats](https://github.com/ranaroussi/quantstats) HTML tearsheets, one report per instrument
+    (and one per benchmark, when the options name several):
+
+    | Function | Input |
+    | --- | --- |
+    | `qs_html_reports(symbol, date, period_return, options)` | periodic returns |
+    | `qs_html_reports_by_prices(symbol, date, price, options)` | prices or NAVs, differenced into returns inside the function |
+
+    Both return the same `STRUCT(symbol, benchmark, strategy_title, benchmark_title, html, file_path)[]`,
+    so `unnest(...)` spreads it into rows, `list_transform(...)` picks fields, and `(…)[1].html` grabs a
+    single report. No `GROUP BY` appears in the SQL: `symbol` is the grouping key and the function splits
+    by it internally. Reports are ordered by `symbol` (and by the `benchmark` list within one symbol),
+    independent of input order and thread count.
+
+    A benchmark is just another symbol of the same table, named in the `benchmark` option as a **list**
+    (`['SPX', 'NDX']`); those symbols are input only and get no report of their own, so "one instrument
+    against M benchmarks" comes back as M reports differing in the `benchmark` field. The options are a
+    named STRUCT (`qs_html_report_options`, created at load time) evaluated **per row**, which is how
+    each instrument gets its own `title` / `strategy_title` — build it out of the `symbol` column:
+    `{'title': symbol, 'strategy_title': symbol, 'benchmark': ['SPX']}::qs_html_report_options`.
+    Other keys: `rf` (annualized risk-free rate), `periods_per_year`, `match_dates`, `output_dir` and
+    `open_in_browser`.
+
+    With `output_dir` each report is also written through DuckDB's VFS — local disk, `s3://…` once
+    `httpfs` is loaded, and the wasm build's file system all take the same path — under a name the
+    function generates (`<time>-<strategy>-<benchmark>-<random>.html`, nothing is ever overwritten), and
+    the path it actually wrote comes back in `file_path`. With `open_in_browser` the reports are handed
+    to the system default browser instead. Reports are a few hundred KB of HTML each (a dozen inline
+    SVGs), so a directory or a browser tab is friendlier than `unnest`-ing them into a terminal.
+
+    Requires **DuckDB 1.5 or newer**: the host file system used for `output_dir` only reached DuckDB's
+    C API in 1.5. On wasm, `output_dir` works and `open_in_browser` is ignored (there is no browser
+    process to launch; the HTML string comes back to the host as it is).
+
+    Development notes, the full option table and the error paths: <https://github.com/shijianjs/duckfn-quantstats>.

@@ -16,11 +16,12 @@ HTML 报告**（配置里指名基准时，一个标的对几个基准就出几�
 
 `demo/prices.csv` 是一份提交进仓库的日收盘价快照：`GOOGL`、`MSFT` 与标普 500 指数（`SPX`），
 各 1435 个交易日，区间 2021-01-04 … 2026-09-21，三者交易日历完全一致。下面这段直接复制粘贴就能跑
-（扩展需要先构建，见最后的「构建与加载」）；`read_csv` 自己走 HTTP 取回文件（DuckDB 1.5 自带 `https://`
-读取，不需要 `httpfs`，也不需要 API key）：
+（`INSTALL` 那行会从 DuckDB 社区仓取回扩展，见最后的「安装与加载」）；`read_csv` 自己走 HTTP 取回文件
+（DuckDB 1.5 自带 `https://` 读取，不需要 `httpfs`，也不需要 API key）：
 
 ```sql
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
+INSTALL duckfn_quantstats FROM community;   -- 只需一次，需要网络
+LOAD duckfn_quantstats;
 
 CREATE TABLE prices AS
 SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
@@ -341,7 +342,21 @@ SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
 选项 —— 不打开浏览器，也不会为此写临时文件。报告字符串原样返回给宿主，展示是宿主页面的事：
 blob URL + `window.open`、`<iframe>`，或者别的。
 
-## 构建与加载
+## 安装与加载
+
+扩展发布在 DuckDB 的[社区仓](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)，一条
+`INSTALL` 就把当前平台的签名产物取回来 —— 不需要 `-unsigned`，本地也不编译任何东西：
+
+```sql
+INSTALL duckfn_quantstats FROM community;   -- 只需一次，需要网络
+LOAD duckfn_quantstats;                     -- 之后每个会话只要这一句
+```
+
+社区扩展**针对最新的稳定版 DuckDB** 构建，而本扩展用的是 DuckDB 的 unstable C API，所以 `INSTALL` 取回的
+产物与构建它的那个版本严格绑定；更老的 DuckDB（比如 1.4）没有对应产物 —— 那种情况改用下面的「从源码构建」，
+只要 C API 的要求允许，任何版本都能用。
+
+### 从源码构建
 
 日常迭代用 `cargo-duckdb-ext-tools`（全局 cargo 子命令，不给项目加依赖）：
 
@@ -359,7 +374,8 @@ make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.
 
 `make release` 是带优化的同一套流程。Windows 上 `make` 需要在 Git Bash 里跑。
 
-扩展基于 DuckDB 的 unstable C API 构建，加载时必须加 `-unsigned`：
+自己构建出的产物没有签名，而且用的是 DuckDB 的 unstable C API，加载时必须加 `-unsigned`
+（社区仓那份不用：它是签过名的，并且与你的 DuckDB 版本严格匹配）：
 
 ```shell
 duckdb -unsigned -c "
