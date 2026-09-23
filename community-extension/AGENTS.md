@@ -13,8 +13,12 @@
 ## `description.yml` 里**不要写注释**
 
 这份文件会被原样复制到上游，所以刻意保持「只有字段」。需要解释的东西写在本文件里，不要写回 YAML。
-同理，`ref` 有意钉 `main` 而不是 tag/SHA：发版时不必回来改，少一处会漏（社区仓按 `ref` 去 clone 并构建，
-`main` 是合法 ref）。
+
+`repo.ref` 写**发布那一版的提交 SHA（40 位）**（现在是 v0.1.0 那个提交 `2c2c1a47a15d2649d214a8bf1351c7be5426d6bb`），
+**不要写 `main`、也不要写 tag 名**。三者都是合法 git ref、社区仓都能照着 clone，但上游已收录的扩展清一色用提交
+SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，也天生不可变 —— 注册项指向的东西不会随时间漂移。
+写 `main` 的代价是实打实的：构建出来的二进制会自称 main 上的开发版本（`X.Y.Z-dev.N`），与这里声明的 `version`
+对不上，而且同一个注册项在不同时间构建出的是不同代码。
 
 ## 字段为什么这么写（都不是猜的）
 
@@ -29,10 +33,8 @@
   （`linux_amd64_musl` / `linux_arm64_musl`）在矩阵里都是 `opt_in`，不主动点名就不会构建，所以也不必写进
   排除列表 —— 本仓 CI 里那行 `exclude_archs: 'linux_amd64_musl'` 因此已删掉，它与 `opt_in` 是重复的。
 - `version`：写**要发布的那一版**，不要 `-dev.N`（本仓开发版本是 `0.1.0-dev.0`，发版流程把它抬成 `0.1.0`）。
-  因为它和 `ref: main` 是两条线：`ref` 跟着 main 走，而发完版 main 上很快又变成 `X.Y.Z-dev.N`，所以**社区仓构建
-  出来的二进制自称的版本会比这里的 `version` 新一档**。社区仓不校验这个（`scripts/build.py` 只读
-  `repo` / `name` / `excluded_platforms` / `opt_in_platforms` / `requires_toolchains` 等字段），所以不会构建
-  失败，只是文档页上的版本号会停在上一版 —— 每次发版时把这一行提到刚发布的号即可。
+  它与 `repo.ref` 配套 —— `ref: v0.1.0` ↔ `version: 0.1.0`，所以社区仓构建出的二进制自称的版本、
+  文档页上的版本号、这里的字段三者一致，不存在漂移。
 - `license: MIT`：对应仓库根目录的 `LICENSE`。注意 duckdb.org 的社区扩展文档页把字段名写成 `licence`，
   那是**文档的错**，真实 schema 是 `license`（以已收录扩展的 `description.yml` 为准）。
 - `docs.hello_world`：社区文档页会把它渲染进代码块，所以必须是**可直接复制跑**的真实例子 —— 现在这两段
@@ -45,6 +47,42 @@
 社区文档页「Added Functions」表里，函数的 description / comment / example **只有一个来源**：这个 CSV
 （DuckDB 的 C 扩展 API 没有设置它们的接口）。它由 `just docs_csv` 从属性宏上的 `description` /
 `comment` / `example` 生成。**改了那些属性就要重新生成、覆盖这里这份**，否则文档页停在旧文案上。
+
+## 提交：在 fork 的克隆里做，本仓只出那两张文件
+
+上游注册仓（`duckdb/community-extensions`）的 fork 与本地克隆：
+
+- fork：`shijianjs/duckdb-community-extensions`
+- 克隆：`S:\workspace\my\rust\duckdb\duckdb-community-extensions`（`origin` 就是这个 fork，没有配 `upstream`）
+
+流程是「加分支 → 复制两个文件 → 提交 → 推分支 → 开 PR」，本仓这边一行都不用改：
+
+```powershell
+$p = 'S:\workspace\my\rust\duckdb\duckdb-community-extensions'
+git -C $p checkout main; git -C $p pull              # 先和 fork 的 main 同步
+git -C $p checkout -b add-duckfn-quantstats          # 已有同名分支就跳过这步
+
+New-Item -ItemType Directory -Force "$p\extensions\duckfn_quantstats\docs" | Out-Null
+Copy-Item community-extension\description.yml "$p\extensions\duckfn_quantstats\description.yml" -Force
+Copy-Item community-extension\docs\function_descriptions.csv "$p\extensions\duckfn_quantstats\docs\function_descriptions.csv" -Force
+
+git -C $p add extensions/duckfn_quantstats
+git -C $p commit -m "Add duckfn_quantstats: …"       # 上游惯例是 `Add <扩展名>` 再跟一句说明
+git -C $p push -u origin add-duckfn-quantstats
+gh pr create --repo duckdb/community-extensions --base main --head shijianjs:add-duckfn-quantstats `
+  --title '…' --body-file …
+```
+
+- 首次提交的 PR：<https://github.com/duckdb/community-extensions/pull/2778>（2026-09-23，只加那两张文件）。
+- **每次发版都要回来改这一行**：`repo.ref` 换成新发布提交的 SHA（`git rev-list -n 1 v0.1.1`），
+  `version` 跟着改成 `0.1.1`，改完在本仓 `community-extension/` 里改，再复制进那份克隆，推到同一条 PR 分支
+  （PR 会自动更新）或另开一个。注册项钉的是具体提交，不会自己跟。
+- PR 一开，上游会起三条构建（`Community Extension Build`、`Community Extension with latest DuckDB`、
+  `Community Extension with DuckDB on Andium`）。外部贡献者的 PR 会被 GitHub 挂成 `action_required`
+  —— 等维护者点 Run，属正常状态，别因此重推。
+- 想把 fork 与上游同步时，那份克隆里得先补个上游远程（它只配了 `origin`）：
+  `git -C $p remote add upstream https://github.com/duckdb/community-extensions.git`，之后
+  `git -C $p fetch upstream && git -C $p merge upstream/main`。
 
 ## 提交前自查
 

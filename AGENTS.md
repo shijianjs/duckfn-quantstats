@@ -12,6 +12,9 @@ AGENTS.md 模板：复制到你的 DuckDB 扩展项目根目录，命名为 AGEN
 
 - 这个扩展做什么：{{PROJECT_GOAL}} = duckdb插件：提供quantstats报告
 - duckfn 仓库在本机的 clone：{{DUCKFN_REPO}} = `S:\workspace\my\rust\duckdb\duckdb-extension-template-rs`
+- 社区扩展注册仓（`duckdb/community-extensions`）的 fork 在本机的 clone：
+  `S:\workspace\my\rust\duckdb\duckdb-community-extensions`（`origin` = `shijianjs/duckdb-community-extensions`）
+  —— 扩展就是在这份克隆里注册的（往 `extensions/` 下加目录），字段草稿在本仓的 `community-extension/`
 
 > 扩展名、crate 名、duckfn 版本**不要抄到这里**：
 > 扩展名读 `src/extension/mod.rs` 里的 `duckfn_entrypoint!("...")`（也是 `Makefile` 的 `EXTENSION_NAME`），
@@ -224,4 +227,6 @@ just release_dev 0.1.1-dev.0
 - [`.github/workflows/MainDistributionPipeline.yml`](.github/workflows/MainDistributionPipeline.yml)：
   构建矩阵、触发面与 Release 发布。
 - [`DEVELOPMENT.zh.md`](DEVELOPMENT.zh.md)（[英文](DEVELOPMENT.md)）：目录结构、设计取舍、构建与测试。
+- [`community-extension/AGENTS.md`](community-extension/AGENTS.md)：社区扩展注册（上游 `description.yml` 的
+  草稿、字段依据、提交 PR 的步骤）。
 
