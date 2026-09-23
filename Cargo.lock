@@ -303,7 +303,7 @@ dependencies = [
 
 [[package]]
 name = "duckfn_quantstats"
-version = "0.1.0"
+version = "0.1.1-dev.0"
 dependencies = [
  "chrono",
  "duckfn",
