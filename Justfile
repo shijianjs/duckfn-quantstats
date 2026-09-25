@@ -1,10 +1,10 @@
-# 新扩展项目的 Justfile 模板 —— 从 duckfn 仓库的 templates/Justfile 复制过来。
+# 与 duckfn-extension-template 里那份 Justfile 同源（本仓库是那一套模板的实例）。
 #
-# 复制后只改一处：把 extension_name 改成你的扩展名。它必须与
+# extension_name 必须与下面几处一致，否则 LOAD 会失败：
 #   - src/extension/mod.rs 里 duckfn_entrypoint!("...") 的名字
+#   - Cargo.toml 的 [package] name 与 [[example]] name
 #   - Makefile 里的 EXTENSION_NAME
 #   - 构建产物 <extension_name>.duckdb_extension
-# 三者一致，否则 LOAD 会失败。
 #
 # 前置工具：
 #   cargo install just cargo-duckdb-ext-tools

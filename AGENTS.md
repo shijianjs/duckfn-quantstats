@@ -1,7 +1,6 @@
 <!--
-AGENTS.md 模板：复制到你的 DuckDB 扩展项目根目录，命名为 AGENTS.md。
-只需把下面两个 {{...}} 填好。填完**保留**这两行（不是一次性的）：
-以后 clone 路径或项目目标变了，还在这里改。
+本文件是 duckfn-extension-template 里那份 AGENTS.md 的**项目实例**：约定与流程照抄，
+只有下面「项目事实」一节是本项目自己的。模板更新时对照那份，别把共享的约定改歪。
 -->
 
 # AGENTS.md
@@ -10,8 +9,7 @@ AGENTS.md 模板：复制到你的 DuckDB 扩展项目根目录，命名为 AGEN
 
 ## 项目事实（唯一需要人维护的一段）
 
-- 这个扩展做什么：{{PROJECT_GOAL}} = duckdb插件：提供quantstats报告
-- duckfn 仓库在本机的 clone：{{DUCKFN_REPO}} = `S:\workspace\my\rust\duckdb\duckdb-extension-template-rs`
+- 这个扩展做什么：duckdb 插件，提供 quantstats 报告。
 - 社区扩展注册仓（`duckdb/community-extensions`）的 fork 在本机的 clone：
   `S:\workspace\my\rust\duckdb\duckdb-community-extensions`（`origin` = `shijianjs/duckdb-community-extensions`）
   —— 扩展就是在这份克隆里注册的（往 `extensions/` 下加目录），字段草稿在本仓的 `community-extension/`
@@ -22,25 +20,64 @@ AGENTS.md 模板：复制到你的 DuckDB 扩展项目根目录，命名为 AGEN
 
 ## 动手前先读
 
-**`{{DUCKFN_REPO}}/templates/duckfn-conventions.md`** —— 知识源（先读哪、再读哪）、
-硬约束、开发循环、新增函数的完整流程都在这份文件里。
+**duckfn 的文档与示例随 crate 一起发布**（0.0.11 起）：跑过一次 `cargo build` 之后它们就在本机 cargo 的
+解包目录里，与 `Cargo.toml` 钉的版本严格对应 —— 不需要 clone duckfn 仓库，也不需要联网。
 
-它由 duckfn 仓库维护，本文件**只引用、不复制**，所以 duckfn 升级时不需要重做本文件，
-只要 `git -C {{DUCKFN_REPO}} pull`（或 `checkout` 到对应 tag）。
-
-本机还没有 clone 时先来一份（文档、示例扩展、sqllogictest 范例都在里面，
-而且它们不会随依赖进入项目）：
-
-```shell
-git clone https://github.com/shijianjs/duckfn
+```powershell
+# Windows：版本号从 Cargo.toml 读（例如 0.0.11）
+Get-ChildItem "$env:CARGO_HOME\registry\src\*\duckfn-<版本>" -Directory | Select-Object -ExpandProperty FullName
 ```
+
+```bash
+# Linux / macOS
+ls -d ~/.cargo/registry/src/*/duckfn-*/
+```
+
+| 资源 | 路径（`<crate>` = 上面那个目录） |
+| --- | --- |
+| 示例扩展（各类注册方式都有可运行实现） | `<crate>/src/extension/**`：`functions/` 每类一个文件、`types/` 自定义类型、`demo/` 组合示例、`entry.rs` 入口 |
+| sqllogictest 范例（41 份 `.test`） | `<crate>/test/sql/**` |
+| 用户文档正文（英文） | `<crate>/docs/docs/**` |
+| 用户文档正文（简体中文） | `<crate>/docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/**` |
+| 一组可直接跑的 `just sql` 示例 | `<crate>/demo.sh` |
+
+按主题查表（路径都相对 `<crate>`）：
+
+| 主题 | 文档 | 参考实现 |
+| --- | --- | --- |
+| 示例扩展逐个功能讲解（先读它更快） | `docs/docs/examples/duckfn.md` | `src/extension/**`（`demo/` 是组合示例） |
+| 全部属性与参数 | `docs/docs/guide/attributes.md` | — |
+| 标量函数 | `docs/docs/guide/scalar-functions.md` | `src/extension/functions/scalar_function.rs` |
+| 聚合函数 | `docs/docs/guide/aggregate-functions.md` | `src/extension/functions/aggregate_function.rs` |
+| 表函数 | `docs/docs/guide/table-functions.md` | `src/extension/functions/table_function.rs`、`dynamic_table_function.rs` |
+| `COPY ... TO` / `FROM` | `docs/docs/guide/copy-functions.md` | `src/extension/functions/copy_function.rs`、`copy_from_function.rs` |
+| 类型转换 cast | `docs/docs/guide/casts.md` | `src/extension/functions/cast_function.rs` |
+| 替换扫描 | `docs/docs/guide/replacement-scans.md` | `src/extension/functions/replacement_scan.rs` |
+| SQL 宏 | `docs/docs/guide/sql-macros.md` | `src/extension/functions/sql_macro.rs`（脚本见 `src/extension/functions/sql/*.sql`） |
+| STRUCT / ENUM 等自定义类型 | `docs/docs/guide/custom-types.md` | `src/extension/types/duck_struct_scalar_echo.rs`、`duck_enum_echo.rs` |
+| Rust ↔ DuckDB 类型映射 | `docs/docs/guide/types.md` | `src/extension/types/**` |
+| 宿主文件系统（`duck_vfs`） | `docs/docs/guide/file-system.md` | `src/extension/functions/file_system.rs` |
+| 错误与 panic | `docs/docs/guide/errors-and-panics.md` | — |
+| 构建与发布 | `docs/docs/build-and-release.md` | — |
+| 排错 | `docs/docs/troubleshooting.md` | — |
+| 社区扩展文档页（`function_descriptions.csv`） | `docs/docs/community-extension-docs.md` | `src/extension/functions/*.rs`（带 `description` / `example` 的那几个） |
+
+属性宏接受哪些参数、允许哪些返回形状，**真相在 `duckfn-macro` 的源码里** —— 它是独立发布的 crate，
+解包在同一个 registry 目录下的 `duckfn-macro-<版本>/src/**`；文档与示例只覆盖常用面。
+
+在线版本（文档站 <https://shijianjs.github.io/duckfn/zh-Hans/>、API <https://docs.rs/duckfn>）随时可能是
+更新的一版，**与本机依赖冲突时以本地那份为准** —— 它就是实际编译的代码。
+
+**铁律**：任何来源都拿不到时，停下来告诉用户「我查不到 duckfn 的这部分 API」，
+不要凭记忆编属性名、参数或返回类型。写错的宏会以编译错误的形式暴露，
+但更常见的是一路编到底、最后没法编译。
 
 ## 升级 duckfn 时
 
 1. 改 `Cargo.toml` 里的 duckfn 版本，`cargo update -p duckfn -p duckfn-macro`。
-2. `git -C {{DUCKFN_REPO}} fetch --tags && git -C {{DUCKFN_REPO}} checkout v<新版本>`，
-   让文档与示例跟依赖对齐；约定文件随这次切换一起更新。
-3. 本文件不用改。
+2. `cargo build --all-targets` 跑一次：新版本的 crate 会被解包到 registry，文档、示例与 sqllogictest
+   范例随包而来，自动与依赖对齐 —— 不需要任何 git 操作。
+3. 本文件不用改：它只写占位符，不钉具体版本号。
 
 
 ## 仓库约定

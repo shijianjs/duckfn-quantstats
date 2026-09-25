@@ -8,7 +8,8 @@ shaped the way it is, which crate carries which part, and how it is built and te
 
 duckfn's own conventions (entry-point chain, the standard procedure for adding a function, which source to
 consult before writing against the macros) are **not** repeated here: they live in [AGENTS.md](AGENTS.md),
-which points at `templates/duckfn-conventions.md` in a duckfn clone.
+which also says where duckfn's documentation and example extension sit in the local cargo registry (they
+ship with the crate since 0.0.11, so no duckfn clone is needed).
 
 The project started from DuckDB's official
 [extension-template-rs](https://github.com/duckdb/extension-template-rs) and has been reshaped to follow

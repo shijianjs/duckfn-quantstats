@@ -38,6 +38,10 @@ crate-type = ["staticlib"]
 #     接口，社区扩展文档页只能由导出的 `target/function_descriptions.csv` 覆盖，这里就是它的唯一来源
 #     （见 src/bin/duckfn.rs 与 Justfile 的 `just docs_csv`）。`cli` 给 duckfn 带上 clap 与 csv。
 #
+# 0.0.11 起 duckfn 的用户文档正文、示例扩展与 sqllogictest 范例也随这个 crate 发布：跑过一次构建之后
+# 它们就在本机 cargo 的解包目录里（`<cargo>/registry/src/*/duckfn-<版本>/`），与这里钉的版本严格对应，
+# 不需要 clone duckfn 的 git 仓库。路径与按主题的对照表见 AGENTS.md。
+#
 # Since 0.0.8 duckfn provides everything this project uses; 0.0.9 adds the CLI that exports the
 # function-description CSV:
 #   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
@@ -56,7 +60,7 @@ crate-type = ["staticlib"]
 #     API cannot set a function's description or examples, so the community-extension doc page can only
 #     be filled in from an exported `target/function_descriptions.csv` — this is its one source (see
 #     src/bin/duckfn.rs and the `just docs_csv` recipe). `cli` pulls clap and csv into duckfn.
-duckfn = { version = "0.0.9", features = ["duckdb-1-5", "chrono", "cli"] }
+duckfn = { version = "0.0.11", features = ["duckdb-1-5", "chrono", "cli"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
