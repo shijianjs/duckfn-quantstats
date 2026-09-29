@@ -24,9 +24,10 @@ path = "src/wasm_lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-# 依赖用 `all`，一次带齐 duckfn 的全部功能（= duckdb-1-5 + owned-connection + cli + chrono + uuid
-# + rust_decimal），不再逐个挑 feature。本扩展实际用到的几项：
-#   - `duckdb-1-5` 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的 `write_string`
+# 依赖用 `all` 一次带齐 duckfn 的常用功能（= duckdb-1-5 + cli + chrono + uuid + rust_decimal），
+# 不再逐个挑 feature；但 0.0.15 起 `duck_vfs` 被移出 `all`，native 侧落盘要用的它得显式开
+# `owned-connection`，所以 features 是这两个的并集。本扩展实际用到的几项：
+#   - `owned-connection` 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的 `write_string`
 #     就是「覆盖写」（内部处理了「C API 没有 truncate」，旧文件更长也照样写对），所以 `output`
 #     落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs；
 #   - `chrono`：时间包装类型与 chrono 的双向转换（`DuckDate::to_naive_date`、`from_naive_date` 等），
@@ -62,7 +63,7 @@ crate-type = ["staticlib"]
 #     API cannot set a function's description or examples, so the community-extension doc page can only
 #     be filled in from an exported `target/function_descriptions.csv` — this is its one source (see
 #     src/bin/duckfn.rs and the `just docs_csv` recipe). `cli` pulls clap and csv into duckfn.
-duckfn = { version = "0.0.14", features = ["all"] }
+duckfn = { version = "0.0.15", features = ["all", "owned-connection"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。

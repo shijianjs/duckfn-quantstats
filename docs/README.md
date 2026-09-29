@@ -82,17 +82,14 @@ meant to copy. The full config reference is in the kit's own guide at the path r
 `https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv` (served from `static/demo/`), which
 works in the browser — DuckDB-Wasm in the browser can fetch over HTTPS.
 
-Two things the local checks cannot see:
+What `npm test` does, and what it cannot see:
 
-- `npm test` runs the blocks in DuckDB-Wasm's **Node** worker (`duckdb-node`, per the kit's own
-  `AGENTS.md`), which *cannot* read `http(s)://`: every block that fetches the snapshot is reported as
-  failing with `IO Error: No files found that match the pattern "https://…"`. So when you read its
-  output, that exact message is expected — one per block that reads the snapshot, in both locales —
-  and **anything else is a real failure**. Do not "fix" it by generating data instead; verify the
-  snapshot-reading blocks in a browser (`npm start`, then click Run).
-  This is a **temporary state of `duckfn-docs-kit@0.2.x`**: upstream is mid-release, and once it lands
-  `duckfn-sql-verify` will move to a real browser runner built on Playwright. Revisit this note (and
-  the matching one in `AGENTS.md`) when the kit is next upgraded.
+- It runs each block in DuckDB-Wasm **in a real browser** (kit 0.3.0 and up): `duckfn-sql-verify` drives
+  your system Chrome/Edge through `playwright-core` (`executablePath`, so no browser is downloaded) and
+  serves the engine and the extension from local files over a loopback http server — the suite itself
+  is offline, while a block reading `https://…` needs the network exactly as it does on the site. So
+  the snapshot-reading blocks really run, and no manual click-through is needed. If no browser is
+  detected, point `--browser <exe>` (or `DFK_BROWSER`) at one.
 - **A wasm build cannot write files at all** — a platform limitation, not something the extension can
   work around: there, a path that does not exist comes back as a phantom one-byte entry, DuckDB's own
   `glob` / `read_text` / `file_size` report it as present, and duckfn's raw write offset is off by a
@@ -127,8 +124,9 @@ build whose engine matches. When either side moves, re-check that the live block
 
 ## Testing the examples
 
-`npm test` runs every runnable block in `docs/` and in each locale through DuckDB-Wasm and fails if
-one breaks, so an example cannot rot unnoticed:
+`npm test` runs every runnable block in `docs/` and in each locale through DuckDB-Wasm — in a headless
+browser, on the very runtime the page uses — and fails if one breaks, so an example cannot rot
+unnoticed:
 
 ```shell
 npm test             # = duckfn-sql-verify --site . (needs the extension under static/duckdb-extensions/)

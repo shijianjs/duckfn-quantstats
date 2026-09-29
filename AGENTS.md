@@ -65,8 +65,9 @@ ls -d ~/.cargo/registry/src/*/duckfn-*/
 
 duckfn-docs-kit（npm 包，站点直接依赖）另有一份**给 agent 看的用法契约**，本仓装在
 `docs/node_modules/duckfn-docs-kit/AGENTS.md`：渲染契约（几处最容易写错的地方）、DuckDB-Wasm 与
-Node 运行器的已知事实、扩展预加载的文件名契约、版本耦合。**写或审可运行 SQL 块之前先读它**，
-上面那张表里 crate 内的 `docs/docs/docs-kit/` 是同一内容的用户文档版。
+浏览器运行器的已知事实、扩展预加载的文件名契约、版本耦合。**写或审可运行 SQL 块之前先读它**，
+上面那张表里 crate 内的 `docs/docs/docs-kit/` 是同一内容的用户文档版 —— `runnable-sql.md` 是块配置、
+`sql-test.md` 是 `duckfn-sql-verify` 的行为与全部选项。
 
 属性宏接受哪些参数、允许哪些返回形状，**真相在 `duckfn-macro` 的源码里** —— 它是独立发布的 crate，
 解包在同一个 registry 目录下的 `duckfn-macro-<版本>/src/**`；文档与示例只覆盖常用面。
@@ -177,12 +178,12 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
   `https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`（= `docs/static/demo/prices.csv`，
   与仓库根的 `demo/prices.csv` 是同一份内容，**两份都要留**）。不要用 `range()` 现造的假数据充数 ——
   那种序列画出来的 tearsheet 一眼就是假的。
-- **浏览器能读 HTTPS，Node 跑不了（kit 0.2.x 的现状）**：`read_csv('https://…')` 在浏览器里实测可用
-  （这就是上面那条的理由），但 `npm test` 用的 DuckDB-Wasm **Node** worker 读不了 http，会报
-  `IO Error: No files found that match the pattern`。也就是说 `npm test` 会把每个「读远程数据」的块报成
-  失败 —— 这类块靠手动在浏览器里点一遍来验证，**别为了让测试变绿就把示例改回造数据**。
-  这是 `duckfn-docs-kit@0.2.x` 的临时状态：上游正在发版，发完之后 `duckfn-sql-verify` 会换成基于
-  playwright 的真浏览器 runner，那时这条与 `docs/README.md` 里的同款说明都该删掉（升级 kit 后先确认一遍）。
+- **`npm test` 跑在真浏览器里（kit 0.3.0 起）**：`duckfn-sql-verify` 用 `playwright-core` 驱动本机
+  的 Chrome/Edge（走 `executablePath`，因为它不会下载浏览器），引擎与扩展都从本地文件经 loopback http
+  提供，所以套件本身是离线的 —— 但读 `https://…` 的块因此要真联网才跑得动。页面用什么环境它就用什么
+  环境，所以上面那条「示例一律用真实数据」是被测试覆盖的：远程读不再需要手动去浏览器里点一遍。
+  找不到浏览器时用 `--browser <exe>`（或 `DFK_BROWSER`）指一个；块卡死由 `--timeout` 兜底，`--report`
+  导出逐块结果，`--quiet` 只报意外失败。
 - **wasm 上写不了文件（平台限制，别当 bug 修）**：DuckDB-Wasm 的文件系统不忠实 —— 任何不存在的路径都会返回
   一条 1 字节 `\0` 的幻影条目，连 DuckDB 自带的 `glob` / `read_text` / `file_size` 都把它报成存在，所以
   `exists` 恒真、没有任何 SQL 原语能区分「不存在」；duckfn 的裸写偏移在那边也不对（多一字节 / 错位）。
@@ -195,7 +196,7 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
   一个示例一个块。
 
 改完文档站跑两个检查：`just docs_build`（`onBrokenLinks: throw`，中英双语都要过）与
-`cd docs && npm test`（把每个可运行块用 DuckDB-Wasm 真跑一遍，并校验 `expect`）。
+`cd docs && npm test`（在真浏览器里把每个可运行块用 DuckDB-Wasm 跑一遍，并校验 `expect`）。
 
 ### 临时文件放到 target/
 

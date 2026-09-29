@@ -24,7 +24,7 @@
     "@docusaurus/theme-search-algolia": "^3.10.2",
     "@mdx-js/react": "^3.0.0",
     "clsx": "^2.0.0",
-    "duckfn-docs-kit": "^0.2.0",
+    "duckfn-docs-kit": "^0.3.0",
     "prism-react-renderer": "^2.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
