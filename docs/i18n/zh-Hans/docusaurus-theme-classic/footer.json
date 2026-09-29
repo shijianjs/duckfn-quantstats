@@ -1,0 +1,42 @@
+{
+  "link.title.Docs": {
+    "message": "文档",
+    "description": "The title of the footer links column with title=Docs in the footer"
+  },
+  "link.title.Links": {
+    "message": "相关链接",
+    "description": "The title of the footer links column with title=Links in the footer"
+  },
+  "link.item.label.Introduction": {
+    "message": "简介",
+    "description": "The label of footer link with label=Introduction linking to /docs/intro"
+  },
+  "link.item.label.Quick start": {
+    "message": "快速开始",
+    "description": "The label of footer link with label=Quick start linking to /docs/getting-started/quick-start"
+  },
+  "link.item.label.Functions": {
+    "message": "函数",
+    "description": "The label of footer link with label=Functions linking to /docs/guide/functions"
+  },
+  "link.item.label.Build and release": {
+    "message": "构建与发版",
+    "description": "The label of footer link with label=Build and release linking to /docs/build-and-release"
+  },
+  "link.item.label.GitHub": {
+    "message": "GitHub",
+    "description": "The label of footer link with label=GitHub linking to the repository"
+  },
+  "link.item.label.duckfn": {
+    "message": "duckfn",
+    "description": "The label of footer link with label=duckfn linking to the duckfn documentation"
+  },
+  "link.item.label.DuckDB extensions": {
+    "message": "DuckDB 扩展",
+    "description": "The label of footer link with label=DuckDB extensions"
+  },
+  "copyright": {
+    "message": "Copyright © 2026 duckfn_quantstats contributors. Built with Docusaurus.",
+    "description": "The footer copyright; keep it free of angle brackets (it is rendered as HTML)"
+  }
+}

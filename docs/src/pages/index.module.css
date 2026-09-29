@@ -1,0 +1,116 @@
+/**
+ * Home page styles — the part that stayed behind.
+ *
+ * The hero, the feature grid and the next-step cards moved to
+ * `duckfn-docs-kit` together with the `dfk-*` web components that render them;
+ * the components inject their own styles into their shadow roots, so nothing
+ * from them leaks into this file. What is left here belongs to the code
+ * showcase, which needs the theme's `CodeBlock` and therefore cannot leave the
+ * site.
+ *
+ * Class names are hashed by CSS Modules, so nothing here leaks into Infima's
+ * own classes, and nothing in the theme can reach these rules.
+ *
+ * Every colour comes from the `--duckfn-*` tokens in the kit's `tokens.css`
+ * (pulled in through `src/css/custom.css`), which is the single place the brand
+ * palette is defined; dark mode therefore needs no rules of its own.
+ */
+
+/* ------------------------------------------------------------ showcase */
+
+.sectionTint {
+  padding: 4.5rem 0;
+  background-color: var(--duckfn-tint);
+}
+
+.sectionInner {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem;
+}
+
+.sectionTitle {
+  margin-bottom: 0;
+  text-align: center;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  letter-spacing: -0.01em;
+}
+
+.sectionLead {
+  max-width: 46rem;
+  margin: 1rem auto 0;
+  text-align: center;
+  font-size: 1rem;
+  line-height: 1.7;
+  color: var(--ifm-color-emphasis-700);
+}
+
+.codeGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(24rem, 100%), 1fr));
+  align-items: start;
+  gap: 1.25rem;
+  margin-top: 2.75rem;
+}
+
+/* Two code columns on a wide screen leave roughly 33rem each, and the default
+   code size would push the longest line into a scrollbar. Prism sets the size
+   on `.prism-code` itself, so that is the element to shrink. */
+.codeGrid :global(.prism-code) {
+  font-size: 0.8125rem;
+}
+
+/* The SQL side carries a note under the block, so it is a flex column rather
+   than a bare code block. `align-items: start` on the grid keeps both tops
+   aligned whatever the two blocks' heights end up being. */
+.codeColumn {
+  display: flex;
+  flex-direction: column;
+}
+
+.codeCaption {
+  margin-bottom: 0;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--ifm-color-emphasis-600);
+}
+
+.showcaseLinkRow {
+  margin: 2rem 0 0;
+  text-align: center;
+}
+
+.showcaseLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 600;
+  color: var(--duckfn-blue);
+  text-decoration: none;
+}
+
+.showcaseLink:hover,
+.showcaseLink:focus-visible {
+  color: var(--duckfn-blue);
+  text-decoration: underline;
+}
+
+/* `<iconify-icon>` renders an inner `<svg width="1em">`, so size it with
+   font-size; a CSS width/height only grows the empty host box. */
+.showcaseLinkArrow {
+  font-size: 1.125rem;
+}
+
+/* -------------------------------------------------------- breakpoints */
+
+@media screen and (max-width: 996px) {
+  .sectionTint {
+    padding: 3.5rem 0;
+  }
+}
+
+@media screen and (max-width: 576px) {
+  .sectionInner {
+    padding: 0 1rem;
+  }
+}

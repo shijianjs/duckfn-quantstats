@@ -1,0 +1,78 @@
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* Shared building blocks from duckfn-docs-kit: the `--duckfn-*` brand tokens
+   and the TOC-toggle styles. The `dfk-*` home components carry their own
+   styles inside the JS bundle (shadow DOM), so they need nothing here. Both
+   files live in the kit so other extension docs sites get the same look
+   without copying code. */
+@import 'duckfn-docs-kit/src/kit.css';
+
+/* Brand colours.
+   The palette comes from `static/img/logo.svg`. Replace both together — the
+   logo and the ramp below — so the site keeps matching its mark.
+
+   The seven `--ifm-color-primary*` steps are the logo blue multiplied by the
+   same ratios the template used for its green ramp (dark x0.891, darker x0.848,
+   darkest x0.696, light x1.10, lighter x1.151, lightest x1.30), so hover states,
+   links and selected sidebar items keep the contrast relationships they had.
+
+   Contrast, checked against the palettes below:
+     #14459b on white           8.9:1   -> light-mode primary for text and links
+     white on #14459b           8.9:1   -> buttons and badges
+     #4d8fe8 on #1b1b1d         5.2:1   -> dark-mode primary for text and links
+     #fcb103 on #14459b         4.8:1   -> yellow is only legible on brand blue
+     #fcb103 on white           1.8:1   -> NOT a text colour; see the note below.
+
+   The `--duckfn-*` tokens the home page picks its tints, glows and borders
+   from are defined once in the kit's `tokens.css` (imported above); this file
+   only owns the Infima ramp. */
+:root {
+  --ifm-color-primary: #14459b;
+  --ifm-color-primary-dark: #123d8a;
+  --ifm-color-primary-darker: #113a83;
+  --ifm-color-primary-darkest: #0e306c;
+  --ifm-color-primary-light: #164caa;
+  --ifm-color-primary-lighter: #174fb2;
+  --ifm-color-primary-lightest: #1a5aca;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode.
+   The primary has to move well away from #14459b here: the deep blue only
+   reaches about 2.4:1 against #1b1b1d, which is unreadable for text. */
+[data-theme='dark'] {
+  --ifm-color-primary: #4d8fe8;
+  --ifm-color-primary-dark: #457fcf;
+  --ifm-color-primary-darker: #4179c5;
+  --ifm-color-primary-darkest: #3664a2;
+  --ifm-color-primary-light: #559dff;
+  --ifm-color-primary-lighter: #59a5ff;
+  --ifm-color-primary-lightest: #64baff;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+/* The yellow is an accent, never a text colour: #fcb103 on white is 1.8:1.
+   Safe uses (all already at or above 4.5:1): as a chip behind the deep blue,
+   as the icon chip background in dark mode, as a decorative underline or
+   border, and for small shapes that are not the only carrier of meaning. */
+
+/* Two implementations side by side; used by examples/side-by-side.md.
+   Each column claims at least 20rem and wraps to its own row when the viewport
+   is too narrow for both. */
+.code-compare {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.code-compare > div {
+  flex: 1 1 20rem;
+  /* Without this, the code blocks keep their intrinsic width and overflow. */
+  min-width: 0;
+}

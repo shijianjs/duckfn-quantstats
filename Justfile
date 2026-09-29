@@ -63,6 +63,30 @@ lint:
 docs_csv:
     cargo run --bin duckfn -- function_descriptions
 
+# ==== 文档站（docs/，Docusaurus，中英双语） ====
+#
+# 首次先 `just docs_install` 装依赖。CI 走 `npm ci`，本地装一次即可。
+# 站点维护（目录、翻译、部署）见 docs/README.md。
+#
+# The documentation site (docs/, Docusaurus, English + Simplified Chinese). Run `just docs_install`
+# once; CI uses `npm ci`. See docs/README.md for layout, translations and deployment.
+
+# 装文档站依赖（只做一次）
+docs_install:
+    cd docs && npm install
+
+# 构建静态站点 -> docs/build（改完文档想确认链接都还通时跑它）
+docs_build:
+    cd docs && npm run build
+
+# 本地预览文档站（http://localhost:3000；中文用 npm start -- --locale zh-Hans）
+docs_start:
+    cd docs && npm start
+
+# 补翻译占位：改了 config / src / _category_.json 之后再生一次，然后填新出现的条目
+docs_translations:
+    cd docs && npx docusaurus write-translations --locale zh-Hans
+
 # 初始化 extension-ci-tools（生成 configure/ 与 python venv）；跑 make 流程前先来一次
 ci-init:
     make configure

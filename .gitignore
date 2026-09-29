@@ -6,7 +6,9 @@ duckdb_unittest_tempdir
 /test/bin
 venv
 
-.codebuddy
+/.codebuddy
+/.trae
+/.qoder
 .vscode
 .mcp.json
 /test/sql/*.html

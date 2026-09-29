@@ -1,0 +1,8 @@
+{
+  "label": "Guide",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "The two SQL names, every option, the price branch, where the reports go, and the error paths."
+  }
+}

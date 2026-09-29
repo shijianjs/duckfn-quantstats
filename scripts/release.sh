@@ -27,12 +27,18 @@ set -euo pipefail
 #   - demo/：提交进仓库的行情快照，没有版本号；
 #   - AGENTS.md 与本脚本：流程说明，里面的版本号只是示例。
 #
+# 文档站那几处单独说：package-lock.json 里 `0.1.0` 之类的字符串是依赖自己的版本号，动了会让
+# `npm ci` 对不上完整性校验；docs/docs 与 docs/i18n 的正文只写 {{EXTENSION_VERSION}} 占位符，真正的
+# 版本号集中在 docs/extension-version.ts，由下面单独替换（它可能是新建、还没被 git 跟踪的文件，
+# `git grep` 找不到）。
+#
 # Paths skipped when replacing the version inside docs / READMEs / CI comments. More than duckfn's own
 # script excludes, because this extension's version number **collides with other version strings**:
 # Cargo.toml's `quantstats-rs = "<version>"` line is a dependency requirement (handled separately),
 # Cargo.lock is cargo update's job, `test/` asserts quantstats-rs' own version as the HTML footer prints
 # it, `demo/` is a committed market snapshot, and the version numbers in AGENTS.md and in this script are
-# examples rather than the project's current release.
+# examples rather than the project's current release. The docs site is spelled out above:
+# package-lock.json would be corrupted, and the site's actual version number lives in the file below.
 DOC_EXCLUDES=(
     ':(exclude)Cargo.toml'
     ':(exclude)Cargo.lock'
@@ -40,7 +46,17 @@ DOC_EXCLUDES=(
     ':(exclude)scripts'
     ':(exclude)test'
     ':(exclude)demo'
+    ':(exclude)docs/package-lock.json'
+    ':(exclude)docs/docs'
+    ':(exclude)docs/i18n'
+    ':(exclude)docs/build'
 )
+
+# 文档站版本号的唯一来源（正文里只有占位符），由 cmd_bump 显式替换。
+#
+# The docs site's only copy of the version number (the pages hold placeholders); replaced explicitly by
+# cmd_bump.
+DOC_VERSION_FILE='docs/extension-version.ts'
 
 die() {
     echo "error: $*" >&2
@@ -130,6 +146,15 @@ cmd_bump() {
             sed -i "s/${escaped}/${new}/g" "$f"
             echo "  updated $f"
         done
+
+        # 文档站的版本号文件单独替换（它在排除列表里，且可能是尚未被 git 跟踪的新文件）。
+        #
+        # The docs site's version file is replaced on its own: it is in the exclusion list, and it may
+        # not be tracked by git yet.
+        if [ -f "$DOC_VERSION_FILE" ]; then
+            sed -i "s/${escaped}/${new}/g" "$DOC_VERSION_FILE"
+            echo "  updated $DOC_VERSION_FILE"
+        fi
     fi
 
     sync_lock
