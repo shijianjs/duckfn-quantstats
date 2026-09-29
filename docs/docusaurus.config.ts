@@ -44,7 +44,7 @@ const baseUrl = process.env.DOCS_BASE_URL ?? '/';
 const config: Config = {
   title: EXTENSION_NAME,
   tagline: 'quantstats HTML reports, one SQL call per instrument',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/logo.svg',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
