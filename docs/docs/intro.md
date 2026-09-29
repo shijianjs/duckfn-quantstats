@@ -91,12 +91,12 @@ FROM (
 ORDER BY (r).symbol;
 ```
 
-The write goes through DuckDB's VFS, so local disk, `s3://…` once `httpfs` is loaded, and whatever
-file system a wasm build exposes all take the same code path. That is also why this block is the one
-demonstration on this page that cannot run in your browser: a wasm build's file system answers "that
-name is taken" for every candidate, so the guard against overwriting never finds a free name and the
-call stops with `could not find a free report file name in 8 attempts`. On your own machine the files
-appear in `./`.
+The write goes through DuckDB's VFS, so local disk, `s3://…` once `httpfs` is loaded, and anything else
+DuckDB mounts all take the same code path. This is also the one demonstration on this page that cannot
+run in your browser — a **wasm build cannot write files**: its file system reports every path as
+present, even one that does not exist, so the guard against overwriting never finds a free name and the
+call stops with `could not find a free report file name in 8 attempts`. That is a limitation of the
+platform, not of the extension. On your own machine the files appear in `./`.
 
 On a desktop, `open_in_browser` saves you the trip to the file manager, but it needs a browser process
 to launch, so a wasm build ignores it (`open_in_browser` is documented on

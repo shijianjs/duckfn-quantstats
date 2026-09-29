@@ -40,15 +40,18 @@ ORDER BY (r).symbol;
 从结果里读，不必去猜。
 
 目录**必须已经存在**（函数不会替你创建）。写文件走的是 **DuckDB 的 VFS** 而不是 `std::fs`：本地磁盘、
-内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` / `http(s)://`，
-都是同一条通路、同一套语义（VFS 路径按 `/` 拼，所以 `output_dir` 写 `s3://bucket/reports` 也没问题）。
+装了 `httpfs` 之后的 `s3://` / `http(s)://`，以及 DuckDB 挂上的其它文件系统，都是同一条通路、同一套
+语义（VFS 路径按 `/` 拼，所以 `output_dir` 写 `s3://bucket/reports` 也没问题）。
 
 :::note[这块在浏览器里跑不了]
 
-查询本身没有变，拦住它的是浏览器构建的文件系统：`exists`（也就是「绝不覆盖已有文件」那道检查）在 wasm
-下对**任何**候选文件名都回答「这个文件在」，于是函数的八次重试全部撞名，调用以
-`could not find a free report file name in 8 attempts` 结束。拿到本地 DuckDB 上跑同一段，文件会写进
-`./`，`file_path` 里是真实路径。
+查询本身没有变 —— **wasm 构建写不了文件**，这是平台限制，扩展绕不过去。那边的文件系统不是一个忠实的
+文件系统：一个并不存在的路径仍然会返回一条 **1 字节**的幻影条目，连 DuckDB 自带的 `glob`、`read_text`
+与 `file_size` 都把它报成存在。于是 `exists`（也就是「绝不覆盖已有文件」那道检查）恒为真，八个候选名字
+一个都腾不出来，调用以 `could not find a free report file name in 8 attempts` 结束。`COPY … TO` 也救
+不了：它只能把**查询结果**按 CSV / JSON / parquet 导出，载不动一份任意长的 HTML 报告的原样字节。
+
+拿到本地 DuckDB 上跑同一段，文件会写进 `./`，`file_path` 里是真实路径。
 
 :::
 
@@ -82,11 +85,15 @@ FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 
 ## WebAssembly
 
-`output_dir` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
-两边唯一的差别就在「这个名字存在吗？」这个问题上：wasm 构建对每个候选名字都回答「已存在」，所以
-`output_dir` 目前在那边会以 `could not find a free report file name in 8 attempts` 失败，而不是写出报告。
+**wasm 构建根本写不了文件**，而且这是平台限制，不是本扩展的 bug。那边的文件系统不忠实：任何不存在的
+路径都会返回一个 1 字节的幻影条目，DuckDB 自带的 `glob` / `read_text` / `file_size` 都把它报成存在，
+duckfn 的裸写偏移在那边也差一个字节。于是 `exists` 恒为真，那道「绝不覆盖已有文件」的检查永远找不到空位，
+`output_dir` 以 `could not find a free report file name in 8 attempts` 失败。`COPY … TO` 也替代不了它：
+它按格式（CSV / JSON / parquet）导出**查询结果**，这些格式载不动一份任意长的 HTML 文档的原样字节。
 
-`open_in_browser` 是唯一一处**有意保留**的例外：wasm 构建里没有可以启动的浏览器进程，所以那边直接忽略这个
-选项 —— 不打开浏览器，也不会为此写临时文件。报告字符串原样返回给宿主，展示是宿主页面的事：
-blob URL + `window.open`、`<iframe>`（[快速开始](../getting-started/quick-start.md)就是这么把报告渲染在
-页面里的），或者别的。
+所以在 wasm 上报告就留在 `html` 那一列里，交给宿主页面处理 ——
+[快速开始](../getting-started/quick-start.md)把它渲染进 iframe，宿主页面也可以把这段字符串交给
+blob URL 加 `window.open`，或者干脆留着。
+
+`open_in_browser` 是另一处**有意保留**的例外：wasm 构建里没有可以启动的浏览器进程，所以那边直接忽略这个
+选项 —— 不打开浏览器，也不会为此写临时文件。

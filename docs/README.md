@@ -84,14 +84,22 @@ works in the browser — DuckDB-Wasm in the browser can fetch over HTTPS.
 
 Two things the local checks cannot see:
 
-- `npm test` runs the blocks in DuckDB-Wasm's **Node** worker, which *cannot* read `http(s)://`: every
-  block that fetches the snapshot is reported as failing with
-  `IO Error: No files found that match the pattern`. Do not "fix" that by generating data instead —
-  verify those blocks in a browser.
-- `output_dir` does not work in a wasm build: its file system reports every candidate file name as
-  taken, so the never-overwrite guard gives up with
-  `could not find a free report file name in 8 attempts`. Blocks that write files are therefore
-  ordinary `sql` blocks, with a note saying why they do not run here.
+- `npm test` runs the blocks in DuckDB-Wasm's **Node** worker (`duckdb-node`, per the kit's own
+  `AGENTS.md`), which *cannot* read `http(s)://`: every block that fetches the snapshot is reported as
+  failing with `IO Error: No files found that match the pattern "https://…"`. So when you read its
+  output, that exact message is expected — one per block that reads the snapshot, in both locales —
+  and **anything else is a real failure**. Do not "fix" it by generating data instead; verify the
+  snapshot-reading blocks in a browser (`npm start`, then click Run).
+  This is a **temporary state of `duckfn-docs-kit@0.2.x`**: upstream is mid-release, and once it lands
+  `duckfn-sql-verify` will move to a real browser runner built on Playwright. Revisit this note (and
+  the matching one in `AGENTS.md`) when the kit is next upgraded.
+- **A wasm build cannot write files at all** — a platform limitation, not something the extension can
+  work around: there, a path that does not exist comes back as a phantom one-byte entry, DuckDB's own
+  `glob` / `read_text` / `file_size` report it as present, and duckfn's raw write offset is off by a
+  byte. So the never-overwrite guard can never find a free name and `output_dir` fails with
+  `could not find a free report file name in 8 attempts`; `COPY … TO` is no substitute, since it
+  exports query results in a format that cannot carry an HTML document byte for byte. Blocks that
+  write files are therefore ordinary `sql` blocks, with a note saying why they do not run here.
 
 ## Preloaded extensions
 

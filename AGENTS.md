@@ -85,6 +85,10 @@ Node 运行器的已知事实、扩展预加载的文件名契约、版本耦合
    范例随包而来，自动与依赖对齐 —— 不需要任何 git 操作。
 3. 本文件不用改：它只写占位符，不钉具体版本号。
 
+> **`duck_vfs` 已从 `all` feature 里移除**：native 下确需文件系统时要显式开 `owned-connection`
+> （本仓 `Cargo.toml` 现在写的是 `features = ["all"]`，升到那一版得一起改，否则 `duck_vfs` 相关代码编译
+> 不过）。wasm 侧不用管 —— 那边本来也写不了文件（见上面「可运行 SQL 块」一节）。
+
 
 ## 仓库约定
 
@@ -173,14 +177,20 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
   `https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`（= `docs/static/demo/prices.csv`，
   与仓库根的 `demo/prices.csv` 是同一份内容，**两份都要留**）。不要用 `range()` 现造的假数据充数 ——
   那种序列画出来的 tearsheet 一眼就是假的。
-- **浏览器能读 HTTPS，Node 跑不了**：`read_csv('https://…')` 在浏览器里实测可用（这就是上面那条的理由），
-  但 `npm test` 用的 DuckDB-Wasm **Node** worker 读不了 http，会报
+- **浏览器能读 HTTPS，Node 跑不了（kit 0.2.x 的现状）**：`read_csv('https://…')` 在浏览器里实测可用
+  （这就是上面那条的理由），但 `npm test` 用的 DuckDB-Wasm **Node** worker 读不了 http，会报
   `IO Error: No files found that match the pattern`。也就是说 `npm test` 会把每个「读远程数据」的块报成
   失败 —— 这类块靠手动在浏览器里点一遍来验证，**别为了让测试变绿就把示例改回造数据**。
-- **`output_dir` 在 wasm 下不可用**：浏览器构建的文件系统对**任何**候选文件名都回答「已存在」，于是那道
-  「绝不覆盖已有文件」的检查永远找不到空位，报
+  这是 `duckfn-docs-kit@0.2.x` 的临时状态：上游正在发版，发完之后 `duckfn-sql-verify` 会换成基于
+  playwright 的真浏览器 runner，那时这条与 `docs/README.md` 里的同款说明都该删掉（升级 kit 后先确认一遍）。
+- **wasm 上写不了文件（平台限制，别当 bug 修）**：DuckDB-Wasm 的文件系统不忠实 —— 任何不存在的路径都会返回
+  一条 1 字节 `\0` 的幻影条目，连 DuckDB 自带的 `glob` / `read_text` / `file_size` 都把它报成存在，所以
+  `exists` 恒真、没有任何 SQL 原语能区分「不存在」；duckfn 的裸写偏移在那边也不对（多一字节 / 错位）。
+  于是「绝不覆盖已有文件」那道检查永远找不到空位，报
   `could not find a free report file name in 8 attempts`（`./`、`.`、`/tmp/`、`reports` 四种写法都试过，
-  一样）。所以落盘示例写成普通 ```sql 块，并在页面上说明为什么它不能在浏览器里跑。
+  一样）。`COPY … TO` 也替代不了它：它按 CSV / JSON / parquet 导出**查询结果**，载不动任意长的 HTML 原样
+  字节。所以 wasm 场景就是**直接报错**：落盘示例写成普通 ```sql 块，并在页面上说明为什么它不能在浏览器里跑，
+  别做成可运行块。
 - **块里只写一条语句**：运行器与页面都只展示**最后一条语句**的结果，一个块里塞几个独立示例等于白写 ——
   一个示例一个块。
 

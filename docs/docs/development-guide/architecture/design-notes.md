@@ -176,8 +176,9 @@ become `_`, and a part is capped at 32 characters.
 The write itself goes through duckfn's convenience layer `duck_vfs::write_string`, i.e. through
 **DuckDB's VFS** rather than `std::fs`:
 
-- local disk, in-memory file systems, whatever file system the wasm build exposes, and `s3://` /
-  `http(s)://` once `httpfs` is loaded all go through the same path with the same semantics;
+- local disk, `s3://` / `http(s)://` once `httpfs` is loaded, and anything else DuckDB mounts all go
+  through the same path with the same semantics (a wasm build can write nothing at all — see
+  [WebAssembly](#webassembly));
 - it is also the only way an aggregate can write at all. DuckDB's C API gives aggregate functions no
   client context (no bind callback, no `duckdb_aggregate_function_get_client_context`), so duckfn keeps
   an owned long-lived connection from registration time and hands out a fresh `ClientContext` →
@@ -222,13 +223,27 @@ launcher itself not starting.
 
 ## WebAssembly
 
-`output_dir` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the native
-one and the files land wherever DuckDB's own file system points in that environment. That replaces the
-earlier behaviour, where the path was dropped on `wasm32-unknown-emscripten` because `std::fs` has no
-writable file system there.
+The store path in this extension is `duck_vfs`, i.e. DuckDB's file system through the C API, and that
+is what was used to get rid of the old `std::fs` behaviour (the path was simply dropped on
+`wasm32-unknown-emscripten`, because `std::fs` has no writable file system there). The improvement did
+not survive contact with the wasm runtime:
 
-The naming logic (`naming.rs`) is therefore **shared**: a wasm build names its report files too, which
-is why `sanitize-filename` and `fastrand` are ordinary dependencies rather than non-wasm ones.
+- **a wasm build's file system is not a faithful one.** Any path that does not exist still comes back
+  as a phantom **one-byte** entry — `glob`, `read_text` and `file_size` all report it as present — so
+  `exists` is always true and no SQL primitive can tell "missing" from "present". duckfn's raw write
+  offset is wrong on that target too (a file comes out one byte long / shifted). It is a limitation of
+  the platform, not of duckfn or of this extension.
+- **there is no way around it from SQL.** `COPY … TO` can only export *query results* in a format
+  (CSV / JSON / parquet), and none of those carries an arbitrary HTML document through byte for byte
+  (CSV would quote it, a line break would split it).
+
+The consequence: with `output_dir`, `report_path`'s never-overwrite guard can never find a free name on
+wasm, so the call fails with `could not find a free report file name in 8 attempts` — the reports stay
+in the `html` column and the host page shows them. On native targets everything behaves as documented.
+
+The naming logic (`naming.rs`) is still **shared** — a wasm build names its report files before the
+write fails, which is why `sanitize-filename` and `fastrand` are ordinary dependencies rather than
+non-wasm ones.
 
 `open_in_browser` is the one deliberate exception, and it is also the only platform-specific code left
 in the extension (`browser.rs`): a wasm build has no browser process to launch, so the option is

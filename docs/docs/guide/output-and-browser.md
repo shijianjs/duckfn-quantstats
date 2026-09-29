@@ -43,17 +43,22 @@ The `file_path` in each returned row is the path that very call wrote to (`NULL`
 written), so "which files were written" can be read off the result instead of guessed.
 
 The directory **has to exist already** (it is not created for you). The write goes through **DuckDB's
-VFS** rather than `std::fs`, so local disk, in-memory file systems, whatever file system the wasm
-build exposes, and `s3://` / `http(s)://` once `httpfs` is loaded all go through the same path with
-the same semantics (VFS paths are joined with `/`, so `output_dir` can be `s3://bucket/reports`).
+VFS** rather than `std::fs`, so local disk, `s3://` / `http(s)://` once `httpfs` is loaded, and
+anything else DuckDB mounts all go through the same path with the same semantics (VFS paths are joined
+with `/`, so `output_dir` can be `s3://bucket/reports`).
 
 :::note[This block does not run in your browser]
 
-Nothing about the query changes; the browser build's file system is what stops it. `exists` — the
-check behind "never overwrite a file" — answers "yes, that file is there" for **every** candidate name
-on a wasm build, so the function's eight retries all collide and the call fails with `could not find
-a free report file name in 8 attempts`. On a native DuckDB the same block writes the files into `./`
-and `file_path` carries their real paths.
+Nothing about the query changes — a **wasm build cannot write files**, and that is a limitation of the
+platform rather than something the extension can work around. On that target the file system is not a
+faithful one: a path that does not exist still comes back as a phantom **one-byte** entry, and
+DuckDB's own `glob`, `read_text` and `file_size` all report it as present. So `exists` — the check
+behind "never overwrite a file" — is always true, none of the eight candidate names is ever free, and
+the call stops with `could not find a free report file name in 8 attempts`. `COPY … TO` is no way out
+either: it exports *query results* as CSV / JSON / parquet, which cannot carry an arbitrary HTML
+document through unchanged.
+
+On a native DuckDB the same block writes the files into `./`, and `file_path` carries their real paths.
 
 :::
 
@@ -90,14 +95,18 @@ One call opens one tab per **report** (one instrument against two benchmarks is 
 
 ## WebAssembly
 
-`output_dir` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the
-native one and the file lands wherever DuckDB's own file system points in that environment. What that
-file system answers for "does this name exist?" is the one place the two builds part company: on a
-wasm build every candidate name reports as taken, so `output_dir` currently fails there with
-`could not find a free report file name in 8 attempts` instead of writing the reports.
+A **wasm build cannot write files at all**, and that is a platform limitation rather than a bug in
+this extension. Its file system is not a faithful one: every path that does not exist still comes back
+as a phantom one-byte entry, DuckDB's own `glob` / `read_text` / `file_size` report it as present, and
+duckfn's raw write offset is off by a byte there as well. `exists` is therefore always true, the
+never-overwrite guard can never find a free name, and `output_dir` fails with
+`could not find a free report file name in 8 attempts`. `COPY … TO` cannot stand in for it either: it
+exports *query results* in a format (CSV / JSON / parquet), and none of those can carry an arbitrary
+HTML document through byte for byte.
 
-`open_in_browser` is the one deliberate exception: a wasm build has no browser process to launch, so
-the option is ignored there — no browser, and no temporary file either. The report string comes back
-to the host as it is, and showing it is the host page's job: a blob URL and `window.open`, an
-`<iframe>` (which is how the [quick start](../getting-started/quick-start.md) renders a report in
-place), or whatever else fits.
+So on wasm the report stays in the `html` column and the host page decides what to do with it — the
+[quick start](../getting-started/quick-start.md) renders one in an iframe, a host page can hand the
+string to a blob URL and `window.open`, or it can simply keep it.
+
+`open_in_browser` is the other deliberate exception: a wasm build has no browser process to launch, so
+the option is ignored there — no browser, and no temporary file either.

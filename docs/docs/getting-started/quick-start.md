@@ -131,11 +131,12 @@ ORDER BY (r).symbol;
 
 :::note[Why that block is not runnable here]
 
-The query is the real one — writing to disk works on every platform DuckDB ships — but a browser
-build cannot demonstrate it. Its file system answers "that name is taken" no matter which name is
-asked about, so the guard that keeps reports from overwriting each other never finds a free name and
-the call stops with `could not find a free report file name in 8 attempts`. Run the same block in
-your own DuckDB and the files appear in `./`.
+The query is the real one, and on a native DuckDB it writes the files — but a **wasm build cannot write
+files at all**, which is a limitation of the platform. There, every path reports as present, even one
+that does not exist (a phantom one-byte entry that DuckDB's own `glob` and `file_size` agree with), so
+the guard that keeps reports from overwriting each other never finds a free name and the call stops
+with `could not find a free report file name in 8 attempts`. Run the same block in your own DuckDB and
+the files appear in `./`.
 
 :::
 

@@ -142,8 +142,8 @@ DuckDB 渲染 `typeof` 时不加引号。可空的只有三个：`benchmark` 在
 
 写文件本身用 duckfn 的便捷层 `duck_vfs::write_string`，也就是经 **DuckDB 的 VFS** 而不是 `std::fs`：
 
-- 本地磁盘、内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` /
-  `http(s)://`，都是同一条通路、同一套语义；
+- 本地磁盘、装了 `httpfs` 之后的 `s3://` / `http(s)://`，以及 DuckDB 挂上的其它文件系统，都是同一条通路、
+  同一套语义（wasm 构建什么都写不出来，见下面 [WebAssembly](#webassembly)）；
 - 这也是聚合函数唯一写得进去的路子：DuckDB 的 C API 不给聚合函数客户端上下文（没有 bind 回调，也没有
   `duckdb_aggregate_function_get_client_context`），所以 duckfn 在注册期留了一条自有长连接，
   从这里现取 `ClientContext` → `FileSystem`；
@@ -179,12 +179,23 @@ duckfn 的 `duck_vfs` 层处理 —— 旧文件更长时先清零再写正文�
 
 ## WebAssembly
 
-`output_dir` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统
-里。这替代了早先的行为（在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的
-文件系统）。
+本扩展的落盘走的是 `duck_vfs`，也就是经 C API 用 DuckDB 的文件系统 —— 这正是当初用来替掉旧行为的那条路
+（早先在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的文件系统）。这个改进
+在 wasm 运行时上没能站住：
 
-命名逻辑（`naming.rs`）因此是**共享**的：wasm 上一样要拼文件名，所以它用到的 `sanitize-filename` 与
-`fastrand` 是普通依赖，而非 wasm 限定的那两个。
+- **wasm 构建的文件系统不忠实。** 任何不存在的路径都会返回一个 **1 字节**的幻影条目 —— `glob`、
+  `read_text`、`file_size` 都把它报成存在 —— 于是 `exists` 恒为真，没有任何 SQL 原语能区分「不存在」与
+  「存在」；duckfn 的裸写偏移在那边也是错的（写出来多一字节 / 错位）。这是平台的限制，不是 duckfn 或本扩展的
+  bug。
+- **从 SQL 侧绕不过去。** `COPY … TO` 只能把**查询结果**按格式（CSV / JSON / parquet）导出，而这些格式都
+  载不动一份任意长的 HTML 文档的原样字节（CSV 会加引号、换行会把内容拆开）。
+
+结果是：在 wasm 上带 `output_dir` 时，`report_path` 那道「绝不覆盖」的检查永远找不到空位，调用以
+`could not find a free report file name in 8 attempts` 失败 —— 报告留在 `html` 列里，由宿主页面展示。
+原生目标上一切照文档所述。
+
+命名逻辑（`naming.rs`）仍然是**共享**的 —— wasm 上也会先把文件名拼出来（然后写入才失败），所以它用到的
+`sanitize-filename` 与 `fastrand` 是普通依赖，而非 wasm 限定的那两个。
 
 `open_in_browser` 是唯一一处**有意保留**的平台分支，也是本扩展仅剩的平台相关代码（`browser.rs`）：wasm
 构建里没有可以启动的浏览器进程，所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时文件。报告
