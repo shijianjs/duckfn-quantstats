@@ -78,11 +78,20 @@ inside its own box), and a block that demonstrates a failure declares `"expect":
 meant to copy. The full config reference is in the kit's own guide at the path recorded in
 `AGENTS.md` (`<duckfn crate>/docs/docs/docs-kit/runnable-sql.md`).
 
-**Blocks run in DuckDB-Wasm, so they cannot read `http(s)://`** — `read_csv('https://…')` fails with
-`IO Error: No files found that match the pattern`, in the browser and under `npm test` alike. A block
-that has to run therefore builds its own data (`range()`, `VALUES`); a block that needs the real demo
-snapshot is written as an ordinary `sql` block and reads
-`https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`.
+**Examples use the real snapshot, not generated data**: a runnable block reads
+`https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv` (served from `static/demo/`), which
+works in the browser — DuckDB-Wasm in the browser can fetch over HTTPS.
+
+Two things the local checks cannot see:
+
+- `npm test` runs the blocks in DuckDB-Wasm's **Node** worker, which *cannot* read `http(s)://`: every
+  block that fetches the snapshot is reported as failing with
+  `IO Error: No files found that match the pattern`. Do not "fix" that by generating data instead —
+  verify those blocks in a browser.
+- `output_dir` does not work in a wasm build: its file system reports every candidate file name as
+  taken, so the never-overwrite guard gives up with
+  `could not find a free report file name in 8 attempts`. Blocks that write files are therefore
+  ordinary `sql` blocks, with a note saying why they do not run here.
 
 ## Preloaded extensions
 

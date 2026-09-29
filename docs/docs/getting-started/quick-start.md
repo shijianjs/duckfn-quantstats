@@ -7,7 +7,8 @@ description: Install the extension, point it at a table of prices or returns, an
 # Quick start
 
 Nothing is compiled and nothing is installed besides the extension itself: if you can send a SQL
-query to DuckDB — from the CLI, from Python, from any client — you can produce the reports.
+query to DuckDB — from the CLI, from Python, from any client — you can produce the reports. Every
+block on this page runs against one snapshot, and every one of them runs *here*, in your browser.
 
 ## Prerequisites
 
@@ -37,14 +38,16 @@ Both functions consume a **long table** — one row per (instrument, date, value
 | `date` | `DATE` | The period the value belongs to. |
 | value | `DOUBLE` | A periodic return, or a price/NAV for `qs_html_reports_by_prices`. |
 
-A benchmark is just another `symbol` in the same table, so there is nothing to join.
+A benchmark is just another `symbol` in the same table, so there is nothing to join. The examples all
+read a snapshot served next to this site: `GOOGL`, `MSFT` and the S&P 500 index (`SPX`), 1435 trading
+days each, 2021-01-04 … 2026-09-21:
 
-Every example in these docs runs on one snapshot: `GOOGL`, `MSFT` and the S&P 500 index (`SPX`), 1435
-trading days each, 2021-01-04 … 2026-09-21. It is served next to this site:
-
-```sql
-CREATE OR REPLACE TABLE prices AS
-SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+```sql {"type":"duckfn","show":"table"}
+SELECT count(*) AS rows,
+       count(DISTINCT symbol) AS instruments,
+       min(date) AS first_day,
+       max(date) AS last_day
+FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 ```
 
 ## 3. Produce the reports
@@ -52,37 +55,25 @@ SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/price
 One call over the whole table, one report per instrument — **no `GROUP BY`**: `symbol` is the
 grouping key.
 
-The runnable blocks on this page build a small series of their own, so they run in your browser
-without fetching anything. In your own queries, swap the `series` CTE for the `prices` table above.
-
 ```sql {"type":"duckfn","show":"table"}
-WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
-           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.0005, i)
-    FROM range(0, 60) t(i)
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
 )
 SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index'],
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
-    FROM series
+    FROM prices
 )
 ORDER BY (r).symbol;
 ```
 
-Two rows out — `SYN-SPX` is input only: it is the benchmark of both reports and gets none of its own.
+Two rows out — `SPX` is input only: it is the benchmark of both reports and gets none of its own.
 `html` holds the whole self-contained tearsheet, and `file_path` says where it was written, if you
 asked for that.
 
@@ -92,43 +83,38 @@ A report is one HTML document with the charts inlined, so it can be rendered rig
 and switch between the two tabs:
 
 ```sql {"type":"duckfn","show":"iframe","field":"html","tab_name":"symbol","option":{"height":"560px"}}
-WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
-           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.0005, i)
-    FROM range(0, 60) t(i)
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
 )
-SELECT (r).symbol, (r).html
+SELECT (r).symbol AS symbol, (r).html AS html
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index'],
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
-    FROM series
+    FROM prices
 )
 ORDER BY (r).symbol;
 ```
 
-The same call on the demo snapshot produces a full-size report — the one on the
-[home page](/), built from `GOOGL` against the S&P 500.
+The full-size report for `GOOGL` is also served next to the docs — that is the one on the
+[home page](/).
 
 ## 5. Put them where you want them
 
 A report is a few hundred KB of HTML, so in a terminal you rarely want it in the result set.
-`output_dir` writes one file per report, and `open_in_browser` shows them:
+`output_dir` writes one file per report, and `file_path` tells you where each one went:
 
 ```sql
--- One file per report in the current directory. Only the directory is given;
+-- One file per report, in the current directory. Only the directory is given;
 -- the function generates the file names, so two calls never collide.
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
 SELECT (r).symbol, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
@@ -139,56 +125,154 @@ FROM (
                 'strategy_title': symbol,
                 'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
-);
+)
+ORDER BY (r).symbol;
+```
 
--- Or hand each report to your system browser as soon as it exists
--- (with no 'output_dir' each report goes to a temporary file first; one tab each).
+:::note[Why that block is not runnable here]
+
+The query is the real one — writing to disk works on every platform DuckDB ships — but a browser
+build cannot demonstrate it. Its file system answers "that name is taken" no matter which name is
+asked about, so the guard that keeps reports from overwriting each other never finds a free name and
+the call stops with `could not find a free report file name in 8 attempts`. Run the same block in
+your own DuckDB and the files appear in `./`.
+
+:::
+
+On a desktop, `open_in_browser` saves you the trip to the file manager; it needs a browser process to
+launch, so it is a no-op in this page (and `file_path` comes back empty):
+
+```sql
+-- Not runnable here: on wasm there is no browser process to hand the report to.
 SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
-           {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
-FROM prices;
+           {'benchmark': ['SPX'], 'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
+FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 ```
 
 Just want the list, without dragging the HTML along?
 
-```sql
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
 SELECT list_transform(
            qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
+               {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'bytes': length(x.html)}) AS reports
 FROM prices;
 ```
 
 ## Common tasks
 
-```sql
--- One instrument only: filter first, and there is still no GROUP BY
-SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
-FROM daily_returns WHERE symbol = 'FUND';
+One instrument only — filter first, and there is still no `GROUP BY`:
 
--- One instrument against two benchmarks → two reports, one per benchmark
-SELECT unnest(qs_html_reports(
-           symbol, trade_date, daily_return,
-           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
-FROM daily_returns;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    WHERE symbol IN ('GOOGL', 'SPX')
+)
+SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'], 'benchmark_title': ['S&P 500'], 'title': symbol}
+               ::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
 
--- You already have returns: the other function takes them as they are
-SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
-FROM daily_returns;
+One instrument against two benchmarks — two reports, one per benchmark:
 
--- Several instruments sharing one benchmark is the ordinary case: nothing extra to write
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, date, nav,
-           {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options)) AS report
-FROM nav_table;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    WHERE symbol IN ('GOOGL', 'SPX', 'MSFT')
+)
+SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX', 'MSFT'],
+                'benchmark_title': ['S&P 500', 'Microsoft'],
+                'title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).benchmark;
+```
+
+You already have returns — the other function takes them as they are (here they are differenced out of
+the same prices, which is what the price branch does internally):
+
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+),
+returns AS (
+    SELECT symbol, date,
+           price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
+    FROM prices
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports(
+               symbol, date, period_return,
+               {'benchmark': ['SPX'], 'title': symbol, 'strategy_title': symbol}
+               ::qs_html_report_options)) AS r
+    FROM returns
+)
+ORDER BY (r).symbol;
+```
+
+Several instruments sharing one benchmark is the ordinary case — nothing extra to write:
+
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).benchmark, count(*) AS reports, count(DISTINCT (r).symbol) AS instruments
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+)
+GROUP BY (r).benchmark;
 ```
 
 ## If something does not work
 
-| Symptom | Cause |
+The two failures worth recognising early — and both blocks below are meant to fail, so **Run** shows
+you the message rather than a result:
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+-- The options literal needs its type, otherwise DuckDB looks for a STRUCT(title VARCHAR) overload
+-- that does not exist.
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(symbol, date, price, {'title': symbol})) AS report
+FROM prices;
+```
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+-- 'benchmark' names symbols, and every one of them has to exist in the table being aggregated.
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price, {'benchmark': ['NDX']}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+| Other symptom | Cause |
 | --- | --- |
-| `No function matches the given name and argument types 'qs_html_reports(VARCHAR, DATE, DOUBLE, STRUCT(title VARCHAR))'` | The options literal needs the type: write `{…}::qs_html_report_options`. |
-| `no row for the benchmark symbol 'XYZ'` | `benchmark` names **symbols**, and each one has to exist in the table you are aggregating over. |
 | `every symbol must use the same benchmark list` | `benchmark` is read per row but has to be identical for the whole call. |
 | A path error from `duckfn::duck_vfs::write` | `output_dir` must already exist; the function never creates the directory. |
 | `only local file paths can be opened in a browser` | `open_in_browser` cannot open `s3://…` or `memory://…`; write those to disk without the option. |

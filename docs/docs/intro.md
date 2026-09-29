@@ -13,9 +13,10 @@ equity curve, drawdown, rolling Sharpe, the full metrics table, the benchmark co
 One `SELECT` produces the whole set, and each report comes back as a row you can write to disk, open
 in a browser, or read straight out of the result.
 
-It is a **DuckDB extension**, so nothing has to be installed on top of DuckDB: no `pip install
-quantstats`, no Python, no notebook. It runs wherever DuckDB runs — Linux, macOS, Windows, and in the
-browser through DuckDB-Wasm. Installing it is one line:
+It is a **DuckDB extension**, so there is nothing to add on top of DuckDB: no `pip install
+quantstats`, no Python, no notebook. One `INSTALL` brings it to every platform DuckDB ships on, and
+to DuckDB-Wasm in the browser; from then on it is plain SQL, whether you send it from the CLI,
+Python, Java/JVM, Node or R.
 
 ```sql
 INSTALL duckfn_quantstats FROM community;   -- once; needs network
@@ -40,52 +41,69 @@ There is **no `GROUP BY`** in SQL: the `symbol` column is the grouping key, so o
 table yields one report per instrument, and naming a benchmark — another symbol of that same table —
 yields one report per instrument *and* benchmark.
 
-The block below runs right here in your browser: the site preloads the extension, so there is no
-`LOAD` to write, and the series is built inside the block so it needs no network. The [demo
-snapshot](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv) every other example reads —
-1435 trading days of `GOOGL`, `MSFT` and the S&P 500 index (`SPX`) — is at the same URL.
+The block below runs right here in your browser, over the [demo
+snapshot](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv) that every example in these
+docs reads: 1435 trading days of `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):
 
 ```sql {"type":"duckfn","show":"table"}
-WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
-           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.0005, i)
-    FROM range(0, 60) t(i)
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
 )
-SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index'],
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
-    FROM series
+    FROM prices
 )
 ORDER BY (r).symbol;
 ```
 
-Two rows out, one per instrument — `SYN-SPX` is input only: it is the benchmark of both reports and
-gets none of its own. `html` holds the whole self-contained tearsheet, and `file_path` is where it
-was written if you asked for that.
+Two rows out, one per instrument — `SPX` is input only: it is the benchmark of both reports and gets
+none of its own. `html` holds the whole self-contained tearsheet, and `file_path` is where it was
+written if you asked for that.
 
-## Writing them out, or opening them
+## Writing them out
+
+Every report can be written to a file, with a name the function generates, next to the query that
+produced it:
 
 ```sql
--- One file per report, in the current directory (the function names the files).
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, date, price,
-           {'benchmark': ['SPX'], 'title': symbol, 'output_dir': './'}::qs_html_report_options)) AS report
-FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': './'}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
 
--- Or hand each report to the system browser as soon as it exists (a temporary file, one tab each).
+The write goes through DuckDB's VFS, so local disk, `s3://…` once `httpfs` is loaded, and whatever
+file system a wasm build exposes all take the same code path. That is also why this block is the one
+demonstration on this page that cannot run in your browser: a wasm build's file system answers "that
+name is taken" for every candidate, so the guard against overwriting never finds a free name and the
+call stops with `could not find a free report file name in 8 attempts`. On your own machine the files
+appear in `./`.
+
+On a desktop, `open_in_browser` saves you the trip to the file manager, but it needs a browser process
+to launch, so a wasm build ignores it (`open_in_browser` is documented on
+[Output and browser](./guide/output-and-browser.md)):
+
+```sql
+-- Not runnable here: on wasm there is no browser process to hand the file to.
 SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'benchmark': ['SPX'], 'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report

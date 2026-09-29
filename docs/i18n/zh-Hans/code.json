@@ -605,11 +605,11 @@
     "description": "Home page feature card description"
   },
   "homepage.features.platform.title": {
-    "message": "DuckDB 能跑的地方都能跑",
+    "message": "任何 DuckDB 客户端都能用",
     "description": "Home page feature card title"
   },
   "homepage.features.platform.details": {
-    "message": "一条 INSTALL 就把同一个签名扩展带到 Linux、macOS、Windows，以及浏览器里的 DuckDB-Wasm。不用装 quantstats、不用维护 Python 环境 —— 报告全是 SQL 出来的。",
+    "message": "命令行、Python、Java/JVM、Node、R，或者浏览器里的 DuckDB-Wasm —— 一条 INSTALL 就把同一个签名扩展装到 DuckDB 支持的每个平台，报告到哪都是纯 SQL。不用装 quantstats，也不用维护 Python 环境。",
     "description": "Home page feature card description"
   },
   "homepage.features.docs.title": {
@@ -635,6 +635,14 @@
   "homepage.showcase.link": {
     "message": "两个函数，逐个讲清",
     "description": "Home page link to the functions guide"
+  },
+  "homepage.showcase.fullscreen": {
+    "message": "全屏",
+    "description": "Tooltip of the fullscreen button on the report iframe"
+  },
+  "homepage.showcase.openTab": {
+    "message": "在新标签页打开",
+    "description": "Tooltip of the open-in-new-tab button on the report iframe"
   },
   "homepage.next.title": {
     "message": "接下来去哪",

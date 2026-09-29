@@ -12,9 +12,9 @@ description: duckfn_quantstats 能做什么、一次调用返回什么，以及�
 基准列、所有图表。一条 `SELECT` 出整套，每份报告作为一行返回，可以直接落盘、用浏览器打开，或者就在
 结果里读。
 
-它是一个 **DuckDB 扩展**，所以在 DuckDB 之上不需要装任何东西：不用 `pip install quantstats`、不用
-Python、不用 notebook。DuckDB 能跑的地方它就能跑 —— Linux、macOS、Windows，以及在浏览器里通过
-DuckDB-Wasm。安装就一行：
+它是一个 **DuckDB 扩展**，所以在 DuckDB 之上不需要再加任何东西：不用装 quantstats、不用 Python、
+不用 notebook。一条 `INSTALL` 就能装到 DuckDB 支持的每个平台，以及浏览器里的 DuckDB-Wasm；
+之后就是纯 SQL —— 命令行、Python、Java/JVM、Node、R 发过来的查询都一样。
 
 ```sql
 INSTALL duckfn_quantstats FROM community;   -- 只需一次，需要网络
@@ -37,50 +37,64 @@ LOAD duckfn_quantstats;                     -- 之后每个会话只要这一句
 SQL 里**不写 `GROUP BY`**：`symbol` 列就是分组依据，所以整张表一次调用就是「每个标的一份报告」；
 再指名一个基准（同一张表里的另一个 symbol），就是「每个标的 × 每个基准一份」。
 
-下面这块在你的浏览器里就能跑：站点会预加载扩展，所以不用写 `LOAD`；序列在块内构造，因此不需要任何网络。
-[演示快照](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv) —— `GOOGL`、`MSFT` 与标普 500
-指数（`SPX`）各 1435 个交易日 —— 就在同一个地址上，本站其余示例读的都是它。
+下面这块在你的浏览器里就能跑，读的是本站每个示例都用的那份
+[演示快照](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv)：`GOOGL`、`MSFT` 与标普 500
+指数（`SPX`）各 1435 个交易日：
 
 ```sql {"type":"duckfn","show":"table"}
-WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
-           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
-    FROM range(0, 60) t(i)
-    UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
-           100.0 * pow(1.0005, i)
-    FROM range(0, 60) t(i)
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
 )
-SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index'],
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
-    FROM series
+    FROM prices
 )
 ORDER BY (r).symbol;
 ```
 
-两行结果，一个标的一行 —— `SYN-SPX` 只作输入：它是两份报告的基准，自己不出报告。`html` 里就是那份
+两行结果，一个标的一行 —— `SPX` 只作输入：它是两份报告的基准，自己不出报告。`html` 里就是那份
 自包含的 tearsheet，`file_path` 则是你要求落盘时它写到了哪。
 
-## 落盘，或者直接打开
+## 落盘
+
+每份报告都可以落成一个文件，文件名由函数生成，紧挨着产生它的那条查询：
 
 ```sql
--- 每份报告一个文件，写到当前目录（文件名由函数生成）。
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, date, price,
-           {'benchmark': ['SPX'], 'title': symbol, 'output_dir': './'}::qs_html_report_options)) AS report
-FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': './'}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
 
--- 或者生成一份就用系统浏览器打开一份（先落临时文件；每份一个标签页）。
+写文件走的是 DuckDB 的 VFS，所以本地磁盘、装了 `httpfs` 之后的 `s3://…`，以及 wasm 构建暴露出来的
+文件系统都是同一条代码路径。这也正是本页唯一一块**不能在浏览器里跑**的示例：wasm 的文件系统对**任何**
+候选文件名都回答「这个名字已存在」，于是那道「绝不覆盖已有文件」的保险永远找不到空位，调用会以
+`could not find a free report file name in 8 attempts` 结束。在你自己的机器上，这些文件会出现在 `./`。
+
+在桌面端，`open_in_browser` 能省掉去文件管理器里翻文件这一步；但它需要一个浏览器进程来启动，
+所以 wasm 构建会忽略它（详见[落盘与浏览器](./guide/output-and-browser.md)）：
+
+```sql
+-- 这里跑不了：wasm 里没有可以把文件交给它的浏览器进程。
 SELECT unnest(qs_html_reports_by_prices(
            symbol, date, price,
            {'benchmark': ['SPX'], 'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report

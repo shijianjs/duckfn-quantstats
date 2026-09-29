@@ -22,3 +22,43 @@ description: 每种失败长什么样 —— 返回 NULL、略过某个标的，
 | `open_in_browser` 配的 `output_dir` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
 
 报错信息一律以注册的函数名开头（`qs_html_reports: …`），所以一眼能看出是哪个函数的问题。
+
+## 最值得亲眼看的三条
+
+下面每一块**都是故意失败的**：点 **Run**，报文会出现在原本显示结果的地方。
+
+基准在表里不存在 —— `benchmark` 写的是 symbol，每一个都必须有对应的行：
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['NDX']}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+配置写错是在渲染之前就拦掉的，所以不花任何代价：
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'periods_per_year': 0}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+基准列表里的空串是猜不过去的错误 —— 空 symbol 既当不了报告的标签，也当不了文件名：
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['SPX', '']}::qs_html_report_options)) AS report
+FROM prices;
+```

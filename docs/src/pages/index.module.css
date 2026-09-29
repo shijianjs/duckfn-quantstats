@@ -75,6 +75,12 @@
   color: var(--ifm-color-emphasis-600);
 }
 
+/* The frame and the floating controls sit in one relatively-positioned box, so
+   the controls can be pinned to the frame's top-right corner. */
+.reportWrap {
+  position: relative;
+}
+
 /* The pre-generated report, framed. The height is fixed on purpose: a report is
    a tall document (a dozen charts), so an auto-height frame would dwarf the SQL
    next to it — the reader scrolls inside the frame instead, and `/demo/` serves
@@ -87,6 +93,52 @@
   border: 1px solid var(--ifm-color-emphasis-300);
   border-radius: 6px;
   background: #fff;
+}
+
+/* Two small glyph buttons floating in the frame's top-right corner: the docs'
+   own SQL blocks hide their toolbar until hover, but these stay visible — the
+   frame is a preview of a *file*, and "where can I get the whole thing" should
+   not be a secret. They settle at full opacity on hover/focus. */
+.reportActions {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0.85;
+  transition: opacity 120ms ease-in-out;
+}
+
+.reportWrap:hover .reportActions,
+.reportActions:focus-within {
+  opacity: 1;
+}
+
+.reportAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 4px;
+  /* The frame is white in both colour modes, so the controls keep their own
+     light background rather than following the site's. */
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--duckfn-blue);
+  font-size: 0.9375rem;
+  line-height: 1;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.reportAction:hover,
+.reportAction:focus-visible {
+  background: #fff;
+  color: var(--duckfn-blue);
+  text-decoration: none;
 }
 
 .showcaseLinkRow {

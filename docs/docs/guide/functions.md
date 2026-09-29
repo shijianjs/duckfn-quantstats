@@ -14,7 +14,11 @@ reports:
 | `qs_html_reports(symbol, date, period_return, options)` | return series | `STRUCT(symbol, benchmark, strategy_title, benchmark_title, html, file_path)[]` |
 | `qs_html_reports_by_prices(symbol, date, price, options)` | price/NAV series | the same; returns are derived inside the function |
 
-The essentials:
+Every block below runs in your browser against the demo snapshot this site serves
+(`GOOGL`, `MSFT` and the S&P 500 index, 1435 trading days each) — swap the `read_csv(…)` for your own
+table and the query is the same.
+
+## The essentials
 
 - **One call produces the whole set of reports.** There is **no `GROUP BY`** in SQL: the `symbol`
   column is the grouping key, the function splits by it internally and renders one full report per
@@ -30,9 +34,7 @@ The essentials:
   (`['SPX', 'NDX']`) and the symbols it names are input only — **they do not appear in the result**.
   A report can carry one benchmark, so "one instrument against M benchmarks" is **M reports**: the
   same `symbol` shows up in M rows, told apart by the `benchmark` field (several instruments sharing
-  one benchmark is a different thing — that is simply one report per instrument). A report for the
-  benchmark itself, or a different benchmark per instrument, is expressed by filtering and calling
-  again.
+  one benchmark is a different thing — that is simply one report per instrument).
 - `symbol` is a `VARCHAR`, `date` is a `DATE`, `period_return` is the return per period (`DOUBLE`) and
   `price` is that day's price or NAV (`DOUBLE`). A row whose value is `NULL` in any of the four is
   **skipped entirely** (an empty-string `symbol` too), like any other SQL aggregate.
@@ -40,60 +42,96 @@ The essentials:
   options. It is a **nullable** config whose type is the named STRUCT `qs_html_report_options`,
   created at load time.
 - The options are **evaluated per row** (see [Options](./options.md)), which is exactly how "each
-  instrument gets its own title and display name" works: build the struct out of the `symbol` column,
-  e.g. `{'title': symbol, 'output_dir': './'}`.
-- **No `ORDER BY` is needed**: the aggregate only concatenates and lets the report sort by date.
+  instrument gets its own title and display name" works.
+- **No `ORDER BY` is needed**: the aggregate only concatenates and lets the report sort by date. (The
+  `ORDER BY` in these examples only tidies the rows you see.)
 - Why two names: `(symbol, date, price, options)` and `(symbol, date, period_return, options)` have
   exactly the same type sequence (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch
   them.
 
 ## Usage
 
-```sql
--- One instrument, no benchmark: just pick its rows before aggregating
-SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
-FROM daily_returns WHERE symbol = 'FUND';
+The whole table, with a benchmark — the ordinary case:
 
--- The whole table with a benchmark: the benchmark is an ordinary symbol in it
-SELECT unnest(qs_html_reports(
-           symbol, trade_date, daily_return,
-           {'benchmark': ['SPX'],
-            'title': symbol,
-            'strategy_title': symbol,
-            'benchmark_title': ['S&P 500']}::qs_html_report_options)) AS report
-FROM daily_returns;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
 
--- One instrument against two benchmarks: two reports for it, each against its own benchmark
-SELECT unnest(qs_html_reports(
-           symbol, trade_date, daily_return,
-           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
-FROM daily_returns;
+One instrument, no benchmark — filter first:
 
--- A price (or NAV) series: the shortcut saves writing the pct_change window
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, trade_date, nav, {'title': symbol}::qs_html_report_options)) AS report
-FROM nav_table;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    WHERE symbol = 'GOOGL'
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(symbol, date, price, NULL)) AS r
+    FROM prices
+);
+```
 
--- Also write them to a directory (only the directory is given, the function names the files;
--- through DuckDB's VFS, so this works on wasm too)
-SELECT unnest(qs_html_reports(
-           symbol, trade_date, daily_return,
-           {'title': symbol, 'output_dir': './'}::qs_html_report_options)) AS report
-FROM daily_returns;
+One instrument against two benchmarks — the `benchmark` list decides the order of the reports:
 
--- Write them and open them in your browser (with no 'output_dir' each report goes to a temp file
--- first; one tab per report)
-SELECT unnest(qs_html_reports(
-           symbol, trade_date, daily_return,
-           {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
-FROM daily_returns;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    WHERE symbol IN ('GOOGL', 'SPX', 'MSFT')
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX', 'MSFT'], 'title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).benchmark;
+```
 
--- Just the list, no HTML (a report is a few hundred KB, spreading them into rows gets noisy)
+A return series instead of a price series:
+
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+),
+returns AS (
+    SELECT symbol, date,
+           price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
+    FROM prices
+)
+SELECT (r).symbol, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports(symbol, date, period_return, NULL)) AS r
+    FROM returns
+)
+ORDER BY (r).symbol;
+```
+
+Keep only the list, without dragging the HTML along (see [Output and browser](./output-and-browser.md)
+for writing the reports out as well):
+
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
 SELECT list_transform(
-           qs_html_reports(symbol, trade_date, daily_return,
-               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options),
-           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'file': x.file_path}) AS reports
-FROM daily_returns;
+           qs_html_reports_by_prices(symbol, date, price,
+               {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options),
+           lambda x: {'symbol': x.symbol, 'benchmark': x.benchmark, 'bytes': length(x.html)}) AS reports
+FROM prices;
 ```
 
 ## Behaviours worth knowing
@@ -111,8 +149,8 @@ FROM daily_returns;
   belong to the first and second benchmark respectively. It is presentation only, hence lenient — a
   missing entry (shorter list, NULL, empty string) falls back to that report's own benchmark symbol,
   and extra entries are ignored.
-- **The result is ordered ascending by `symbol`, and within one symbol by the benchmark list order**,
-  regardless of input order or thread count.
+- **`open_in_browser` does nothing on wasm** (there is no browser process to launch); see
+  [Output and browser](./output-and-browser.md).
 - **The demo snapshot is a good table to try all of this on** — `read_csv` it straight from this site:
   `read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')`. See the
   [demo dataset](../development-guide/demo-data/demo-dataset.md) for what is in it.

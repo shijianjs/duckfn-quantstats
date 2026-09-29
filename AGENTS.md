@@ -63,6 +63,11 @@ ls -d ~/.cargo/registry/src/*/duckfn-*/
 | 社区扩展文档页（`function_descriptions.csv`） | `docs/docs/community-extension-docs.md` | `src/extension/functions/*.rs`（带 `description` / `example` 的那几个） |
 | 文档站部件：可运行 SQL 块（`<dfk-sql>`）、首页组件、TOC 折叠、版本占位 | `docs/docs/docs-kit/**`（**`runnable-sql.md` 是可运行块的全部配置参考**） | 本仓的 `docs/`（装配见 `docs/docusaurus.config.ts`） |
 
+duckfn-docs-kit（npm 包，站点直接依赖）另有一份**给 agent 看的用法契约**，本仓装在
+`docs/node_modules/duckfn-docs-kit/AGENTS.md`：渲染契约（几处最容易写错的地方）、DuckDB-Wasm 与
+Node 运行器的已知事实、扩展预加载的文件名契约、版本耦合。**写或审可运行 SQL 块之前先读它**，
+上面那张表里 crate 内的 `docs/docs/docs-kit/` 是同一内容的用户文档版。
+
 属性宏接受哪些参数、允许哪些返回形状，**真相在 `duckfn-macro` 的源码里** —— 它是独立发布的 crate，
 解包在同一个 registry 目录下的 `duckfn-macro-<版本>/src/**`；文档与示例只覆盖常用面。
 
@@ -158,16 +163,26 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
 - `show` 决定渲染方式：`table`（默认）、`text`、`html`、`iframe`（与 `html` 同一个渲染器：把 markup
   放进 iframe 的 `srcdoc`，一行一个标签页，末尾始终留一个 `Table` 标签）、`svg`（内联进页面，脚本 /
   `foreignObject` / `on*` 等会被清掉）；
-- `field` 指定装 markup 的列（单列结果可省），`tab_name` 指定给每个标签页起名的列；
+- **`html` / `iframe` / `svg` 必须同时给 `field`（装 markup 的列）和 `tab_name`（给每个标签页起名的列）**，
+  否则渲染出来是一片空白 —— 尤其报表这种多列结果（`symbol` + `html`），只给 `show` 是不够的；
 - `option.height` / `option.width` 是预览框的 CSS 长度（报告类内容要限高），`option.sandbox` 替换
   iframe 的 sandbox token（默认 `allow-scripts`，故意不含 `allow-same-origin`）；
 - `expect:"error"` 声明「这一块必须失败」，由 `npm test` 双向校验；`extensions` / `repository` 可在
   站点预加载之外再 `LOAD` 别的扩展；
-- **这些块跑在 DuckDB-Wasm 里，读不了 `http(s)://`**：`read_csv('https://…')` 会报
-  `IO Error: No files found that match the pattern`（浏览器与 `npm test` 都一样）。所以想让它真能跑的
-  示例，就用 `range()` / `VALUES` 自己造数据；需要真实数据的示例写成普通 ```sql 块，读文档站自己的
+- **示例一律用真实数据**：读文档站自己的
   `https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`（= `docs/static/demo/prices.csv`，
-  与仓库根的 `demo/prices.csv` 是同一份内容，两份都要留）。
+  与仓库根的 `demo/prices.csv` 是同一份内容，**两份都要留**）。不要用 `range()` 现造的假数据充数 ——
+  那种序列画出来的 tearsheet 一眼就是假的。
+- **浏览器能读 HTTPS，Node 跑不了**：`read_csv('https://…')` 在浏览器里实测可用（这就是上面那条的理由），
+  但 `npm test` 用的 DuckDB-Wasm **Node** worker 读不了 http，会报
+  `IO Error: No files found that match the pattern`。也就是说 `npm test` 会把每个「读远程数据」的块报成
+  失败 —— 这类块靠手动在浏览器里点一遍来验证，**别为了让测试变绿就把示例改回造数据**。
+- **`output_dir` 在 wasm 下不可用**：浏览器构建的文件系统对**任何**候选文件名都回答「已存在」，于是那道
+  「绝不覆盖已有文件」的检查永远找不到空位，报
+  `could not find a free report file name in 8 attempts`（`./`、`.`、`/tmp/`、`reports` 四种写法都试过，
+  一样）。所以落盘示例写成普通 ```sql 块，并在页面上说明为什么它不能在浏览器里跑。
+- **块里只写一条语句**：运行器与页面都只展示**最后一条语句**的结果，一个块里塞几个独立示例等于白写 ——
+  一个示例一个块。
 
 改完文档站跑两个检查：`just docs_build`（`onBrokenLinks: throw`，中英双语都要过）与
 `cd docs && npm test`（把每个可运行块用 DuckDB-Wasm 真跑一遍，并校验 `expect`）。

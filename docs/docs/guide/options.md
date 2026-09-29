@@ -34,27 +34,37 @@ the benchmark symbol), which keeps the report legend, the temporary file name an
 
 ## The options are a per-row column
 
-Each symbol uses the copy from its first row, hence:
+Each symbol uses the copy from its first row, so building the struct out of the `symbol` column is
+what gives every instrument its own title and display name — and the benchmark list its own display
+names, paired by index:
 
-```sql
--- Every instrument's own title and display name, built out of the symbol column
--- (the output directory is one for the whole call; the file names are the function's business)
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, date, price,
-           {'title': symbol,
-            'strategy_title': symbol,
-            'output_dir': './'}::qs_html_report_options)) AS report
-FROM prices;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).strategy_title, (r).benchmark, (r).benchmark_title,
+       length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,               -- per-row: the report's own title
+                'strategy_title': symbol,      -- per-row: and the legend's label
+                'rf': 0.04,
+                'periods_per_year': 252}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
 ```
+
+`strategy_title` and `benchmark_title` come back in the row, so whatever the legend shows can be read
+without parsing the HTML — and they are the very names the generated file name uses, too.
 
 One symbol's options have to agree row by row; `benchmark` additionally has to be **the same list for
 every instrument in the call** (same entries, same order — a disagreement is an error), otherwise
-"which one is the benchmark" would have no single answer.
-
-Customising anything along the benchmark dimension needs no extra work: `benchmark_title` is a list
-paired with `benchmark` by index (a missing entry falls back to that report's own benchmark symbol),
-and the file names are generated from "time + strategy + benchmark + random" (see
-[Output and browser](./output-and-browser.md)), so both already carry that part.
+"which one is the benchmark" would have no single answer. [Error paths](./error-paths.md) has a
+runnable example of each.
 
 ## Which entries are validated
 

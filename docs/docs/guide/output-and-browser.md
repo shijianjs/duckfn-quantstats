@@ -21,21 +21,41 @@ benchmark is configured). That arrangement buys three things:
 - **names you can read**: the last two parts are the display names the report itself uses
   (`strategy_title` and the benchmark's), so a directory full of reports still says which is which.
 
+```sql
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': './'}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
+
+The `file_path` in each returned row is the path that very call wrote to (`NULL` when nothing was
+written), so "which files were written" can be read off the result instead of guessed.
+
 The directory **has to exist already** (it is not created for you). The write goes through **DuckDB's
 VFS** rather than `std::fs`, so local disk, in-memory file systems, whatever file system the wasm
 build exposes, and `s3://` / `http(s)://` once `httpfs` is loaded all go through the same path with
 the same semantics (VFS paths are joined with `/`, so `output_dir` can be `s3://bucket/reports`).
 
-The `file_path` in each returned row is the path that very call wrote to (`NULL` when nothing was
-written), so "which files were written" can be read off the result instead of guessed:
+:::note[This block does not run in your browser]
 
-```sql
-SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
-    SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options)) AS r
-    FROM prices
-);
-```
+Nothing about the query changes; the browser build's file system is what stops it. `exists` — the
+check behind "never overwrite a file" — answers "yes, that file is there" for **every** candidate name
+on a wasm build, so the function's eight retries all collide and the call fails with `could not find
+a free report file name in 8 attempts`. On a native DuckDB the same block writes the files into `./`
+and `file_path` carries their real paths.
+
+:::
 
 ## Opening the report in a browser
 
@@ -50,8 +70,16 @@ browser needs a local file that actually exists, which decides the rest:
   `benchmark_title` (taken by index, falling back to the benchmark symbol), with characters a file
   name cannot hold replaced by `_`. Nothing existing is ever overwritten, and two reports from the
   same second cannot collide;
-- an `output_dir` that is not a local path (`s3://…`, `memory://…`) is an error rather than a silent
-  no-op, since no browser can open it. That is checked **before** anything is rendered.
+- with `output_dir` that is not a local path (`s3://…`, `memory://…`), it is an error rather than a
+  silent no-op, since no browser can open it. That is checked **before** anything is rendered.
+
+```sql
+-- Not runnable here: it needs a browser process to launch, which a wasm build does not have.
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['SPX'], 'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
+FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+```
 
 The browser is started in a non-blocking way: the reports are already on disk, so the query neither
 waits for the browser nor looks at what the browser does with the files. The only failure reported is
@@ -63,9 +91,13 @@ One call opens one tab per **report** (one instrument against two benchmarks is 
 ## WebAssembly
 
 `output_dir` goes through DuckDB's VFS, so the wasm build uses exactly the same code path as the
-native one and the file lands wherever DuckDB's own file system points in that environment.
+native one and the file lands wherever DuckDB's own file system points in that environment. What that
+file system answers for "does this name exist?" is the one place the two builds part company: on a
+wasm build every candidate name reports as taken, so `output_dir` currently fails there with
+`could not find a free report file name in 8 attempts` instead of writing the reports.
 
 `open_in_browser` is the one deliberate exception: a wasm build has no browser process to launch, so
 the option is ignored there — no browser, and no temporary file either. The report string comes back
 to the host as it is, and showing it is the host page's job: a blob URL and `window.open`, an
-`<iframe>`, or whatever else fits.
+`<iframe>` (which is how the [quick start](../getting-started/quick-start.md) renders a report in
+place), or whatever else fits.

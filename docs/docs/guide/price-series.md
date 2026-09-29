@@ -37,16 +37,42 @@ symbol of that same table, the result shape) is identical to
 
 Doing it by hand is noticeably clumsier: a window function **cannot** appear inside an aggregate call
 (DuckDB reports `aggregate function calls cannot contain window function calls`), so the returns have
-to be computed in a subquery first:
+to be computed in a subquery first. Both blocks below produce the same reports from the same prices:
 
-```sql
--- By hand: an extra subquery, and it is easy to get PARTITION BY / ORDER BY wrong
-SELECT unnest(qs_html_reports(symbol, trade_date, period_return, NULL)) AS report
-FROM (SELECT symbol, trade_date,
-             nav / lag(nav) OVER (PARTITION BY symbol ORDER BY trade_date) - 1.0 AS period_return
-      FROM nav_table);
+```sql {"type":"duckfn","show":"table"}
+-- By hand: an extra CTE, and it is easy to get PARTITION BY / ORDER BY wrong
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+),
+returns AS (
+    SELECT symbol, date,
+           price / lag(price) OVER (PARTITION BY symbol ORDER BY date) - 1.0 AS period_return
+    FROM prices
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports(
+               symbol, date, period_return,
+               {'benchmark': ['SPX'], 'title': symbol, 'strategy_title': symbol}
+               ::qs_html_report_options)) AS r
+    FROM returns
+)
+ORDER BY (r).symbol;
+```
 
--- With the shortcut: prices go straight in, the symbol column does the grouping
-SELECT unnest(qs_html_reports_by_prices(symbol, trade_date, nav, NULL)) AS report
-FROM nav_table;
+```sql {"type":"duckfn","show":"table"}
+-- With the shortcut: prices go straight in, the symbol column does the grouping,
+-- and the first point of each symbol is dropped for you
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'], 'title': symbol, 'strategy_title': symbol}
+               ::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
 ```

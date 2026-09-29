@@ -31,24 +31,35 @@ description: qs_html_report_options 的每个字段、默认值，以及「按�
 
 ## 配置是按行求值的一列
 
-每个 symbol 只取用第一行出现的那份，所以：
+每个 symbol 只取用第一行出现的那份，所以用 `symbol` 列把配置拼出来，就是「每个标的各有一套标题与
+显示名」，基准显示名也按下标各自对齐：
 
-```sql
--- 每个标的各自的标题与显示名，由 symbol 列拼出来（落盘目录由 output_dir 统一给，文件名函数自己拼）
-SELECT unnest(qs_html_reports_by_prices(
-           symbol, date, price,
-           {'title': symbol,
-            'strategy_title': symbol,
-            'output_dir': './'}::qs_html_report_options)) AS report
-FROM prices;
+```sql {"type":"duckfn","show":"table"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).strategy_title, (r).benchmark, (r).benchmark_title,
+       length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,               -- 逐行求值：这份报告自己的标题
+                'strategy_title': symbol,      -- 逐行求值：图例上的名字
+                'rf': 0.04,
+                'periods_per_year': 252}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
 ```
 
-同一个 symbol 的配置要逐行一致；`benchmark` 这一项还要求**整次调用里所有标的给出同一个列表**（元素与
-顺序都一致，不一致直接报错），否则「谁把谁当基准」就没有单一答案。
+`strategy_title` 与 `benchmark_title` 都会回显在结果行里，所以图例上写的是什么不必去 HTML 里抠 ——
+而且它们正是生成的文件名所用的那两份名字。
 
-想按基准维度定制文案或路径时不必纠结：`benchmark_title` 也是列表、按下标与 `benchmark` 对齐，缺哪一项就
-在那一份报告里退回对应的基准 symbol；落盘路径则由函数按「时间 + 策略名 + 基准名 + 随机尾缀」自动生成
-（见[落盘与浏览器](./output-and-browser.md)），两处都自带基准那一段。
+同一个 symbol 的配置要逐行一致；`benchmark` 这一项还要求**整次调用里所有标的给出同一个列表**（元素与
+顺序都一致，不一致直接报错），否则「谁把谁当基准」就没有单一答案。[错误路径](./error-paths.md)里
+每一种都有一个可运行的例子。
 
 ## 哪些项会被校验
 

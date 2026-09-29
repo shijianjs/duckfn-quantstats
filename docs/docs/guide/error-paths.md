@@ -23,3 +23,45 @@ description: What each failure looks like — a NULL result, a skipped instrumen
 
 Every error message starts with the registered function name (`qs_html_reports: …`), so it is obvious
 which function reported it.
+
+## The three worth seeing
+
+Each block below is **meant to fail**: click **Run** and the message appears where the result would
+have been.
+
+A benchmark that is not in the table — `benchmark` names symbols, and each one has to have rows:
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['NDX']}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+Configuration mistakes are caught before anything is rendered, so they cost nothing:
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'periods_per_year': 0}::qs_html_report_options)) AS report
+FROM prices;
+```
+
+An empty string in the benchmark list is a mistake that cannot be guessed around — an empty symbol
+can be neither a report's label nor a file name:
+
+```sql {"type":"duckfn","show":"table","expect":"error"}
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['SPX', '']}::qs_html_report_options)) AS report
+FROM prices;
+```

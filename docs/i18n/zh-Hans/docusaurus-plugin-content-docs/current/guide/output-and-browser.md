@@ -18,20 +18,39 @@ description: 报告去哪 —— output_dir 走 DuckDB 的 VFS、文件名的生
 - **名字认得出来**：后两段正是报告里的显示名（`strategy_title` 与基准显示名），目录里一眼能看出这是
   哪份报告。
 
+```sql
+WITH prices AS (
+    SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, (r).file_path
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol,
+                'output_dir': './'}::qs_html_report_options)) AS r
+    FROM prices
+)
+ORDER BY (r).symbol;
+```
+
+返回行里的 `file_path` 就是这次真正写出去的路径（没落盘则为 `NULL`），所以「写了哪些文件」可以直接
+从结果里读，不必去猜。
+
 目录**必须已经存在**（函数不会替你创建）。写文件走的是 **DuckDB 的 VFS** 而不是 `std::fs`：本地磁盘、
 内存文件系统、wasm 构建里宿主真正的那个文件系统，以及装了 `httpfs` 之后的 `s3://` / `http(s)://`，
 都是同一条通路、同一套语义（VFS 路径按 `/` 拼，所以 `output_dir` 写 `s3://bucket/reports` 也没问题）。
 
-返回行里的 `file_path` 就是这次真正写出去的路径（没落盘则为 `NULL`），所以「写了哪些文件」可以直接
-从结果里读，不必去猜：
+:::note[这块在浏览器里跑不了]
 
-```sql
-SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
-    SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-               {'benchmark': ['SPX'], 'output_dir': './'}::qs_html_report_options)) AS r
-    FROM prices
-);
-```
+查询本身没有变，拦住它的是浏览器构建的文件系统：`exists`（也就是「绝不覆盖已有文件」那道检查）在 wasm
+下对**任何**候选文件名都回答「这个文件在」，于是函数的八次重试全部撞名，调用以
+`could not find a free report file name in 8 attempts` 结束。拿到本地 DuckDB 上跑同一段，文件会写进
+`./`，`file_path` 里是真实路径。
+
+:::
 
 ## 用浏览器打开报告（`open_in_browser`）
 
@@ -47,6 +66,14 @@ SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
 - `output_dir` 不是本地路径（`s3://…`、`memory://…`）时**报错**而不是静默跳过 —— 系统浏览器打不开那种
   路径。这个检查发生在渲染**之前**。
 
+```sql
+-- 这里跑不了：它需要一个浏览器进程来启动，而 wasm 构建没有。
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'benchmark': ['SPX'], 'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
+FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+```
+
 浏览器是**不阻塞**地叫起来的：报告已经落盘，所以这次查询既不等待浏览器、也不关心浏览器怎么处理这个文件。
 唯一会报错的情形是启动器本身起不来。
 
@@ -56,7 +83,10 @@ SELECT (r).symbol, (r).benchmark, (r).file_path FROM (
 ## WebAssembly
 
 `output_dir` 走 DuckDB 的 VFS，wasm 构建与本地是同一条代码路径，文件落在该环境下 DuckDB 自己的文件系统里。
+两边唯一的差别就在「这个名字存在吗？」这个问题上：wasm 构建对每个候选名字都回答「已存在」，所以
+`output_dir` 目前在那边会以 `could not find a free report file name in 8 attempts` 失败，而不是写出报告。
 
 `open_in_browser` 是唯一一处**有意保留**的例外：wasm 构建里没有可以启动的浏览器进程，所以那边直接忽略这个
 选项 —— 不打开浏览器，也不会为此写临时文件。报告字符串原样返回给宿主，展示是宿主页面的事：
-blob URL + `window.open`、`<iframe>`，或者别的。
+blob URL + `window.open`、`<iframe>`（[快速开始](../getting-started/quick-start.md)就是这么把报告渲染在
+页面里的），或者别的。

@@ -1,4 +1,4 @@
-import {createElement} from 'react';
+import {createElement, useRef} from 'react';
 import type {ReactNode} from 'react';
 import Link from '@docusaurus/Link';
 import Translate, {translate} from '@docusaurus/Translate';
@@ -265,13 +265,13 @@ function featuresContent(): FeaturesContent {
         title: translate({
           id: 'homepage.features.platform.title',
           description: 'Home page feature card title',
-          message: 'Everywhere DuckDB runs',
+          message: 'Any DuckDB client, any platform',
         }),
         details: translate({
           id: 'homepage.features.platform.details',
           description: 'Home page feature card description',
           message:
-            'One INSTALL brings the same signed extension to Linux, macOS and Windows, and to DuckDB-Wasm in the browser. No quantstats install, no Python environment to keep in step — the reports are pure SQL.',
+            "The CLI, Python, Java/JVM, Node, R or DuckDB-Wasm in the browser: one INSTALL brings the same signed extension to every platform DuckDB ships on, and the reports are plain SQL wherever they run. No quantstats install, no Python environment to keep in step.",
         }),
       },
       {
@@ -360,6 +360,84 @@ function nextStepsContent(
 }
 
 /**
+ * The framed report, with its own controls in the top-right corner.
+ *
+ * Both buttons exist because a report is a tall document squeezed into a
+ * 30rem window: **Fullscreen** asks the frame itself for fullscreen (the
+ * report keeps its own viewport, so its own layout is what fills the screen),
+ * and the second one leaves the page altogether for readers who would rather
+ * keep it open in a tab while they read the SQL.
+ */
+function ReportFrame({src}: {src: string}): ReactNode {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+
+  const enterFullscreen = (): void => {
+    const frame = frameRef.current;
+    if (frame?.requestFullscreen) {
+      void frame.requestFullscreen();
+    } else {
+      // Older engines only have the prefixed form; typed as `any` because the
+      // DOM types no longer declare it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      void (frame as any)?.webkitRequestFullscreen?.();
+    }
+  };
+
+  return (
+    <div className={styles.reportWrap}>
+      <iframe
+        ref={frameRef}
+        className={styles.reportFrame}
+        src={src}
+        title="quantstats HTML report for GOOGL against the S&P 500"
+        loading="lazy"
+      />
+      <div className={styles.reportActions}>
+        <button
+          type="button"
+          className={styles.reportAction}
+          onClick={enterFullscreen}
+          title={translate({
+            id: 'homepage.showcase.fullscreen',
+            description: 'Tooltip of the fullscreen button on the report iframe',
+            message: 'Fullscreen',
+          })}
+          aria-label={translate({
+            id: 'homepage.showcase.fullscreen',
+            description: 'Tooltip of the fullscreen button on the report iframe',
+            message: 'Fullscreen',
+          })}>
+          {createElement('iconify-icon', {
+            icon: 'lucide:maximize-2',
+            'aria-hidden': 'true',
+          })}
+        </button>
+        <a
+          className={styles.reportAction}
+          href={src}
+          target="_blank"
+          rel="noreferrer"
+          title={translate({
+            id: 'homepage.showcase.openTab',
+            description: 'Tooltip of the open-in-new-tab button on the report iframe',
+            message: 'Open in a new tab',
+          })}
+          aria-label={translate({
+            id: 'homepage.showcase.openTab',
+            description: 'Tooltip of the open-in-new-tab button on the report iframe',
+            message: 'Open in a new tab',
+          })}>
+          {createElement('iconify-icon', {
+            icon: 'lucide:external-link',
+            'aria-hidden': 'true',
+          })}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The showcase: one SQL statement on the left, the report it produces on the
  * right.
  *
@@ -394,12 +472,7 @@ function SqlAndReport(): ReactNode {
             {SQL_SAMPLE}
           </CodeBlock>
           <div className={styles.codeColumn}>
-            <iframe
-              className={styles.reportFrame}
-              src={reportUrl}
-              title="quantstats HTML report for GOOGL against the S&P 500"
-              loading="lazy"
-            />
+            <ReportFrame src={reportUrl} />
             <p className={styles.codeCaption}>
               <Translate
                 id="homepage.showcase.caption"
