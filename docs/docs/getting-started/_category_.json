@@ -3,6 +3,6 @@
   "position": 2,
   "link": {
     "type": "generated-index",
-    "description": "Install the extension or build it from source, and see where everything lives."
+    "description": "Install the extension and produce your first reports — no compiler involved."
   }
 }

@@ -1,14 +1,14 @@
 ---
 title: Design notes
-sidebar_position: 1
+sidebar_position: 2
 description: Why the function groups by symbol itself, how the benchmark pairing works, why the options type is all-Option, and how the reports are persisted and opened.
 ---
 
 # Design notes
 
 This page is the "why" behind the code: the shapes that were chosen, and the alternatives that were
-rejected. The user-facing behaviour is in [Functions](../guide/functions.md) and
-[Options](../guide/options.md); this is what users do not need.
+rejected. The user-facing behaviour is in [Functions](../../guide/functions.md) and
+[Options](../../guide/options.md); this is what users do not need.
 
 The project started from DuckDB's official
 [extension-template-rs](https://github.com/duckdb/extension-template-rs) and has been reshaped to

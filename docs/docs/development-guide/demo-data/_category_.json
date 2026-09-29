@@ -1,0 +1,8 @@
+{
+  "label": "Demo data",
+  "position": 4,
+  "link": {
+    "type": "generated-index",
+    "description": "The committed market snapshot every example in these docs runs on, and where it came from."
+  }
+}

@@ -1,13 +1,13 @@
 ---
 title: 设计取舍
-sidebar_position: 1
+sidebar_position: 2
 description: 为什么分组交给函数自己、基准怎么配对、为什么配置类型全是 Option，以及报告怎么落盘与打开。
 ---
 
 # 设计取舍
 
 这一页讲的是代码背后的「为什么」：选了哪些形状、否掉了哪些做法。面向使用方的行为在
-[函数](../guide/functions.md)与[配置字段](../guide/options.md)；这里收的是使用方不需要的内容。
+[函数](../../guide/functions.md)与[配置字段](../../guide/options.md)；这里收的是使用方不需要的内容。
 
 本项目从 DuckDB 官方 [extension-template-rs](https://github.com/duckdb/extension-template-rs) 起步，
 并已按 duckfn 的骨架约定改造（入口模块、`EXTENSION_NAME`、依赖列表）。

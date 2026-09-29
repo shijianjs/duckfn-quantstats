@@ -1,0 +1,8 @@
+{
+  "label": "Publishing",
+  "position": 3,
+  "link": {
+    "type": "generated-index",
+    "description": "The text DuckDB's community page shows for each function, and the registration that publishes the extension."
+  }
+}

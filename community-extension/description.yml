@@ -15,12 +15,12 @@ repo:
 
 docs:
   hello_world: |
-    -- demo/prices.csv is a committed snapshot of daily closes for GOOGL, MSFT and the S&P 500 index (SPX)
-    CREATE TABLE prices AS
-    SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
-
-    -- 1. The whole table in one call: one report per instrument, opened in the system default browser
-    --    once it has been generated
+    -- One long table in, one full quantstats tearsheet per instrument out - and no GROUP BY anywhere.
+    -- prices.csv is a snapshot of daily closes for GOOGL, MSFT and the S&P 500 index (SPX); it is
+    -- committed to the repository and served at the URL below.
+    WITH prices AS (
+        SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    )
     SELECT (r).symbol, (r).strategy_title, length((r).html) AS html_bytes, (r).file_path
     FROM (
         SELECT unnest(qs_html_reports_by_prices(
@@ -31,8 +31,11 @@ docs:
         FROM prices
     );
 
-    -- 2. With a benchmark: SPX is just another symbol in the table (name it in the options),
-    --    and it gets no report of its own
+    -- With a benchmark: SPX is just another symbol of that table, named in the options. It is input
+    -- only and gets no report of its own.
+    WITH prices AS (
+        SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+    )
     SELECT (r).symbol, (r).file_path
     FROM (
         SELECT unnest(qs_html_reports_by_prices(
@@ -81,4 +84,5 @@ docs:
     C API in 1.5. On wasm, `output_dir` works and `open_in_browser` is ignored (there is no browser
     process to launch; the HTML string comes back to the host as it is).
 
-    Development notes, the full option table and the error paths: <https://github.com/shijianjs/duckfn-quantstats>.
+    The full option table, the error paths and the development notes:
+    <https://shijianjs.github.io/duckfn-quantstats/docs/intro>.

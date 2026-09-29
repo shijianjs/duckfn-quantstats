@@ -1,8 +1,0 @@
-{
-  "label": "Development",
-  "position": 4,
-  "link": {
-    "type": "generated-index",
-    "description": "Why the function is shaped the way it is: design notes, dependencies, tests and the demo dataset."
-  }
-}

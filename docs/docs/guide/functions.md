@@ -113,5 +113,6 @@ FROM daily_returns;
   and extra entries are ignored.
 - **The result is ordered ascending by `symbol`, and within one symbol by the benchmark list order**,
   regardless of input order or thread count.
-- **`demo/prices.csv` is a good table to try all of this on** — see the
-  [demo dataset](../development/demo-dataset.md).
+- **The demo snapshot is a good table to try all of this on** — `read_csv` it straight from this site:
+  `read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')`. See the
+  [demo dataset](../development-guide/demo-data/demo-dataset.md) for what is in it.

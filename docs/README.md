@@ -12,12 +12,11 @@ translations live under `i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
 | Path | Description |
 | --- | --- |
 | `docs/intro.md` | Introduction. The only page with a `slug`, so `/docs/intro` stays stable. |
-| `docs/getting-started/` | Installing the extension (or building it from source) and the project layout. |
+| `docs/getting-started/` | Installing the extension and producing the first reports. |
 | `docs/guide/` | The two functions, the options, the price branch, where the reports go, the error paths. |
-| `docs/development/` | Design notes, dependencies, testing, function descriptions, the demo dataset. |
-| `docs/build-and-release.md` | The two build paths, the release flow, the wasm target. |
-| `docs/community-extension.md` | Publishing to DuckDB's community extensions. |
+| `docs/development-guide/` | Everything a *contributor* needs, and deliberately the last top-level entry in the sidebar: `architecture/` (layout, design notes, dependencies), `build/` (build and release, testing), `publishing/` (function descriptions, community-extension registration), `demo-data/` (the snapshot the examples run on). |
 | `i18n/zh-Hans/` | Simplified Chinese translations of all of the above, plus the UI strings. |
+| `static/demo/` | The demo snapshot (`prices.csv`) that every example reads, served at `/demo/prices.csv`, plus a pre-generated report the home page shows in an iframe. |
 | `src/pages/index.tsx` | Home page: hero, feature cards, the Rust/SQL showcase and the "where to go next" cards. The hero, the feature grid and the next-step cards are `<dfk-*>` custom elements from [`duckfn-docs-kit`](https://www.npmjs.com/package/duckfn-docs-kit), mounted through callback refs and fed with the imperative `translate()` API; every string still has an entry in `i18n/zh-Hans/code.json` under `homepage.*`. The code showcase stays here because it needs the theme's `CodeBlock`. |
 | `src/pages/index.module.css` | The code showcase's styles. The hero, feature grid and cards carry their own styles inside the kit's shadow DOM, so they are not here. |
 | `src/css/custom.css` | Palette and theme overrides. It pulls the kit's global CSS in with `@import 'duckfn-docs-kit/src/kit.css'` (the `--duckfn-*` brand tokens and the TOC-toggle styles); this file itself only owns the Infima ramp. |
@@ -72,11 +71,18 @@ SELECT name, qs_html_reports_by_prices(symbol, date, price, NULL) FROM prices;
 ```
 ````
 
-`"type":"duckfn"` is required; `show` is `table` (default), `text`, `html`, `iframe` or `svg`, and a
-block that demonstrates a failure declares `"expect":"error"` (see
-[intro.md](docs/intro.md) and [quick-start.md](docs/getting-started/quick-start.md) for the ones this
-site ships). The full config reference is in
-[the kit's runnable-SQL guide](https://shijianjs.github.io/duckfn/docs/docs-kit/runnable-sql).
+`"type":"duckfn"` is required; `show` is `table` (default), `text`, `html`, `iframe` or `svg`
+(`iframe` and `html` take a `field` and a `tab_name`, and `option.height` is what keeps a full report
+inside its own box), and a block that demonstrates a failure declares `"expect":"error"`. A plain
+`sql` block without that info string stays an ordinary code block — use it for anything a reader is
+meant to copy. The full config reference is in the kit's own guide at the path recorded in
+`AGENTS.md` (`<duckfn crate>/docs/docs/docs-kit/runnable-sql.md`).
+
+**Blocks run in DuckDB-Wasm, so they cannot read `http(s)://`** — `read_csv('https://…')` fails with
+`IO Error: No files found that match the pattern`, in the browser and under `npm test` alike. A block
+that has to run therefore builds its own data (`range()`, `VALUES`); a block that needs the real demo
+snapshot is written as an ordinary `sql` block and reads
+`https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`.
 
 ## Preloaded extensions
 

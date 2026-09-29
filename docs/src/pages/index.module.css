@@ -60,9 +60,9 @@
   font-size: 0.8125rem;
 }
 
-/* The SQL side carries a note under the block, so it is a flex column rather
-   than a bare code block. `align-items: start` on the grid keeps both tops
-   aligned whatever the two blocks' heights end up being. */
+/* The report side carries a note under the frame, so it is a flex column rather
+   than a bare box. `align-items: start` on the grid keeps both tops aligned
+   whatever the two sides' heights end up being. */
 .codeColumn {
   display: flex;
   flex-direction: column;
@@ -73,6 +73,20 @@
   font-size: 0.875rem;
   line-height: 1.6;
   color: var(--ifm-color-emphasis-600);
+}
+
+/* The pre-generated report, framed. The height is fixed on purpose: a report is
+   a tall document (a dozen charts), so an auto-height frame would dwarf the SQL
+   next to it — the reader scrolls inside the frame instead, and `/demo/` serves
+   the full document. `background: white` keeps the report's own palette even
+   when the site is in dark mode, because the report is generated light. */
+.reportFrame {
+  display: block;
+  width: 100%;
+  height: 30rem;
+  border: 1px solid var(--ifm-color-emphasis-300);
+  border-radius: 6px;
+  background: #fff;
 }
 
 .showcaseLinkRow {

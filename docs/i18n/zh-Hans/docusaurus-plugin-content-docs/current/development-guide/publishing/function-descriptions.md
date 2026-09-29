@@ -1,6 +1,6 @@
 ---
 title: 函数描述
-sidebar_position: 4
+sidebar_position: 2
 description: 属性上的 description / comment / example 怎么变成社区扩展文档页上的函数表。
 ---
 
@@ -44,4 +44,4 @@ Markdown 表格，单元格里的换行会断行）；逗号、引号与非 ASCI
 发社区扩展时，把这份 CSV 放进 `community-extensions` 仓的
 `extensions/duckfn_quantstats/docs/function_descriptions.csv`（它由那个仓的 `generate_md.sh` 按
 `function_name` 左连接覆盖函数表）；本仓不必留副本，改完代码重新生成即可。见
-[社区扩展](../community-extension.md)。
+[社区扩展](./community-extension.md)。

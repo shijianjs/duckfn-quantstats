@@ -38,9 +38,11 @@ SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，
 - `license: MIT`：对应仓库根目录的 `LICENSE`。注意 duckdb.org 的社区扩展文档页把字段名写成 `licence`，
   那是**文档的错**，真实 schema 是 `license`（以已收录扩展的 `description.yml` 为准）。
 - `docs.hello_world`：社区文档页会把它渲染进代码块，所以必须是**可直接复制跑**的真实例子 —— 现在这两段
-  就是 README 快速上手的第 1、2 个示例（先把 `demo/prices.csv` 读成 `prices` 再出报告）。报告要真出图，
-  别用几十天的假数据糊弄，那样的 tearsheet 看着就不像个东西。页面上「Installing and Loading」那段由
-  社区仓的 `layout/default.md` 自动加，`hello_world` 里不要再写 `INSTALL` / `LOAD`。
+  都用 `WITH prices AS (SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv'))`
+  起头（**不建表**，每段自包含），再出报告。数据源一律用文档站那个地址，不要引仓库里的相对路径或
+  `raw.githubusercontent.com`：前者读者没有，后者国内经常拉不动。报告要真出图，别用几十天的假数据糊弄，
+  那样的 tearsheet 看着就不像个东西。页面上「Installing and Loading」那段由社区仓的 `layout/default.md`
+  自动加，`hello_world` 里不要再写 `INSTALL` / `LOAD`。
 
 ## 那份 CSV 是必须的，而且会过期
 

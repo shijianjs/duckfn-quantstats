@@ -561,7 +561,7 @@
     "message": "开始使用"
   },
   "homepage.tagline": {
-    "message": "一条 SQL 出每个标的的 quantstats HTML 报告",
+    "message": "一条 SQL 出一份 quantstats HTML 报告",
     "description": "The tagline shown on the homepage hero"
   },
   "homepage.github": {
@@ -604,12 +604,12 @@
     "message": "output_dir 经 DuckDB 的 VFS 落盘（本地、s3://、wasm 都行），文件名由函数生成且永不覆盖；open_in_browser 在文件就位后直接打开。",
     "description": "Home page feature card description"
   },
-  "homepage.features.build.title": {
-    "message": "无需本地编译 DuckDB",
+  "homepage.features.platform.title": {
+    "message": "DuckDB 能跑的地方都能跑",
     "description": "Home page feature card title"
   },
-  "homepage.features.build.details": {
-    "message": "只用头文件、加载时通过 DuckDB 的 API 表分发，所以一条 cargo 命令就能出 .duckdb_extension —— 不需要 CMake，也不需要 C++ 工具链。",
+  "homepage.features.platform.details": {
+    "message": "一条 INSTALL 就把同一个签名扩展带到 Linux、macOS、Windows，以及浏览器里的 DuckDB-Wasm。不用装 quantstats、不用维护 Python 环境 —— 报告全是 SQL 出来的。",
     "description": "Home page feature card description"
   },
   "homepage.features.docs.title": {
@@ -617,20 +617,20 @@
     "description": "Home page feature card title"
   },
   "homepage.features.docs.details": {
-    "message": "docs/ 下的 Docusaurus 站点，中英双语，带可运行 SQL 块，并有工作流在每次版本 tag 时发布到 GitHub Pages。",
+    "message": "中英双语，示例可以直接在页面里跑（读的是真实的演示快照），配置字段的完整参考就在旁边。",
     "description": "Home page feature card description"
   },
   "homepage.showcase.title": {
-    "message": "一个属性 = 一个 SQL 函数",
-    "description": "Home page section title above the Rust and SQL code blocks"
+    "message": "一条 SQL，一份报告",
+    "description": "Home page section title above the SQL block and the report"
   },
   "homepage.showcase.lead": {
-    "message": "属性宏会生成 FFI 包装层、参数读取与注册代码。左边这段就是真实的聚合函数本体 —— 它决定一行怎么进入分组，收尾里再按 symbol 各渲染一份报告。",
-    "description": "Home page paragraph introducing the Rust and SQL code blocks"
+    "message": "这就是全部接口：对一张长表做一次聚合调用，不用写分组、也不需要 Python。右边是它给 GOOGL 出的报告（基准是标普 500）—— 真实输出，直接嵌在 iframe 里。",
+    "description": "Home page paragraph introducing the SQL block and the report"
   },
   "homepage.showcase.caption": {
-    "message": "注释就是每次调用返回的内容。本地构建的产物要加 -unsigned 才能加载，因为它没有 DuckDB 发行密钥的签名。",
-    "description": "Home page note under the SQL code block explaining the trailing comments"
+    "message": "左边这条查询为 GOOGL 生成的那份报告 —— 图表、指标表、基准列都在里面。可以在框内滚动，也可以打开 /demo/ 下的完整报告。",
+    "description": "Home page note under the report iframe"
   },
   "homepage.showcase.link": {
     "message": "两个函数，逐个讲清",
@@ -645,15 +645,7 @@
     "description": "Home page link card title"
   },
   "homepage.next.quickStart.details": {
-    "message": "装好扩展或从源码构建，然后在 SQL 里产出第一份报告。",
-    "description": "Home page link card description"
-  },
-  "homepage.next.structure.title": {
-    "message": "目录结构",
-    "description": "Home page link card title"
-  },
-  "homepage.next.structure.details": {
-    "message": "入口点、函数与 SQL 类型各自放在哪。",
+    "message": "装好、接上你的表，读出第一份报告。",
     "description": "Home page link card description"
   },
   "homepage.next.functions.title": {
@@ -661,15 +653,23 @@
     "description": "Home page link card title"
   },
   "homepage.next.functions.details": {
-    "message": "两个 SQL 名字、配置字段，以及基准怎么变成多份报告。",
+    "message": "两个 SQL 名字、返回形状，以及基准怎么变成多份报告。",
     "description": "Home page link card description"
   },
-  "homepage.next.release.title": {
-    "message": "构建与发版",
+  "homepage.next.output.title": {
+    "message": "报告落盘",
     "description": "Home page link card title"
   },
-  "homepage.next.release.details": {
-    "message": "两条构建路径、发版流程与 wasm 目标。",
+  "homepage.next.output.details": {
+    "message": "output_dir、生成的文件名，以及用浏览器打开报告。",
+    "description": "Home page link card description"
+  },
+  "homepage.next.development.title": {
+    "message": "开发指南",
+    "description": "Home page link card title"
+  },
+  "homepage.next.development.details": {
+    "message": "给贡献者：内部实现、构建、测试与发版。",
     "description": "Home page link card description"
   }
 }

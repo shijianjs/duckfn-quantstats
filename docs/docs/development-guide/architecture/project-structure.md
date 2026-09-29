@@ -1,6 +1,6 @@
 ---
 title: Project structure
-sidebar_position: 2
+sidebar_position: 1
 description: The module chain from the two crate roots to the registered functions, where the SQL-facing types live, and the naming rules that keep the extension loadable.
 ---
 
@@ -59,7 +59,7 @@ The `#[path]` attribute is not a shortcut, it is necessary: the documentation me
 `#[duck_*]` is collected by `inventory`'s static constructors, which only fire for object files that
 are really linked into the final binary. With `use duckfn_quantstats::…` the linker may drop those
 modules and the exported CSV comes out empty — silently. See
-[Function descriptions](../development/function-descriptions.md).
+[Function descriptions](../publishing/function-descriptions.md).
 
 ## Naming rules
 
@@ -68,7 +68,7 @@ modules and the exported CSV comes out empty — silently. See
 | The extension name is `duckfn_quantstats`, and identical in five places. | It is the entry-point symbol and the artifact file name; DuckDB looks the symbol up by the file name. |
 | Every registered SQL name carries the `qs_` prefix. | DuckDB has no namespaces, and community extensions almost never put the package name into function names — but a shared prefix is what makes the two names findable in `duckdb_functions()`. See the conventions in `AGENTS.md`. |
 | `src/lib.rs` and `src/wasm_lib.rs` always declare the same set of `mod`s. | Otherwise the wasm build fails to compile the module tree. |
-| `output_dir` takes a directory, never a file path. | The function names the files; with one instrument against several benchmarks a caller-built path would necessarily overwrite itself (see [Design notes](../development/design-notes.md)). |
+| `output_dir` takes a directory, never a file path. | The function names the files; with one instrument against several benchmarks a caller-built path would necessarily overwrite itself (see [Design notes](./design-notes.md)). |
 | Temporary files (scripts, data, logs) go to `target/`. | `target/` is git-ignored and never pollutes the tracked tree. |
 | Text files use LF. | The repository stores LF. |
 
@@ -76,7 +76,7 @@ modules and the exported CSV comes out empty — silently. See
 
 The design notes the docs site does not cover from the user's side — why the function groups by
 symbol, how the benchmark pairing works, which dependency carries which part — live in
-[Design notes](../development/design-notes.md) and [Dependencies](../development/dependencies.md).
+[Design notes](./design-notes.md) and [Dependencies](./dependencies.md).
 
 duckfn's own conventions (the entry-point chain, the standard procedure for adding a function, which
 source to consult before writing against the macros) are **not** repeated here: they live in the

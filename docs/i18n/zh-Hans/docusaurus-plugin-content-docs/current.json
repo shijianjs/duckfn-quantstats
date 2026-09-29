@@ -8,7 +8,7 @@
     "description": "The label for category 'Getting started' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.Getting started.link.generated-index.description": {
-    "message": "装好扩展或从源码构建，并了解各个文件都放在哪。",
+    "message": "装好扩展、产出第一批报告 —— 全程不需要编译器。",
     "description": "The generated-index page description for category 'Getting started' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.Guide": {
@@ -19,12 +19,44 @@
     "message": "两个 SQL 名字、所有配置字段、价格路径、报告的去处，以及错误路径。",
     "description": "The generated-index page description for category 'Guide' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.Development": {
-    "message": "开发",
-    "description": "The label for category 'Development' in sidebar 'docsSidebar'"
+  "sidebar.docsSidebar.category.Development guide": {
+    "message": "开发指南",
+    "description": "The label for category 'Development guide' in sidebar 'docsSidebar'"
   },
-  "sidebar.docsSidebar.category.Development.link.generated-index.description": {
-    "message": "函数为什么长成这样：设计取舍、依赖、测试与演示数据。",
-    "description": "The generated-index page description for category 'Development' in sidebar 'docsSidebar'"
+  "sidebar.docsSidebar.category.Development guide.link.generated-index.description": {
+    "message": "给贡献者：扩展怎么构建、测试、打包与发布，以及它为什么长成这样。使用它完全不需要看这些。",
+    "description": "The generated-index page description for category 'Development guide' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Architecture": {
+    "message": "架构",
+    "description": "The label for category 'Architecture' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Architecture.link.generated-index.description": {
+    "message": "代码放在哪、为什么长成这样、哪个 crate 负责哪一段。",
+    "description": "The generated-index page description for category 'Architecture' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Build, test and release": {
+    "message": "构建、测试与发布",
+    "description": "The label for category 'Build, test and release' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Build, test and release.link.generated-index.description": {
+    "message": "两条构建路径、SQLLogicTest 用例、发版流程与 WebAssembly 目标。",
+    "description": "The generated-index page description for category 'Build, test and release' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Publishing": {
+    "message": "发布",
+    "description": "The label for category 'Publishing' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Publishing.link.generated-index.description": {
+    "message": "DuckDB 社区页为每个函数展示的文案，以及把扩展发布出去的注册流程。",
+    "description": "The generated-index page description for category 'Publishing' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Demo data": {
+    "message": "演示数据",
+    "description": "The label for category 'Demo data' in sidebar 'docsSidebar'"
+  },
+  "sidebar.docsSidebar.category.Demo data.link.generated-index.description": {
+    "message": "本站每个示例都跑在上面的那份行情快照，以及它从哪来。",
+    "description": "The generated-index page description for category 'Demo data' in sidebar 'docsSidebar'"
   }
 }

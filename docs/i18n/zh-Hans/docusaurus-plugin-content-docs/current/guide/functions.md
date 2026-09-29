@@ -96,4 +96,6 @@ FROM daily_returns;
   第二个基准。它只是展示，所以很宽松 —— 缺项（列表短了、NULL、空串）就退回那一份报告所用的基准 symbol，
   多出来的表项直接忽略。
 - **结果的顺序按 `symbol` 升序、同一标的内按基准列表顺序**，不随输入顺序或线程数变化。
-- **`demo/prices.csv` 很适合拿来试这些** —— 见[演示数据](../development/demo-dataset.md)。
+- **演示快照很适合拿来试这些** —— 直接用
+  `read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')` 读本站这份即可；
+  里面有什么见[演示数据](../development-guide/demo-data/demo-dataset.md)。

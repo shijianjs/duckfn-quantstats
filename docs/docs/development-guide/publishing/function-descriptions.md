@@ -1,6 +1,6 @@
 ---
 title: Function descriptions
-sidebar_position: 4
+sidebar_position: 2
 description: How the description / comment / example text on the attributes becomes the function table of the community-extension page.
 ---
 
@@ -50,4 +50,4 @@ When the extension goes to the community repository, drop this CSV at
 `extensions/duckfn_quantstats/docs/function_descriptions.csv` in `community-extensions` (its
 `generate_md.sh` LEFT JOINs it on `function_name` to override the function tables). No copy needs to
 live in this repository — regenerate it after changing the code. See
-[Community extensions](../community-extension.md).
+[Community extensions](./community-extension.md).

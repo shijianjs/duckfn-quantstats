@@ -1,81 +1,130 @@
 ---
 title: 快速开始
 sidebar_position: 1
-description: 装好扩展（或从源码构建），然后用一条 SQL 产出整套 quantstats HTML 报告。
+description: 装好扩展，把一张价格或收益率表交给它，每个标的一份 quantstats HTML 报告。
 ---
 
 # 快速开始
 
+除了扩展本身，什么都不用编译、什么都不用安装：只要你能把 SQL 发给 DuckDB —— 命令行、Python、
+任何客户端都行 —— 就能出报告。
+
 ## 前置条件
 
-- **DuckDB 1.5 及以上** —— `duckdb` 在 `PATH` 里。`output_dir` 背后的宿主文件系统是 1.5 才进
-  DuckDB C API 的，所以 1.4 不行；本扩展在 v1.5.5 上构建与测试。
-- 想从源码构建，还需要项目用的这套工具：
-  - **Rust** 1.86 及以上（`Cargo.toml` 里的 `rust-version`）；
-  - **[just](https://github.com/casey/just)** 与 **cargo-duckdb-ext-tools**：
-    `cargo install just cargo-duckdb-ext-tools`；
-  - 可选：**make**（Windows 上要在 Git Bash 里跑）与 Python，CI 走的官方构建 / 测试流程需要它们。
+- **DuckDB 1.5 及以上。** `output_dir` 背后的宿主文件系统是 1.5 才进 DuckDB C API 的，所以不支持
+  1.4；本扩展在 v1.5.5 上构建与测试。
+- 任何能把 SQL 发给它的方式都行。本文档用 `duckdb` 命令行，Python / Java / Node 客户端或图形界面
+  完全一样。
 
 ## 1. 安装并加载
 
 扩展发布在 DuckDB 的[社区仓](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)，
-一条 `INSTALL` 就把当前平台的签名产物取回来 —— 不需要 `-unsigned`，本地也不编译任何东西：
+一条 `INSTALL` 就把当前平台的签名产物取回来：
 
 ```sql
 INSTALL duckfn_quantstats FROM community;   -- 只需一次，需要网络
 LOAD duckfn_quantstats;                     -- 之后每个会话只要这一句
 ```
 
-社区扩展**针对最新的稳定版 DuckDB** 构建，而本扩展用的是 DuckDB 的 unstable C API，所以 `INSTALL`
-取回的产物与构建它的那个版本严格绑定。更老的 DuckDB（比如 1.4）没有对应产物 —— 那种情况改用
-[从源码构建](#3-从源码构建)。
+## 2. 准备数据
 
-## 2. 产出报告
+两个函数都吃**长表** —— 一行一个（标的, 日期, 值）：
 
-一次调用就把整张按日期排列的长表折成「每个标的一份报告」。下面这段在你的浏览器里就能跑（站点会预加载
-已发布的扩展，所以这里不用 `LOAD`）；`series` CTE 是一张合成的两标的表，`SYN-SPX` 当基准：
+| 列 | 类型 | 含义 |
+| --- | --- | --- |
+| `symbol` | `VARCHAR` | 标的。它同时是分组依据：一个不同取值出一份报告。 |
+| `date` | `DATE` | 这个值属于哪一期。 |
+| 值 | `DOUBLE` | 周期收益率；给 `qs_html_reports_by_prices` 时是价格/净值。 |
+
+基准就是同一张表里另一个 `symbol`，不需要任何 join。
+
+本文档所有示例都跑在同一份快照上：`GOOGL`、`MSFT` 与标普 500 指数（`SPX`），各 1435 个交易日，
+区间 2021-01-04 … 2026-09-21。它就发布在本站旁边：
+
+```sql
+CREATE OR REPLACE TABLE prices AS
+SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+```
+
+## 3. 产出报告
+
+整张表一次调用、每个标的一份报告 —— **不写 `GROUP BY`**：`symbol` 列就是分组依据。
+
+本页的可运行块自己构造了一小段序列，所以在浏览器里直接就能跑、不需要取任何文件。你自己写查询时，
+把下面的 `series` CTE 换成上面的 `prices` 表即可。
 
 ```sql {"type":"duckfn","show":"table"}
 WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date, 100.0 * pow(1.002, i) AS price
+    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
+           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
     FROM range(0, 60) t(i)
     UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER), 100.0 * pow(1.001, i) FROM range(0, 60) t(i)
+    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
+    FROM range(0, 60) t(i)
     UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER), 100.0 * pow(1.0005, i) FROM range(0, 60) t(i)
+    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.0005, i)
+    FROM range(0, 60) t(i)
 )
 SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'title': symbol,
-                'strategy_title': symbol,
-                'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index']}::qs_html_report_options)) AS r
+               {'benchmark': ['SYN-SPX'],
+                'benchmark_title': ['Synthetic index'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
     FROM series
-);
+)
+ORDER BY (r).symbol;
 ```
 
-`SYN-SPX` 只作输入：它是两份报告的基准，自己不出报告。
+两行结果 —— `SYN-SPX` 只作输入：它是两份报告的基准，自己不出报告。`html` 里是整份自包含的 tearsheet，
+`file_path` 是你要求落盘时它写到了哪。
 
-### 用提交进仓库的行情快照
+## 4. 看一眼报告
 
-`demo/prices.csv` 是一份提交进仓库的日收盘价快照：`GOOGL`、`MSFT` 与标普 500 指数（`SPX`），各 1435
-个交易日，区间 2021-01-04 … 2026-09-21，三者交易日历完全一致。下面这段直接复制粘贴就能跑 ——
-`read_csv` 自己走 HTTP 取回文件（DuckDB 1.5 自带 `https://` 读取，不需要 `httpfs`，也不需要 API key）：
+一份报告就是一个 HTML 文档、图表都内联在里面，所以可以直接在这里渲染。点 **Run**，再切上面两个标签页：
+
+```sql {"type":"duckfn","show":"iframe","field":"html","tab_name":"symbol","option":{"height":"560px"}}
+WITH series AS (
+    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
+           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
+    FROM range(0, 60) t(i)
+    UNION ALL
+    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
+    FROM range(0, 60) t(i)
+    UNION ALL
+    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.0005, i)
+    FROM range(0, 60) t(i)
+)
+SELECT (r).symbol, (r).html
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SYN-SPX'],
+                'benchmark_title': ['Synthetic index'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM series
+)
+ORDER BY (r).symbol;
+```
+
+同一套调用跑在演示快照上，出的就是一份完整尺寸的报告 —— 也就是[首页](/)上那份用 `GOOGL` 对
+标普 500 生成的报告。
+
+## 5. 把它放到你想放的地方
+
+一份报告是几百 KB 的 HTML，终端里一般不会想让它铺在结果集里。`output_dir` 每份报告写一个文件，
+`open_in_browser` 直接打开：
 
 ```sql
-INSTALL duckfn_quantstats FROM community;   -- 只需一次，需要网络
-LOAD duckfn_quantstats;
-
-CREATE TABLE prices AS
-SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
--- 拉不动（比如国内网络）？同一个文件有 jsDelivr 镜像：
---   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
--- 已经 clone 了仓库？直接 read_csv('demo/prices.csv')
-
--- 整张表带基准，落盘到当前目录。output_dir 只给目录，文件名由函数生成
-SELECT (r).symbol, (r).benchmark, (r).file_path
+-- 每份报告一个文件，写到当前目录。只给目录，文件名由函数生成，所以两次调用不会撞名。
+SELECT (r).symbol, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
@@ -83,15 +132,19 @@ FROM (
                 'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol,
-                'rf': 0.04,
                 'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
+
+-- 或者生成一份就用系统浏览器打开一份
+-- （不写 output_dir 时每份先落一个临时文件；每份一个标签页）。
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
+FROM prices;
 ```
 
-一份报告是几百 KB 的 HTML（内嵌十几张 SVG），`unnest(...)` 会把它们一行份地铺开，所以终端里更适合让
-`output_dir`（落盘）或 `open_in_browser`（用浏览器打开）接手。只想看清单、不看 HTML 时，用
-`list_transform` 只挑需要的字段即可：
+只要清单、不想把 HTML 拖出来？
 
 ```sql
 SELECT list_transform(
@@ -101,60 +154,47 @@ SELECT list_transform(
 FROM prices;
 ```
 
-## 3. 从源码构建
+## 常用写法
 
-日常迭代用 `cargo-duckdb-ext-tools`（全局 cargo 子命令，不给项目加依赖）：
+```sql
+-- 只要一个标的：先过滤，仍然不需要 GROUP BY
+SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
+FROM daily_returns WHERE symbol = 'FUND';
 
-```shell
-cargo install cargo-duckdb-ext-tools   # 只需安装一次
-cargo duckdb-ext build                 # -> target/debug/duckfn_quantstats.duckdb_extension
+-- 一个标的对两个基准 → 两份报告，每个基准一份
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
+FROM daily_returns;
+
+-- 手上已经是收益率：另一个函数原样收下
+SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
+FROM daily_returns;
+
+-- 多个标的共用一个基准是最常见的情况：不用额外写什么
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, nav,
+           {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options)) AS report
+FROM nav_table;
 ```
 
-官方模板那条 `make` 流程仍然保留（CI 与 sqllogictest 走它），首次需要 `make configure` 建 Python venv：
+## 跑不通的时候
 
-```shell
-make configure   # 只做一次
-make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.duckdb_extension
-```
+| 现象 | 原因 |
+| --- | --- |
+| `No function matches the given name and argument types 'qs_html_reports(VARCHAR, DATE, DOUBLE, STRUCT(title VARCHAR))'` | 配置字面量要带上类型：写成 `{…}::qs_html_report_options`。 |
+| `no row for the benchmark symbol 'XYZ'` | `benchmark` 写的是 **symbol**，每一个都必须在被聚合的这张表里存在。 |
+| `every symbol must use the same benchmark list` | `benchmark` 逐行读取，但整次调用必须一致。 |
+| 报 `duckfn::duck_vfs::write` 之类的路径错误 | `output_dir` 指向的目录必须已经存在；函数不会替你创建。 |
+| `only local file paths can be opened in a browser` | `open_in_browser` 打不开 `s3://…`、`memory://…`，那种路径只能不用这个选项、只落盘。 |
 
-`make release` 是带优化的同一套流程。Windows 上 `make` 需要在 Git Bash 里跑。
+完整的行为清单见[错误路径](../guide/error-paths.md)。
 
-自己构建出的产物没有签名，而且用的是 DuckDB 的 unstable C API，加载时必须加 `-unsigned`
-（社区仓那份不用：它是签过名的，并且与你的 DuckDB 版本严格匹配）：
+## 接下来
 
-```shell
-duckdb -unsigned -c "
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
-SELECT ...;
-"
-```
+- [函数](../guide/functions.md) —— 返回形状、排序、基准怎么变成多份报告。
+- [配置字段](../guide/options.md) —— `qs_html_report_options` 的每一个字段。
+- [价格/净值序列](../guide/price-series.md) —— 价格那一支对值做了什么。
+- [落盘与浏览器](../guide/output-and-browser.md) —— 文件写到哪、怎么命名。
 
-## 4. 跑测试
-
-```shell
-just test           # make configure + make debug + make test
-```
-
-更快的迭代方式（不用 `make`、不重建 Python venv）以及每个文件覆盖什么，见
-[测试](../development/testing.md)。
-
-## 几个坑
-
-::::warning[看着像 bug，其实不是]
-
-- **本地构建的产物加载时必须加 `-unsigned`。** 不加 DuckDB 会直接拒绝这个文件。
-- **产物文件名必须保持 `duckfn_quantstats.duckdb_extension`。** DuckDB 是按文件名去找入口符号的，
-  复制成 `win.duckdb_extension` 会报 `did not contain function "duckfn_quantstats_init_c_api"`。
-- **`make test` 不会自动重新构建。** 改完 Rust 必须先 `just ci-build`（或 `make debug`），
-  否则跑的还是上一次的产物。
-- **`output_dir` 指向的目录必须已经存在。** 函数不会替你创建；写一个不存在的目录会在第一次跑的时候就报错。
-- **配置的 struct 字面量必须显式写 `::qs_html_report_options`。** 不写的话它是匿名的
-  `STRUCT(title VARCHAR)`，匹配不上任何签名，DuckDB 会直接说找不到函数。
-
-::::
-
-Windows 上还有一条：如果 `cargo duckdb-ext build` 报产物被占用，说明有 DuckDB 进程正持有
-`target/debug/duckfn_quantstats.duckdb_extension`。换一个输出路径构建即可 ——
-`cargo duckdb-ext build -o build/debug/duckfn_quantstats.duckdb_extension` —— 或者关掉那个进程。
-`.duckdb_extension` 不是改了名的 DLL：DuckDB 的元数据在文件末尾，把一个 DLL 拷过去会报
-`The metadata at the end of the file is invalid`。
+构建或测试扩展本身是另一个话题，在[开发指南](../development-guide/architecture/project-structure.md)。

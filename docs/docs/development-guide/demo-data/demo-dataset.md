@@ -1,6 +1,6 @@
 ---
 title: The demo dataset
-sidebar_position: 5
+sidebar_position: 1
 description: What demo/prices.csv contains, why it is a committed snapshot rather than a live URL, and where it came from.
 ---
 
@@ -8,8 +8,13 @@ description: What demo/prices.csv contains, why it is a committed snapshot rathe
 
 The file is a fixed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index (`SPX`): 1435
 trading days each, 2021-01-04 … 2026-09-21, one calendar shared by all three. It is a long table
-(`date`, `symbol`, `price`) committed on purpose, so the [quick start](../getting-started/quick-start.md)
+(`date`, `symbol`, `price`) committed on purpose, so the [quick start](../../getting-started/quick-start.md)
 can be copied and run as-is.
+
+It ships twice, on purpose: in the repository as `demo/prices.csv`, and under `docs/static/demo/` so
+the docs site serves it at
+`https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv` — the URL every example in these
+pages reads, and the only one that works from a browser (DuckDB-Wasm cannot read a repository URL).
 
 **Why a snapshot and not a live URL.** When this was written there was no free, key-less *and* stable
 HTTP endpoint for the daily closes of individual tickers: stooq puts a JavaScript challenge in front

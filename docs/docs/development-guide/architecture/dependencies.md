@@ -1,6 +1,6 @@
 ---
 title: Dependencies
-sidebar_position: 2
+sidebar_position: 3
 description: Which crate carries which part of the extension, and why each one was chosen.
 ---
 
@@ -22,7 +22,7 @@ it is responsible for.
   - The macros also generate a `SQL_NAME` constant per signature — the name the function is really
     registered under — so error prefixes read that instead of a hand-written copy of the
     function-name literal, while `description` / `comment` / `example` on the attribute are the one
-    source of the function-description CSV (see [Function descriptions](./function-descriptions.md)).
+    source of the function-description CSV (see [Function descriptions](../publishing/function-descriptions.md)).
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension`

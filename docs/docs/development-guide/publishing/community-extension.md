@@ -1,6 +1,6 @@
 ---
 title: Community extensions
-sidebar_position: 6
+sidebar_position: 1
 description: Registering the extension in DuckDB's community repository — the two files it takes, what each field means, and how to keep them in step with a release.
 ---
 
@@ -49,7 +49,7 @@ cp target/function_descriptions.csv community-extension/docs/function_descriptio
 
 Several examples are joined with `"; "` on export and lose their trailing semicolons; newlines collapse
 into spaces, because the target is a Markdown table. Write one complete statement per entry, in English.
-See [Function descriptions](./development/function-descriptions.md) for the full story.
+See [Function descriptions](./function-descriptions.md) for the full story.
 
 ## `description.yml`
 

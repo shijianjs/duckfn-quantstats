@@ -229,7 +229,7 @@ const config: Config = {
             },
             {
               label: 'Build and release',
-              to: '/docs/build-and-release',
+              to: '/docs/development-guide/build/build-and-release',
             },
           ],
         },

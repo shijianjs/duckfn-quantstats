@@ -27,7 +27,7 @@ import styles from './index.module.css';
 registerDfkElements();
 
 /**
- * The landing page: hero, features, a Rust/SQL showcase and the "where next"
+ * The landing page: hero, features, a SQL/report showcase and the "where next"
  * cards.
  *
  * The hero, the feature grid and the next-step cards are `dfk-*` web components
@@ -35,7 +35,7 @@ registerDfkElements();
  * so the copy is resolved with the imperative `translate()` API into plain
  * strings for the active locale and handed to the components through their own
  * setters; the strings still live in `i18n/zh-Hans/code.json` under the same
- * `homepage.*` keys. The code showcase stays here because it needs the theme's
+ * `homepage.*` keys. The showcase stays here because it needs the theme's
  * `CodeBlock`.
  *
  * Known trade-off (accepted): the `dfk-*` sections render client-side, so their
@@ -112,47 +112,36 @@ function mountNextSteps(node: HTMLElement, content: NextStepsContent): void {
 
 /**
  * Kept out of the JSX below on purpose: a template literal written inline would
- * carry the JSX indentation into the rendered code block. This is the real
- * `qs_html_reports` (src/extension/functions/aggregate_html/html_returns.rs),
- * trimmed to the parts worth showing.
+ * carry the JSX indentation into the rendered code block.
+ *
+ * The data comes from the demo snapshot this documentation site serves itself
+ * (`static/demo/prices.csv`), which is the URL every example in the docs reads.
  */
-const RUST_SAMPLE = `use duckfn::{DuckAggregateState, DuckDate, DuckLazy, DuckResult, duck_aggregate_function};
-
-/// A DuckDB aggregate: one attribute, one ordinary Rust function.
-#[duck_aggregate_function(
-    description = "Renders one quantstats HTML report per symbol from a long table of periodic returns",
-    comment = "Groups by symbol internally, so the SQL needs no GROUP BY",
-)]
-pub(super) fn qs_html_reports(
-    symbol: String,
-    date: DuckDate,
-    period_return: f64,
-    options: Option<DuckLazy<QuantstatsHtmlOptions>>,
-    state: &mut HtmlReportsState,      // the aggregate's state
-) -> DuckResult<()> {
-    state.symbols.push(
-        &symbol,
-        options.as_ref(),
-        SeriesPoint {days_since_epoch: date.days_since_epoch, value: period_return},
-    )
-}`;
-
-/** The SQL half of the showcase: the whole interface, one call per instrument. */
-const SQL_SAMPLE = `-- a locally built extension loads with -unsigned
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
-
--- one call, one report per symbol, no GROUP BY
-SELECT (r).symbol, length((r).html) AS html_bytes
-FROM (SELECT unnest(qs_html_reports_by_prices(symbol, date, price, NULL)) AS r
-      FROM prices);
--- MSFT | 421337
--- GOOGL | 420119`;
+const SQL_SAMPLE = `-- once per session: INSTALL duckfn_quantstats FROM community; LOAD duckfn_quantstats;
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+);`;
 
 /**
  * The shields.io badges ask for `style=flat`, which is the rounded style; the
- * default `flat-square` draws square corners and would clash with the language
- * badges below, which are rounded too. The row has to look like one set, so the
- * shape is decided at the source rather than patched with CSS.
+ * default `flat-square` draws square corners and would clash with the other
+ * badges. The row has to look like one set, so the shape is decided at the
+ * source rather than patched with CSS.
+ *
+ * These sit on a page for people who *use* the extension, so the badges answer
+ * "where do I get it, what does it cost, where does it run" — not "what is it
+ * written in".
  */
 function badges(repoUrl: string): HeroBadge[] {
   return [
@@ -162,14 +151,14 @@ function badges(repoUrl: string): HeroBadge[] {
       alt: 'Latest release',
     },
     {
+      href: 'https://duckdb.org/community_extensions/extensions/duckfn_quantstats',
+      src: 'https://img.shields.io/badge/DuckDB%20community-extension-14459b.svg?style=flat',
+      alt: 'Published in the DuckDB community extensions',
+    },
+    {
       href: `${repoUrl}/blob/main/LICENSE`,
       src: 'https://img.shields.io/badge/license-MIT-14459b.svg?style=flat',
       alt: 'MIT license',
-    },
-    {
-      href: 'https://rust-lang.org',
-      src: 'https://img.shields.io/badge/Rust-1.86%2B-14459b.svg?style=flat',
-      alt: 'Rust 1.86 or newer',
     },
     {
       href: 'https://duckdb.org',
@@ -254,7 +243,7 @@ function featuresContent(): FeaturesContent {
           id: 'homepage.features.benchmark.details',
           description: 'Home page feature card description',
           message:
-            "The benchmark is an ordinary symbol of the same table, named in the options; it is input only and gets no report of its own. Several benchmarks mean several reports.",
+            'The benchmark is an ordinary symbol of the same table, named in the options; it is input only and gets no report of its own. Several benchmarks mean several reports.',
         }),
       },
       {
@@ -268,21 +257,21 @@ function featuresContent(): FeaturesContent {
           id: 'homepage.features.output.details',
           description: 'Home page feature card description',
           message:
-            "output_dir writes every report through DuckDB's VFS (local, s3://, wasm) with a never-colliding name the function generates; open_in_browser opens them once they are there.",
+            "output_dir writes every report through DuckDB's VFS (local disk, s3://, wasm) with a never-colliding name the function generates; open_in_browser opens them once they are there.",
         }),
       },
       {
-        icon: 'lucide:package',
+        icon: 'lucide:globe',
         title: translate({
-          id: 'homepage.features.build.title',
+          id: 'homepage.features.platform.title',
           description: 'Home page feature card title',
-          message: 'No local DuckDB build',
+          message: 'Everywhere DuckDB runs',
         }),
         details: translate({
-          id: 'homepage.features.build.details',
+          id: 'homepage.features.platform.details',
           description: 'Home page feature card description',
           message:
-            'Headers only, dispatched through DuckDB\u2019s API table at load time, so one cargo command produces the .duckdb_extension \u2014 no CMake, no C++ toolchain.',
+            'One INSTALL brings the same signed extension to Linux, macOS and Windows, and to DuckDB-Wasm in the browser. No quantstats install, no Python environment to keep in step — the reports are pure SQL.',
         }),
       },
       {
@@ -296,7 +285,7 @@ function featuresContent(): FeaturesContent {
           id: 'homepage.features.docs.details',
           description: 'Home page feature card description',
           message:
-            'Docusaurus in docs/, bilingual (English and Simplified Chinese), with runnable SQL blocks powered by duckfn-docs-kit and a workflow that publishes it to GitHub Pages on every version tag.',
+            'Bilingual (English and Simplified Chinese), with examples that run in the page against a real snapshot, and the full option reference next to them.',
         }),
       },
     ],
@@ -306,7 +295,7 @@ function featuresContent(): FeaturesContent {
 function nextStepsContent(
   hrefs: readonly [string, string, string, string],
 ): NextStepsContent {
-  const [quickStart, structure, functions, release] = hrefs;
+  const [quickStart, functions, output, development] = hrefs;
   return {
     sectionTitle: translate({
       id: 'homepage.next.title',
@@ -324,20 +313,7 @@ function nextStepsContent(
         details: translate({
           id: 'homepage.next.quickStart.details',
           description: 'Home page link card description',
-          message: 'Install the extension or build it, then produce the first reports from SQL.',
-        }),
-      },
-      {
-        href: structure,
-        title: translate({
-          id: 'homepage.next.structure.title',
-          description: 'Home page link card title',
-          message: 'Project structure',
-        }),
-        details: translate({
-          id: 'homepage.next.structure.details',
-          description: 'Home page link card description',
-          message: 'Where the entry point, the functions and the SQL types live.',
+          message: 'Install it, point it at your table, and read the first reports.',
         }),
       },
       {
@@ -350,65 +326,87 @@ function nextStepsContent(
         details: translate({
           id: 'homepage.next.functions.details',
           description: 'Home page link card description',
-          message: 'The two SQL names, the options, and how a benchmark turns into reports.',
+          message: 'The two SQL names, the result shape, and how a benchmark becomes reports.',
         }),
       },
       {
-        href: release,
+        href: output,
         title: translate({
-          id: 'homepage.next.release.title',
+          id: 'homepage.next.output.title',
           description: 'Home page link card title',
-          message: 'Build and release',
+          message: 'Reports on disk',
         }),
         details: translate({
-          id: 'homepage.next.release.details',
+          id: 'homepage.next.output.details',
           description: 'Home page link card description',
-          message: 'The two build paths, the release flow and the wasm target.',
+          message: 'output_dir, the generated file names, and opening a report in the browser.',
+        }),
+      },
+      {
+        href: development,
+        title: translate({
+          id: 'homepage.next.development.title',
+          description: 'Home page link card title',
+          message: 'Development guide',
+        }),
+        details: translate({
+          id: 'homepage.next.development.details',
+          description: 'Home page link card description',
+          message: 'For contributors: the internals, the build, the tests, the release.',
         }),
       },
     ],
   };
 }
 
-function CodeShowcase(): ReactNode {
+/**
+ * The showcase: one SQL statement on the left, the report it produces on the
+ * right.
+ *
+ * The report is a pre-generated file served from `static/demo/` rather than
+ * something the page computes: it is the real output over the demo snapshot,
+ * and a static file keeps the landing page free of a DuckDB-Wasm instance.
+ */
+function SqlAndReport(): ReactNode {
+  const reportUrl = useBaseUrl('/demo/qs_report_GOOGL-S&P_500.html');
   return (
     <section className={styles.sectionTint}>
       <div className={styles.sectionInner}>
         <Heading as="h2" className={styles.sectionTitle}>
           <Translate
             id="homepage.showcase.title"
-            description="Home page section title above the Rust and SQL code blocks">
-            One attribute = one SQL function
+            description="Home page section title above the SQL block and the report">
+            One query, a tearsheet per instrument
           </Translate>
         </Heading>
         <p className={styles.sectionLead}>
           <Translate
             id="homepage.showcase.lead"
-            description="Home page paragraph introducing the Rust and SQL code blocks">
-            The attribute generates the FFI wrapper, the argument readers and
-            the registration code. The body on the left is the real aggregate —
-            it decides how a row joins the group, and the tail renders one
-            report per symbol.
+            description="Home page paragraph introducing the SQL block and the report">
+            This is the whole interface: one aggregate call over a long table of
+            prices, no grouping to write, no Python. On the right is the report
+            it returns for GOOGL, with the S&amp;P 500 as its benchmark — the
+            real output, rendered in an iframe.
           </Translate>
         </p>
         <div className={styles.codeGrid}>
-          <CodeBlock
-            language="rust"
-            title="src/extension/functions/aggregate_html/html_returns.rs">
-            {RUST_SAMPLE}
+          <CodeBlock language="sql" title="duckdb">
+            {SQL_SAMPLE}
           </CodeBlock>
           <div className={styles.codeColumn}>
-            <CodeBlock language="sql" title="duckdb -unsigned">
-              {SQL_SAMPLE}
-            </CodeBlock>
-            {/* Balances the two columns, and explains the trailing comments. */}
+            <iframe
+              className={styles.reportFrame}
+              src={reportUrl}
+              title="quantstats HTML report for GOOGL against the S&P 500"
+              loading="lazy"
+            />
             <p className={styles.codeCaption}>
               <Translate
                 id="homepage.showcase.caption"
-                description="Home page note under the SQL code block explaining the trailing comments">
-                The comments are what each call returns. Loading needs -unsigned,
-                because a locally built extension is not signed by DuckDB's
-                distribution key.
+                description="Home page note under the report iframe">
+                The report it produced for GOOGL — charts, metrics table and
+                benchmark column included. Scroll inside the frame, or open the
+                full report under /demo/.
               </Translate>
             </p>
           </div>
@@ -446,15 +444,15 @@ export default function Home(): ReactNode {
   const introUrl = useBaseUrl('/docs/intro');
   const nextHrefs = [
     useBaseUrl('/docs/getting-started/quick-start'),
-    useBaseUrl('/docs/getting-started/project-structure'),
     useBaseUrl('/docs/guide/functions'),
-    useBaseUrl('/docs/build-and-release'),
+    useBaseUrl('/docs/guide/output-and-browser'),
+    useBaseUrl('/docs/development-guide/architecture/project-structure'),
   ] as const;
 
   return (
     <Layout
       title={siteConfig.title}
-      description="Documentation for duckfn_quantstats: the SQL functions it registers, the options, and how it is built and released.">
+      description="quantstats HTML tearsheets from SQL: one DuckDB extension, no Python. The functions, the options, and how the reports are written.">
       {/* Layout renders no <main> of its own: this is the page's only one. */}
       <main>
         {dfk(
@@ -469,7 +467,7 @@ export default function Home(): ReactNode {
           ),
         )}
         {dfk('dfk-features', mountFeatures, featuresContent())}
-        <CodeShowcase />
+        <SqlAndReport />
         {dfk('dfk-next-steps', mountNextSteps, nextStepsContent(nextHrefs))}
       </main>
     </Layout>

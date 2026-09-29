@@ -1,6 +1,6 @@
 ---
 title: 依赖
-sidebar_position: 2
+sidebar_position: 3
 description: 哪个 crate 负责哪一段，以及每个为什么被选中。
 ---
 
@@ -19,7 +19,7 @@ description: 哪个 crate 负责哪一段，以及每个为什么被选中。
   - `cli`：`src/bin/duckfn.rs` 用的命令行工具，给 duckfn 带上 clap 与 csv。
   - 属性宏还会为每个签名生成 `SQL_NAME` 常量 —— 真正注册进 DuckDB 的名字 —— 错误信息前缀读它，不再手抄
     一份函数名字面量；属性上的 `description` / `comment` / `example` 则是函数描述 CSV 的唯一来源（见
-    [函数描述](./function-descriptions.md)）。
+    [函数描述](../publishing/function-descriptions.md)）。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接
   引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，

@@ -1,88 +1,135 @@
 ---
 title: Quick start
 sidebar_position: 1
-description: Install the extension (or build it from source), then produce a set of quantstats HTML reports from one SQL call.
+description: Install the extension, point it at a table of prices or returns, and get a quantstats HTML report per instrument.
 ---
 
 # Quick start
 
+Nothing is compiled and nothing is installed besides the extension itself: if you can send a SQL
+query to DuckDB — from the CLI, from Python, from any client — you can produce the reports.
+
 ## Prerequisites
 
-- **DuckDB 1.5 or newer** — `duckdb` on `PATH`. The host file system behind `output_dir` only
-  reached DuckDB's C API in 1.5, so 1.4 is out; the extension is built and tested against v1.5.5.
-- To build from source, the same tools the project uses:
-  - **Rust** 1.86 or newer (`rust-version` in `Cargo.toml`);
-  - **[just](https://github.com/casey/just)** and **cargo-duckdb-ext-tools**:
-    `cargo install just cargo-duckdb-ext-tools`;
-  - optional: **make** (inside Git Bash on Windows) and Python for the official build/test flow the
-    CI uses.
+- **DuckDB 1.5 or newer.** The host file system behind `output_dir` only reached DuckDB's C API in
+  1.5, so 1.4 is not supported; the extension is built and tested against v1.5.5.
+- Any way to send SQL to it. These pages use the `duckdb` CLI, but a Python/Java/Node client or a GUI
+  works the same.
 
 ## 1. Install and load
 
 The extension is published in DuckDB's
 [community repository](https://duckdb.org/community_extensions/extensions/duckfn_quantstats), so one
-`INSTALL` fetches a signed build for the platform you are on — no `-unsigned`, nothing compiled
-locally:
+`INSTALL` fetches a signed build for the platform you are on:
 
 ```sql
 INSTALL duckfn_quantstats FROM community;   -- once; needs network
 LOAD duckfn_quantstats;                     -- afterwards, this is all a session needs
 ```
 
-Community extensions are built against the **latest stable DuckDB**, and this one uses DuckDB's
-unstable C API, so the build `INSTALL` fetches is tied to the exact DuckDB version it was built for.
-On an older DuckDB (1.4, say) there is no build at all — [build from source](#3-build-from-source)
-instead.
+## 2. Bring your data
 
-## 2. Produce the reports
+Both functions consume a **long table** — one row per (instrument, date, value):
 
-One call folds a whole date-ordered long table into one report per instrument. The block below runs
-in your browser (the site preloads the released extension, so no `LOAD` here); the `series` CTE is a
-synthetic two-instrument table with `SYN-SPX` as the benchmark:
+| Column | Type | Meaning |
+| --- | --- | --- |
+| `symbol` | `VARCHAR` | The instrument. This is the grouping key: one report per distinct value. |
+| `date` | `DATE` | The period the value belongs to. |
+| value | `DOUBLE` | A periodic return, or a price/NAV for `qs_html_reports_by_prices`. |
+
+A benchmark is just another `symbol` in the same table, so there is nothing to join.
+
+Every example in these docs runs on one snapshot: `GOOGL`, `MSFT` and the S&P 500 index (`SPX`), 1435
+trading days each, 2021-01-04 … 2026-09-21. It is served next to this site:
+
+```sql
+CREATE OR REPLACE TABLE prices AS
+SELECT * FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
+```
+
+## 3. Produce the reports
+
+One call over the whole table, one report per instrument — **no `GROUP BY`**: `symbol` is the
+grouping key.
+
+The runnable blocks on this page build a small series of their own, so they run in your browser
+without fetching anything. In your own queries, swap the `series` CTE for the `prices` table above.
 
 ```sql {"type":"duckfn","show":"table"}
 WITH series AS (
-    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date, 100.0 * pow(1.002, i) AS price
+    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
+           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
     FROM range(0, 60) t(i)
     UNION ALL
-    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER), 100.0 * pow(1.001, i) FROM range(0, 60) t(i)
+    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
+    FROM range(0, 60) t(i)
     UNION ALL
-    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER), 100.0 * pow(1.0005, i) FROM range(0, 60) t(i)
+    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.0005, i)
+    FROM range(0, 60) t(i)
 )
 SELECT (r).symbol, (r).benchmark, (r).benchmark_title, length((r).html) AS html_bytes
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
-               {'title': symbol,
-                'strategy_title': symbol,
-                'benchmark': ['SYN-SPX'],
-                'benchmark_title': ['Synthetic index']}::qs_html_report_options)) AS r
+               {'benchmark': ['SYN-SPX'],
+                'benchmark_title': ['Synthetic index'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
     FROM series
-);
+)
+ORDER BY (r).symbol;
 ```
 
-`SYN-SPX` is input only: it is the benchmark of both reports and gets none of its own.
+Two rows out — `SYN-SPX` is input only: it is the benchmark of both reports and gets none of its own.
+`html` holds the whole self-contained tearsheet, and `file_path` says where it was written, if you
+asked for that.
 
-### With the committed demo snapshot
+## 4. Look at one
 
-`demo/prices.csv` is a committed snapshot of daily closes for `GOOGL`, `MSFT` and the S&P 500 index
-(`SPX`): 1435 trading days each, 2021-01-04 … 2026-09-21, one shared calendar. The block is meant to
-be copied and run as-is — `read_csv` fetches the file over HTTPS by itself (DuckDB 1.5 reads
-`https://` URLs — no `httpfs`, no API key):
+A report is one HTML document with the charts inlined, so it can be rendered right here. Click **Run**
+and switch between the two tabs:
+
+```sql {"type":"duckfn","show":"iframe","field":"html","tab_name":"symbol","option":{"height":"560px"}}
+WITH series AS (
+    SELECT 'SYN-A' AS symbol, DATE '2024-01-01' + CAST(i AS INTEGER) AS date,
+           100.0 * pow(1.002, i) * (1 + 0.01 * sin(i / 3.0)) AS price
+    FROM range(0, 60) t(i)
+    UNION ALL
+    SELECT 'SYN-B', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.001, i) * (1 + 0.01 * cos(i / 4.0))
+    FROM range(0, 60) t(i)
+    UNION ALL
+    SELECT 'SYN-SPX', DATE '2024-01-01' + CAST(i AS INTEGER),
+           100.0 * pow(1.0005, i)
+    FROM range(0, 60) t(i)
+)
+SELECT (r).symbol, (r).html
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SYN-SPX'],
+                'benchmark_title': ['Synthetic index'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM series
+)
+ORDER BY (r).symbol;
+```
+
+The same call on the demo snapshot produces a full-size report — the one on the
+[home page](/), built from `GOOGL` against the S&P 500.
+
+## 5. Put them where you want them
+
+A report is a few hundred KB of HTML, so in a terminal you rarely want it in the result set.
+`output_dir` writes one file per report, and `open_in_browser` shows them:
 
 ```sql
-INSTALL duckfn_quantstats FROM community;   -- once; needs network
-LOAD duckfn_quantstats;
-
-CREATE TABLE prices AS
-SELECT * FROM read_csv('https://raw.githubusercontent.com/shijianjs/duckfn-quantstats/main/demo/prices.csv');
--- unavailable (mainland China, for instance)? the same file is mirrored by jsDelivr:
---   read_csv('https://cdn.jsdelivr.net/gh/shijianjs/duckfn-quantstats@main/demo/prices.csv')
--- cloned the repo? then simply read_csv('demo/prices.csv')
-
--- The whole table incl. the benchmark, written to the current directory.
--- output_dir only takes the directory; the function names the files.
-SELECT (r).symbol, (r).benchmark, (r).file_path
+-- One file per report in the current directory. Only the directory is given;
+-- the function generates the file names, so two calls never collide.
+SELECT (r).symbol, (r).file_path
 FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
@@ -90,15 +137,19 @@ FROM (
                 'benchmark_title': ['S&P 500'],
                 'title': symbol,
                 'strategy_title': symbol,
-                'rf': 0.04,
                 'output_dir': './'}::qs_html_report_options)) AS r
     FROM prices
 );
+
+-- Or hand each report to your system browser as soon as it exists
+-- (with no 'output_dir' each report goes to a temporary file first; one tab each).
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, price,
+           {'title': symbol, 'open_in_browser': true}::qs_html_report_options)) AS report
+FROM prices;
 ```
 
-A report is a few hundred KB of HTML (a dozen inline SVGs) and `unnest(...)` spreads them into rows,
-so in a terminal `output_dir` (write them) or `open_in_browser` (open them) is the friendlier route.
-When all you want is the list of reports, `list_transform` picks just the fields you need:
+Just want the list, without dragging the HTML along?
 
 ```sql
 SELECT list_transform(
@@ -108,66 +159,48 @@ SELECT list_transform(
 FROM prices;
 ```
 
-## 3. Build from source
+## Common tasks
 
-For day-to-day iteration use `cargo-duckdb-ext-tools` (a global cargo subcommand that adds no
-dependency to the project):
+```sql
+-- One instrument only: filter first, and there is still no GROUP BY
+SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
+FROM daily_returns WHERE symbol = 'FUND';
 
-```shell
-cargo install cargo-duckdb-ext-tools   # once
-cargo duckdb-ext build                 # -> target/debug/duckfn_quantstats.duckdb_extension
+-- One instrument against two benchmarks → two reports, one per benchmark
+SELECT unnest(qs_html_reports(
+           symbol, trade_date, daily_return,
+           {'benchmark': ['SPX', 'NDX'], 'title': symbol}::qs_html_report_options)) AS report
+FROM daily_returns;
+
+-- You already have returns: the other function takes them as they are
+SELECT unnest(qs_html_reports(symbol, trade_date, daily_return, NULL)) AS report
+FROM daily_returns;
+
+-- Several instruments sharing one benchmark is the ordinary case: nothing extra to write
+SELECT unnest(qs_html_reports_by_prices(
+           symbol, date, nav,
+           {'benchmark': ['SPX'], 'title': symbol}::qs_html_report_options)) AS report
+FROM nav_table;
 ```
 
-The official template's `make` flow is kept as well (CI and sqllogictest use it); run
-`make configure` once to create the Python venv it needs:
+## If something does not work
 
-```shell
-make configure   # once
-make debug       # -> build/debug/extension/duckfn_quantstats/duckfn_quantstats.duckdb_extension
-```
+| Symptom | Cause |
+| --- | --- |
+| `No function matches the given name and argument types 'qs_html_reports(VARCHAR, DATE, DOUBLE, STRUCT(title VARCHAR))'` | The options literal needs the type: write `{…}::qs_html_report_options`. |
+| `no row for the benchmark symbol 'XYZ'` | `benchmark` names **symbols**, and each one has to exist in the table you are aggregating over. |
+| `every symbol must use the same benchmark list` | `benchmark` is read per row but has to be identical for the whole call. |
+| A path error from `duckfn::duck_vfs::write` | `output_dir` must already exist; the function never creates the directory. |
+| `only local file paths can be opened in a browser` | `open_in_browser` cannot open `s3://…` or `memory://…`; write those to disk without the option. |
 
-`make release` is the same flow with optimizations. On Windows, `make` must run in Git Bash.
+The complete table of behaviours is on [Error paths](../guide/error-paths.md).
 
-A binary you built yourself is unsigned and uses DuckDB's unstable C API, so loading it needs
-`-unsigned` (the community build does not — it is signed and matched to your version):
+## Next
 
-```shell
-duckdb -unsigned -c "
-LOAD './target/debug/duckfn_quantstats.duckdb_extension';
-SELECT ...;
-"
-```
+- [Functions](../guide/functions.md) — the result shape, the ordering, how benchmarks become reports.
+- [Options](../guide/options.md) — every field of `qs_html_report_options`.
+- [Price (or NAV) series](../guide/price-series.md) — what the price branch does with the values.
+- [Output and browser](../guide/output-and-browser.md) — where the files go and how they are named.
 
-## 4. Run the tests
-
-```shell
-just test           # make configure + make debug + make test
-```
-
-The faster loop (no `make`, no Python venv rebuild) and what each file covers are in
-[Testing](../development/testing.md).
-
-## Traps
-
-::::warning[Things that look like bugs and are not]
-
-- **`-unsigned` is mandatory** when you load a locally built extension. Without it DuckDB refuses
-  the file.
-- **The artifact file name must stay `duckfn_quantstats.duckdb_extension`.** DuckDB finds the
-  entry-point symbol through the file name, so a copy called `win.duckdb_extension` fails with
-  `did not contain function "duckfn_quantstats_init_c_api"`.
-- **`make test` does not rebuild.** After changing Rust code run `just ci-build` (or `make debug`)
-  first, otherwise the tests run against the previous artifact.
-- **`output_dir` has to exist already.** The directory is never created for you; pointing at one
-  that does not exist fails on the very first run.
-- **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
-  anonymous `STRUCT(title VARCHAR)` that matches no signature, and DuckDB reports that no function
-  matches.
-
-::::
-
-One more, on Windows: if `cargo duckdb-ext build` reports the artifact is in use, a DuckDB process
-is holding `target/debug/duckfn_quantstats.duckdb_extension`. Build to another path instead —
-`cargo duckdb-ext build -o build/debug/duckfn_quantstats.duckdb_extension` — or close that process.
-A `.duckdb_extension` is not a renamed DLL: DuckDB's metadata lives at the end of the file, so
-copying a DLL over it produces `The metadata at the end of the file is invalid`.
+Building or testing the extension itself is a different subject — that lives in the
+[Development guide](../development-guide/architecture/project-structure.md).

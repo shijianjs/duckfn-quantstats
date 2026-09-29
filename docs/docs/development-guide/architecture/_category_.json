@@ -1,0 +1,8 @@
+{
+  "label": "Architecture",
+  "position": 1,
+  "link": {
+    "type": "generated-index",
+    "description": "Where the code lives, why it is shaped that way, and which crate carries which part."
+  }
+}

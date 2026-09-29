@@ -61,6 +61,7 @@ ls -d ~/.cargo/registry/src/*/duckfn-*/
 | 构建与发布 | `docs/docs/build-and-release.md` | — |
 | 排错 | `docs/docs/troubleshooting.md` | — |
 | 社区扩展文档页（`function_descriptions.csv`） | `docs/docs/community-extension-docs.md` | `src/extension/functions/*.rs`（带 `description` / `example` 的那几个） |
+| 文档站部件：可运行 SQL 块（`<dfk-sql>`）、首页组件、TOC 折叠、版本占位 | `docs/docs/docs-kit/**`（**`runnable-sql.md` 是可运行块的全部配置参考**） | 本仓的 `docs/`（装配见 `docs/docusaurus.config.ts`） |
 
 属性宏接受哪些参数、允许哪些返回形状，**真相在 `duckfn-macro` 的源码里** —— 它是独立发布的 crate，
 解包在同一个 registry 目录下的 `duckfn-macro-<版本>/src/**`；文档与示例只覆盖常用面。
@@ -127,6 +128,49 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
 宏还会为每个签名生成 `SQL_NAME` 常量：代码里要引用注册名（错误信息前缀、日志）就读它 ——
 `functions/aggregate_html/kind.rs` 就是这么做的 —— 不要再抄一份字面量。代价是这类函数得写成
 `pub(super)`，因为生成的模块沿用函数的可见性。
+
+### 文档站：用户文档在前，开发内容统一进「开发指南」
+
+`docs/` 是中英双语的 Docusaurus 站，读者分成两类，目录就按这个分：
+
+- **用户能直接用的内容排在最前面**：`docs/docs/intro.md`、`getting-started/`、`guide/`。这个扩展是
+  装一条 `INSTALL` 就能用的插件，所以用户文档里不出现「编译、构建、cargo、make、`-unsigned`」这类内容 ——
+  它们属于下面那一档。示例代码一律面向「已经装好扩展」的读者。
+- **与「构建 / 测试 / 发布这个扩展」有关的一律放最后的一级目录**
+  `docs/docs/development-guide/<主题>/`：`architecture/`（目录结构、设计取舍、依赖）、
+  `build/`（构建与发版、测试）、`publishing/`（函数描述、社区扩展注册）、`demo-data/`（演示数据）。
+  二级目录的分类写在各自的 `_category_.json` 里（`label` + `position`）。
+
+新增页面时：英文正文写 `docs/docs/…`，中文镜像写
+`docs/i18n/zh-Hans/docusaurus-plugin-content-docs/current/…`，**相对路径必须一致**，
+`id` / `slug` / `sidebar_position` 也保持一致；页面之间用相对路径链接（`./x.md`、`../guide/y.md`），
+不要写 `/docs/...`（那会把中文页带去英文页）。正文里**不要手写版本号**，写 `{{EXTENSION_VERSION}}`，
+构建时由 `docs/extension-version.ts` 替换（发版脚本会更新它）。
+
+站点的其余维护约定（布局、命令、翻译、部署）见 `docs/README.md`。
+
+### 可运行 SQL 块（文档站里的 `sql {"type":"duckfn",…}`）
+
+只有 info string 能解析成 JSON、且带 `"type":"duckfn"` 的块才会变成可运行示例；普通的 ```sql 块
+仍然是普通代码块，写「给读者抄走」的示例用它。可运行块的配置（**完整参考见 duckfn 包内的
+`docs/docs/docs-kit/runnable-sql.md`**，路径见上面「动手前先读」）：
+
+- `show` 决定渲染方式：`table`（默认）、`text`、`html`、`iframe`（与 `html` 同一个渲染器：把 markup
+  放进 iframe 的 `srcdoc`，一行一个标签页，末尾始终留一个 `Table` 标签）、`svg`（内联进页面，脚本 /
+  `foreignObject` / `on*` 等会被清掉）；
+- `field` 指定装 markup 的列（单列结果可省），`tab_name` 指定给每个标签页起名的列；
+- `option.height` / `option.width` 是预览框的 CSS 长度（报告类内容要限高），`option.sandbox` 替换
+  iframe 的 sandbox token（默认 `allow-scripts`，故意不含 `allow-same-origin`）；
+- `expect:"error"` 声明「这一块必须失败」，由 `npm test` 双向校验；`extensions` / `repository` 可在
+  站点预加载之外再 `LOAD` 别的扩展；
+- **这些块跑在 DuckDB-Wasm 里，读不了 `http(s)://`**：`read_csv('https://…')` 会报
+  `IO Error: No files found that match the pattern`（浏览器与 `npm test` 都一样）。所以想让它真能跑的
+  示例，就用 `range()` / `VALUES` 自己造数据；需要真实数据的示例写成普通 ```sql 块，读文档站自己的
+  `https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv`（= `docs/static/demo/prices.csv`，
+  与仓库根的 `demo/prices.csv` 是同一份内容，两份都要留）。
+
+改完文档站跑两个检查：`just docs_build`（`onBrokenLinks: throw`，中英双语都要过）与
+`cd docs && npm test`（把每个可运行块用 DuckDB-Wasm 真跑一遍，并校验 `expect`）。
 
 ### 临时文件放到 target/
 

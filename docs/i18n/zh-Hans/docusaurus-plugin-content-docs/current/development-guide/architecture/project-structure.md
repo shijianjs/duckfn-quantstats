@@ -1,6 +1,6 @@
 ---
 title: 目录结构
-sidebar_position: 2
+sidebar_position: 1
 description: 从两个 crate root 到注册函数的模块链路、SQL 类型放在哪，以及让扩展能被加载的命名规则。
 ---
 
@@ -52,7 +52,7 @@ community-extension/   社区扩展注册草稿
 `#[path]` 不是偷懒，是必需的：`#[duck_*]` 背后的文档元数据由 `inventory` 的静态构造器收集，
 而它只在**真正被链接进最终二进制**的目标文件里生效。改成 `use duckfn_quantstats::…` 的话，
 链接器可能把这些模块丢掉，导出的 CSV 会**静默**变空。见
-[函数描述](../development/function-descriptions.md)。
+[函数描述](../publishing/function-descriptions.md)。
 
 ## 命名规则
 
@@ -61,14 +61,14 @@ community-extension/   社区扩展注册草稿
 | 扩展名是 `duckfn_quantstats`，且五处一致。 | 它既是入口符号也是产物文件名；DuckDB 按文件名去找符号。 |
 | 注册进 DuckDB 的每个 SQL 名都带 `qs_` 前缀。 | DuckDB 没有命名空间，社区扩展也几乎不把包名写进函数名 —— 但一个统一前缀是在 `duckdb_functions()` 里能检索到这两个名字的关键。约定见 `AGENTS.md`。 |
 | `src/lib.rs` 与 `src/wasm_lib.rs` 永远声明同一组 `mod`。 | 否则 wasm 构建编不过模块树。 |
-| `output_dir` 只收目录，不收文件路径。 | 文件名由函数生成；一个标的对多个基准时，调用方拼出来的路径必然互相覆盖（见[设计取舍](../development/design-notes.md)）。 |
+| `output_dir` 只收目录，不收文件路径。 | 文件名由函数生成；一个标的对多个基准时，调用方拼出来的路径必然互相覆盖（见[设计取舍](./design-notes.md)）。 |
 | 临时文件（脚本、数据、日志）放 `target/`。 | `target/` 已被 git 忽略，不会污染工作区。 |
 | 文本文件一律 LF。 | 仓库存的就是 LF。 |
 
 ## 开发笔记都在哪
 
 用户角度看不需要的设计细节 —— 为什么分组交给函数、基准怎么配对、哪个依赖负责哪一段 —— 分别在
-[设计取舍](../development/design-notes.md)与[依赖](../development/dependencies.md)。
+[设计取舍](./design-notes.md)与[依赖](./dependencies.md)。
 
 duckfn 自身的通用约定（入口链路、新增函数的流程、动手前该查哪份源码）在这里**不重复**：
 它们在仓库根目录的 `AGENTS.md` 里。

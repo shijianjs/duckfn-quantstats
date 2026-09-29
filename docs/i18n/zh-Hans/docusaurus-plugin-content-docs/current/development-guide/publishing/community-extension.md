@@ -1,6 +1,6 @@
 ---
 title: 社区扩展
-sidebar_position: 6
+sidebar_position: 1
 description: 把扩展注册到 DuckDB 社区仓 —— 需要的两个文件、每个字段的含义，以及怎么让它跟上每次发版。
 ---
 
@@ -46,7 +46,7 @@ cp target/function_descriptions.csv community-extension/docs/function_descriptio
 ```
 
 多条示例导出时用 `"; "` 拼接、去掉结尾分号；换行会压成空格，因为目标是 Markdown 表格。照「一句一条完整
-SQL」写，一律英文。完整说明见[函数描述](./development/function-descriptions.md)。
+SQL」写，一律英文。完整说明见[函数描述](./function-descriptions.md)。
 
 ## `description.yml`
 
