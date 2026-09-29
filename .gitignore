@@ -1,6 +1,14 @@
 /target
-build
-configure
+# 构建产物目录必须锚定在仓库根：裸写 `build` 会匹配任意层级的同名目录，
+# 而文档站的内容目录里就有一个 `docs/docs/development-guide/build/` ——
+# 它被静默忽略过，文件没能提交，CI 的 onBrokenLinks 于是报断链。
+#
+# The build-output directory has to be anchored at the repository root: a bare `build` matches a
+# directory of that name at any depth, and the docs content tree has one
+# (`docs/docs/development-guide/build/`). That is what silently kept those pages out of the commit and
+# made CI's `onBrokenLinks` report a broken link.
+/build
+/configure
 .idea
 duckdb_unittest_tempdir
 /test/bin

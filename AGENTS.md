@@ -157,6 +157,11 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
 不要写 `/docs/...`（那会把中文页带去英文页）。正文里**不要手写版本号**，写 `{{EXTENSION_VERSION}}`，
 构建时由 `docs/extension-version.ts` 替换（发版脚本会更新它）。
 
+**新建内容目录后确认那些文件真的进了 git**：根 `.gitignore` 里的裸名字会匹配任意层级，`build` 曾把
+`docs/docs/development-guide/build/` 整个静默吞掉（本地能构建，CI 检出后页面不存在，
+`onBrokenLinks: throw` 于是报断链）。`git status` **看不到**被忽略的文件，用 `git check-ignore -v <path>`
+查；根 `.gitignore` 里那条已经锚定成 `/build`，别再改回裸名。
+
 站点的其余维护约定（布局、命令、翻译、部署）见 `docs/README.md`。
 
 ### 可运行 SQL 块（文档站里的 `sql {"type":"duckfn",…}`）

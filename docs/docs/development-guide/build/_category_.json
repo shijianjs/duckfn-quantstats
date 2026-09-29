@@ -1,0 +1,8 @@
+{
+  "label": "Build, test and release",
+  "position": 2,
+  "link": {
+    "type": "generated-index",
+    "description": "The two build paths, the SQLLogicTest suite, the release flow and the WebAssembly target."
+  }
+}

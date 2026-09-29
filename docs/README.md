@@ -26,6 +26,12 @@ translations live under `i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
 | `extension-version.ts` | The version shown in the docs. The only place it is written; `{{EXTENSION_VERSION}}` in the markdown is replaced from here at build time. |
 | `package.json` / `package-lock.json` | Dependencies. `package-lock.json` is committed: CI installs with `npm ci`. |
 
+A new content directory has to end up in git. The repository's `.gitignore` used to hold a bare `build`,
+which matches a directory of that name at **any** depth — that silently kept `docs/docs/development-guide/build/`
+and its translation out of the commit, so the page did not exist on CI and `onBrokenLinks: throw` failed
+the build over the footer's link to it. `git status` never shows ignored files; `git check-ignore -v <path>`
+does. The rule is anchored now (`/build`); keep it that way.
+
 ## What to change first
 
 1. `REPO_URL` and `EXTENSION_NAME` in `docusaurus.config.ts` — the navbar, the footer, the home page
