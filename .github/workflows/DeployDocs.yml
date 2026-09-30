@@ -1,24 +1,35 @@
 #
 # 构建 docs/ 里的 Docusaurus 站点，并发布到 GitHub Pages。
 #
-# 触发面两种：推版本 tag（`v*.*.*`）或从 Actions 页手动发起；普通提交不构建站点。
+# 触发面：扩展分发流水线**跑完之后**（`Main Extension Distribution Pipeline`），或从 Actions 页手动
+# 发起；普通提交不构建站点。
+#
+# 等流水线是必须的：站点预加载的是**已发布**的 wasm（见下面 build 步骤的
+# DOCS_EXTENSION_FROM_RELEASE），而那个 Release 由流水线最后一个 job 创建 —— 直接挂 tag 会在构建
+# 抢跑、拉到的还是上一个 release。
+#
+# `workflow_run` 跑在默认分支上，所以下面显式 checkout 那个 tag 的 SHA；deploy job 看到的 ref 因此是
+# 分支 `main`。
 #
 # `github-pages` 环境是受保护的，允许部署的 ref 列在 Settings -> Environments -> github-pages ->
-# Deployment branches and tags 里（默认：分支 `main` 与 tag `v*.*.*`，可以都留着）。别的 ref 会被拒
-# 绝并报
+# Deployment branches and tags 里（需要分支 `main`；手动触发要用 tag 的话把 `v*.*.*` 也留着）。别的
+# ref 会被拒绝并报
 #   Tag "vX.Y.Z" is not allowed to deploy to github-pages due to environment protection rules.
 # —— 下面的 deploy job 遇到这种情况会跳过，而不是失败。
 #
 # 一次性设置：仓库 Settings -> Pages -> Build and deployment -> Source 选 "GitHub Actions"。
 #
-# Builds the Docusaurus site in docs/ and publishes it to GitHub Pages. Triggered by a version tag
-# (`v*.*.*`) or manually from the Actions tab. One-time setup: repository Settings -> Pages -> Build
-# and deployment -> Source: "GitHub Actions".
+# Builds the Docusaurus site in docs/ and publishes it to GitHub Pages. Triggered by the extension
+# distribution pipeline finishing — not by the version tag itself — or manually from the Actions tab.
+# The order matters: the deployed site preloads the *released* wasm, and that release is created by the
+# pipeline's last job, so a tag-triggered deploy would race the build and fetch the previous release.
+# One-time setup: repository Settings -> Pages -> Build and deployment -> Source: "GitHub Actions".
 #
 name: Deploy Docs
 on:
-  push:
-    tags: ['v*.*.*']
+  workflow_run:
+    workflows: ['Main Extension Distribution Pipeline']
+    types: [completed]
   workflow_dispatch:
 
 # Required by actions/deploy-pages: it exchanges the OIDC token for a Pages deployment.
@@ -35,10 +46,25 @@ concurrency:
 jobs:
   build:
     name: Build documentation
+    # PR 跑、以及手动跑流水线时也会触发 workflow_run；只有「成功 + 由推 v*.*.* tag 触发」才部署。
+    #
+    # A `workflow_run` also fires for pull-request runs and for manual runs of the pipeline; only a
+    # successful run started by pushing a version tag deploys the site.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       startsWith(github.event.workflow_run.head_branch, 'v'))
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # workflow_run 默认 checkout 默认分支；站点要用流水线刚发布那个 tag 的代码。
+          #
+          # A `workflow_run` checks out the default branch by default; the site has to be built from
+          # the tag whose release the pipeline just published.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Node
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -74,8 +100,12 @@ jobs:
         #
         # GITHUB_TOKEN lifts the anonymous release-API rate limit the dfkExtensions plugin hits when
         # it fetches the extension wasm file from the latest release (see docs/docusaurus.config.ts).
+        #
+        # DOCS_EXTENSION_FROM_RELEASE 只在这里设：只有部署出去的站点才去拉 release 的 wasm，本地构建
+        # 一律用 static/ 下本地产出的那份（见 docs/docusaurus.config.ts）。
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          DOCS_EXTENSION_FROM_RELEASE: '1'
         run: |
           set -euo pipefail
           # `base_url` is "https://<host>/<path>" and Docusaurus rejects it: `url` must be a bare

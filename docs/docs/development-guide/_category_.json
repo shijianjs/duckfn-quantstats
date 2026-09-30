@@ -1,8 +1,0 @@
-{
-  "label": "Development guide",
-  "position": 4,
-  "link": {
-    "type": "generated-index",
-    "description": "For contributors: how the extension is built, tested, packaged and published, and why it is shaped the way it is. Nothing here is needed to use it."
-  }
-}

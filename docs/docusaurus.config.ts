@@ -6,6 +6,7 @@ import {remarkRunnableSql} from 'duckfn-docs-kit/sql/remark';
 import {dfkExtensions} from 'duckfn-docs-kit/sql/extensions';
 import {dfkTocToggle} from 'duckfn-docs-kit/toc-toggle/plugin';
 import {EXTENSION_VERSION} from './extension-version';
+import type {UrlPreloadEntry} from 'duckfn-docs-kit/sql/runtimeConfig';
 
 // This runs in Node.js - Don't use client-side code here (browser APIs, JSX...)
 
@@ -32,6 +33,28 @@ const REPO_SLUG = REPO_URL.replace(/^https:\/\/github\.com\//, '');
 // file name.
 const EXTENSION_NAME = 'duckfn_quantstats';
 
+// 可运行 SQL 预加载的那个 wasm 从哪来，由 `DOCS_EXTENSION_FROM_RELEASE` 区分：只有 GitHub Pages
+// 部署会设它，去仓库最新 release 取资产（那里安全，因为部署排在扩展分发流水线跑完之后，见
+// ../.github/workflows/DeployDocs.yml）；其他构建一律用 `static/duckdb-extensions/` 下已有的文件 ——
+// 也就是 `just build_wasm_eh` 产出的那份本机构建，从不碰 release。`just test_wasm` 会先构建它，
+// 再跑文档里的 SQL 测试。
+//
+// Where the preloaded wasm comes from is decided by `DOCS_EXTENSION_FROM_RELEASE`: only the GitHub
+// Pages deployment sets it and fetches the asset from the repository's latest release (safe there,
+// because that workflow runs after the extension pipeline published it); every other build serves the
+// file already under `static/duckdb-extensions/` — the one `just build_wasm_eh` wrote. `just test_wasm`
+// builds it and then runs the docs' SQL test.
+const preloadedExtension: UrlPreloadEntry =
+  process.env.DOCS_EXTENSION_FROM_RELEASE === '1'
+    ? {
+        // Served at <baseUrl>/duckdb-extensions/duckfn_quantstats.duckdb_extension.wasm. The name
+        // must keep `duckfn_quantstats` before the first dot: that base is the entry symbol DuckDB
+        // looks up, hence the rename from the release asset (which carries the wasm suffix).
+        url: `duckdb-extensions/${EXTENSION_NAME}.duckdb_extension.wasm`,
+        release: {repository: REPO_SLUG, asset: `${EXTENSION_NAME}-wasm_eh.duckdb_extension.wasm`},
+      }
+    : {url: `duckdb-extensions/${EXTENSION_NAME}.duckdb_extension.wasm`};
+
 // GitHub Pages 把项目站挂在子路径下（https://<owner>.github.io/<repo>），所以 `url` / `baseUrl`
 // 由工作流注入（见 ../.github/workflows/DeployDocs.yml）。下面两个是本地开发的兜底值。
 //
@@ -55,6 +78,13 @@ const config: Config = {
   baseUrl,
 
   onBrokenLinks: 'throw',
+
+  // ```mermaid 围栏由下面 themes 里注册的主题渲染成示意图 —— 见 architecture 等页面的流程图。
+  //
+  // ```mermaid fences render as diagrams through the theme registered in `themes` below.
+  markdown: {
+    mermaid: true,
+  },
 
   // GitHub Pages serves `<path>/index.html` at `<path>/`, and 301-redirects `<path>` to `<path>/`.
   // Keeping the slash in Docusaurus' own output means the sitemap, the canonical tags and every
@@ -97,6 +127,14 @@ const config: Config = {
     extensionVersion: EXTENSION_VERSION,
   },
 
+  // 站点的客户端增强全部来自 kit 的插件（见下面 plugins），这里只注册一个主题：Mermaid，它把
+  // ```mermaid 围栏渲染成示意图，并自行跟随明暗模式。
+  //
+  // The only theme this site registers is Mermaid (it turns ```mermaid fences into diagrams and
+  // follows the light/dark color mode on its own); the client-side enhancements all come from the
+  // kit's plugins below.
+  themes: ['@docusaurus/theme-mermaid'],
+
   presets: [
     [
       'classic',
@@ -127,42 +165,49 @@ const config: Config = {
     ],
   ],
 
-  // The docs-kit wiring: `dfkExtensions` fetches this extension's released wasm file into
-  // `static/duckdb-extensions/` at dev/build startup (cached locally, re-fetched only when the
-  // release asset's sha256 changes), injects the ordered preload list into every page, and registers
-  // the `dfk-*` elements; `dfkTocToggle` adds the TOC collapse control. Together they replace the
-  // client modules this site used to keep under src/clientModules/.
+  // 文档 kit 的装配：`dfkExtensions` 让每页的预加载列表可解析 —— 带 release 的条目会在 dev/build
+  // 启动时拉取进 `static/`（本地缓存，只有 release 资产的 sha256 变了才重下），不带的就原样留着 ——
+  // 然后把有序列表注入每个页面（kit 的运行时在 DuckDB 初始化时依次 LOAD），并注册 `dfk-*` 元素；
+  // `dfkTocToggle` 加上目录折叠控件。两者一起取代了本站以前自备的 src/clientModules/。
   //
-  // Runnable SQL blocks call the extension, so one has to exist as a release: the file is fetched from
-  // the latest GitHub Release of the repository in `REPO_URL` (see docs/README.md, "Preloaded
-  // extensions").
+  // Runnable SQL blocks call the extension, so one has to exist: in CI it is the wasm attached to the
+  // repository's latest GitHub Release, locally it is the build `just build_wasm_eh` produced — see
+  // `preloadedExtension` above and docs/README.md, "Preloaded extensions".
   plugins: [
     dfkExtensions({
       // CI builds the release assets without DuckDB's signing keys — the same reason local
       // development runs `duckdb -unsigned`.
       allowUnsignedExtensions: true,
-      preload: [
-        {
-          // Served at <baseUrl>/duckdb-extensions/duckfn_quantstats.duckdb_extension.wasm. The name
-          // must keep `duckfn_quantstats` before the first dot: that base is the entry symbol DuckDB
-          // looks up, hence the rename from the release asset (which carries the wasm suffix).
-          url: `duckdb-extensions/${EXTENSION_NAME}.duckdb_extension.wasm`,
-          release: {repository: REPO_SLUG, asset: `${EXTENSION_NAME}-wasm_eh.duckdb_extension.wasm`},
-        },
-      ],
+      preload: [preloadedExtension],
     }),
     dfkTocToggle(),
   ],
 
-  // No `themes` entry for the search UI: the classic preset already registers
-  // `docusaurus-theme-search-algolia`, and it turns on as soon as `themeConfig.algolia` below is
-  // filled in — listing it again fails the build with
-  // `Plugin "docusaurus-theme-search-algolia" is used 2 times with ID "default"`.
+  // 搜索是可选的（见下面注释），所以没有为它注册 theme：classic preset 已经注册了
+  // `docusaurus-theme-search-algolia`，`themeConfig.algolia` 一填上它就自己生效 —— 再列一次会以
+  // `Plugin "docusaurus-theme-search-algolia" is used 2 times with ID "default"` 失败。
   themeConfig: {
     // Readers can collapse the docs sidebar away; the toggle button appears next to it.
     docs: {
       sidebar: {
         hideable: true,
+      },
+    },
+    // Mermaid 的观感与配色：`neo` look + redux 色板（亮色 `redux-color`、暗色 `redux-dark-color`）。
+    // `theme` 必须是 `{light, dark}` 这个对象（组件读的是 `theme[colorMode]`，切换明暗时会重新
+    // initialize），而 `look` 没有明暗两态，走 `options`（它会被 spread 进 `mermaid.initialize`）。
+    //
+    // Mermaid's look and palette: the `neo` look with the redux themes. `theme` has to be the
+    // `{light, dark}` object (the component reads `theme[colorMode]` and re-initialises on a mode
+    // switch); `look` has no per-mode variant and goes through `options`, which is spread into
+    // `mermaid.initialize`.
+    mermaid: {
+      theme: {
+        light: 'redux-color',
+        dark: 'redux-dark-color',
+      },
+      options: {
+        look: 'neo',
       },
     },
     // Replace with your project's social card
@@ -181,11 +226,20 @@ const config: Config = {
         src: 'img/logo.svg',
       },
       items: [
+        // 顶栏两项 = 两个侧边栏（见 sidebars.ts）：怎么用这个扩展 / 怎么开发它。
+        //
+        // Two navbar entries, one per sidebar (see sidebars.ts): using the extension, developing it.
         {
           type: 'docSidebar',
-          sidebarId: 'docsSidebar',
+          sidebarId: 'userGuide',
           position: 'left',
-          label: 'Docs',
+          label: 'User guide',
+        },
+        {
+          type: 'docSidebar',
+          sidebarId: 'development',
+          position: 'left',
+          label: 'Development guide',
         },
         {
           type: 'localeDropdown',

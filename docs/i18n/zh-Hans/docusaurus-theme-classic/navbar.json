@@ -7,9 +7,13 @@
     "message": "duckfn_quantstats logo",
     "description": "The alt text of navbar logo"
   },
-  "item.label.Docs": {
-    "message": "文档",
-    "description": "Navbar item with label Docs"
+  "item.label.User guide": {
+    "message": "用户指南",
+    "description": "Navbar item with label User guide"
+  },
+  "item.label.Development guide": {
+    "message": "开发指南",
+    "description": "Navbar item with label Development guide"
   },
   "item.label.Links": {
     "message": "相关链接",
