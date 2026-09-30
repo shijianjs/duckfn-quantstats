@@ -59,7 +59,7 @@ crate-type = ["staticlib"]
 #     API cannot set a function's description or examples, so the community-extension doc page can only
 #     be filled in from an exported `target/function_descriptions.csv` — this is its one source (see
 #     src/bin/duckfn.rs and the `just docs_csv` recipe). `cli` pulls clap and csv into duckfn.
-duckfn = { version = "0.0.15", features = ["all"] }
+duckfn = { version = "0.0.17", features = ["all"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
