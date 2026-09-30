@@ -11,11 +11,10 @@ and write down why a dependency is there. Every entry below has a comment in `Ca
 it is responsible for.
 
 - [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions
-  with DuckDB. The dependency turns on `all` (every duckfn feature at once); what this extension uses
-  is:
-  - `duckdb-1-5`'s host file system `duckfn::duck_vfs`, used by `output_dir` — including
-    `write_string`, whose "replace" semantics (a longer existing file is handled internally) are why
-    the report is written there rather than with `std::fs` (there is no writable `std::fs` on wasm);
+  with DuckDB. The dependency turns on `all` (duckfn's common features at once) and deliberately **not**
+  `owned-connection` — that one is what brings in `duck_vfs`, duckfn's host file system, and nothing
+  here needs it: persistence is `std::fs` on a native build and skipped altogether on wasm (see
+  [Design notes](./design-notes.md)). What this extension uses is:
   - `chrono`, which converts the time wrapper types (`DuckDate::to_naive_date` and friends);
   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
   - `cli`, the command-line tool behind `src/bin/duckfn.rs` (it pulls clap and csv into duckfn).
@@ -28,7 +27,9 @@ it is responsible for.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension`
   enabled — so **no local DuckDB build is required**. The version floor is `>= 1.10500` (DuckDB 1.5.0:
   the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.5 is
-  `1.10505.0`), because the client-context / file-system part of the C API is 1.5-only.
+  `1.10505.0`), because `all` switches on duckfn's `duckdb-1-5` feature — the unstable region of the C
+  API (scalar bind/init, copy functions, the client context), whose slots only exist in 1.5.x.
+  Persistence no longer has a stake in that floor; the dependency tree still turns the feature on.
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes
   only `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is
   unreachable), so both paths are built on it instead of recomputing metrics — that would create a
@@ -40,7 +41,9 @@ it is responsible for.
 - [sanitize-filename](https://crates.io/crates/sanitize-filename) and
   [fastrand](https://crates.io/crates/fastrand): the two halves of a report file name — which parts
   are legal (illegal and control characters, Windows reserved device names, trailing dots and spaces)
-  and the random suffix. Both are **shared** dependencies: `naming.rs` builds file names on wasm too.
+  and the random suffix. Both stay **shared** dependencies rather than moving to the non-wasm table:
+  `naming.rs` is compiled for every target, and keeping that module free of `cfg`s is worth more than
+  dropping two small crates from a wasm build that names no files anyway (nothing calls it there).
   fastrand is already in the tree (tempfile uses it internally), so a direct dependency costs no extra
   compilation.
 - [open](https://crates.io/crates/open) and [tempfile](https://crates.io/crates/tempfile):

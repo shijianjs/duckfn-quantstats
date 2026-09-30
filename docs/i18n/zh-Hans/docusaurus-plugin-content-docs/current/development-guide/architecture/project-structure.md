@@ -23,6 +23,7 @@ src/extension/functions/aggregate_html/
     slots.rs          参数槽：symbol 表 +「每个 symbol 的配置只解析一次」
     report.rs         收尾：按 (标的, 基准) 逐份渲染、落盘、按需打开浏览器、回填每份的路径
     naming.rs         报告文件名：`<时间>-<策略名>-<基准名>[-<随机尾缀>].html`（落盘与临时文件共用主干）
+    storage.rs        落盘：挑空闲名字、用 std::fs 写字节（wasm 下整个跳过）
     browser.rs        用系统默认浏览器打开报告（wasm 下整个功能被忽略）
 src/extension/types/
     html_report_options.rs  命名 STRUCT 类型 `qs_html_report_options`

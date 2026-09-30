@@ -149,7 +149,8 @@ FROM prices;
   belong to the first and second benchmark respectively. It is presentation only, hence lenient — a
   missing entry (shorter list, NULL, empty string) falls back to that report's own benchmark symbol,
   and extra entries are ignored.
-- **`open_in_browser` does nothing on wasm** (there is no browser process to launch); see
+- **On wasm nothing is written and no browser is opened**: the file operation is skipped (`file_path`
+  comes back `NULL`) and `open_in_browser` does nothing, since there is no browser process to launch; see
   [Output and browser](./output-and-browser.md).
 - **The demo snapshot is a good table to try all of this on** — `read_csv` it straight from this site:
   `read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')`. See the

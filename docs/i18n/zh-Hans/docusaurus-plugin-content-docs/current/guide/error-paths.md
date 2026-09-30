@@ -18,8 +18,9 @@ description: 每种失败长什么样 —— 返回 NULL、略过某个标的，
 | `periods_per_year = 0` | 报错 `periods_per_year must be greater than 0` |
 | `output_dir = ''` | 报错 `output_dir must not be an empty string` |
 | `output_dir` 里有 NUL 字节 | 报错 `contains a NUL byte` |
-| `output_dir` 写不进去（目录不存在、远端不可写等） | 报错里带 `duckfn::duck_vfs::write` 与路径 |
+| `output_dir` 写不进去（目录不存在、路径不可写等） | 报错 `cannot write the report to '<路径>': …`，带路径 |
 | `open_in_browser` 配的 `output_dir` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
+| **wasm 构建**（本站那些浏览器里跑的块）写了 `output_dir` | **不算错误**：什么也不写，`file_path` 是 `NULL` |
 
 报错信息一律以注册的函数名开头（`qs_html_reports: …`），所以一眼能看出是哪个函数的问题。
 

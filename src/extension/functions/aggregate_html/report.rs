@@ -32,8 +32,11 @@
 //   3. 最后把「实际写到哪」与两个显示名落进返回行（没落盘时 `file_path` 是 NULL）。
 //
 // 文件名不给用户填（见 [`ReportTarget`]）：`output_dir` 只给目录，名字由 naming.rs 按「时间 + 策略名 +
-// 基准名 + 随机尾缀」生成，`report_path` 再确认它没被占用 —— 于是不管一个标的对几个基准、一次调用写多少
-// 文件，都不存在互相覆盖这回事。
+// 基准名 + 随机尾缀」生成，`storage::report_path` 再确认它没被占用 —— 于是不管一个标的对几个基准、一次
+// 调用写多少文件，都不存在互相覆盖这回事。
+//
+// 落盘只发生在原生构建里：wasm 构建整个跳过文件操作（`output_dir` 不落盘、`file_path` 为 NULL，报告
+// 照常渲染并返回），见 storage.rs。**打开浏览器**同理，也只在原生构建里发生，见 browser.rs。
 //
 // 配置直接从每个 symbol 的槽位取（`SymbolSlot::options_or_default`）：整列配置是 `NULL`、或那一行
 // 都没轮到解析时，槽里没有解析结果，退化成 quantstats-rs 自己的全默认。
@@ -80,9 +83,13 @@
 //      was written).
 //
 // The file name is not the caller's to type (see [`ReportTarget`]): `output_dir` only takes a directory and
-// naming.rs builds the name from "time + strategy + benchmark + random suffix", which `report_path` then
-// checks is free — so no matter how many benchmarks an instrument has or how many files one call writes,
-// they cannot overwrite each other.
+// naming.rs builds the name from "time + strategy + benchmark + random suffix", which
+// `storage::report_path` then checks is free — so no matter how many benchmarks an instrument has or how
+// many files one call writes, they cannot overwrite each other.
+//
+// Persisting only ever happens in a native build: a wasm build skips the file operation altogether
+// (`output_dir` writes nothing, `file_path` is NULL, and the report is rendered and returned as usual) —
+// see storage.rs. **Opening a browser** works the same way and is native-only too, see browser.rs.
 //
 // The options come straight out of each symbol's slot (`SymbolSlot::options_or_default`): when the whole
 // column was NULL, or no row of that symbol has been parsed yet, the slot holds no parse result and the
@@ -95,7 +102,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use duckfn::{DuckOptionResult, DuckResult, duck_error, duck_vfs};
+use duckfn::{DuckOptionResult, DuckResult, duck_error};
 use quantstats_rs::{HtmlReportOptions, ReturnSeries, html};
 
 use crate::extension::types::html_report::QuantstatsHtmlReport;
@@ -103,9 +110,9 @@ use crate::extension::types::html_report_options::QuantstatsHtmlOptions;
 
 use super::browser;
 use super::kind::SeriesKind;
-use super::naming;
 use super::series::{SeriesPoint, build_series, prices_to_returns};
 use super::slots::SymbolTable;
+use super::storage;
 
 /// 收益率路径的收尾：点已经是收益率，直接渲染。
 ///
@@ -419,10 +426,11 @@ fn render(
 ///
 /// 「写」与「打开」是两套路径，因此分开存：
 ///
-/// - `write_to` 是**函数自己定的完整路径** —— `output_dir` 下一个自动命名的文件（见 `report_path`），
-///   或者没有 `output_dir` 时要打开浏览器而新建的临时文件；它同时也是返回行里 `file_path` 的来源；
-/// - `open_with_browser` 是**本地绝对路径**，只给系统浏览器用 —— VFS 路径里可能有 `s3://` 这种浏览器
-///   打不开的东西，相对路径也得先补成绝对路径。
+/// - `write_to` 是**函数自己定的完整路径** —— `output_dir` 下一个自动命名的文件（见
+///   [`storage::report_path`]），或者没有 `output_dir` 时要打开浏览器而新建的临时文件；它同时也是
+///   返回行里 `file_path` 的来源。wasm 构建下恒为 `None`：那边整个跳过文件操作，不给路径也就不会去写；
+/// - `open_with_browser` 是**本地绝对路径**，只给系统浏览器用 —— `output_dir` 万一写成 `s3://…` 这种
+///   非本地路径，浏览器打不开，所以那种取值在这里就报错；相对路径也得先补成绝对路径。
 ///
 /// 每个 (标的, 基准) 对各定一份：两者在 [`ReportTarget::new`] 里一次定下来，配置错误因此发生在渲染
 /// **之前**，不会白渲染几十份几百 KB 的报告。两个显示名由调用方传进来（它同时也交给报告），所以文件名
@@ -433,19 +441,23 @@ fn render(
 /// Writing and opening are two different paths and are kept apart:
 ///
 /// - `write_to` is the **full path the function picked for itself** — an auto-named file under
-///   `output_dir` (see `report_path`), or a freshly created temporary file when there is no `output_dir`
-///   but the browser was asked for; it is also where the returned `file_path` comes from;
-/// - `open_with_browser` is an **absolute local path** for the system browser only — a VFS path may be
-///   something like `s3://…` that no browser can open, and a relative path has to be made absolute first.
+///   `output_dir` (see [`storage::report_path`]), or a freshly created temporary file when there is no
+///   `output_dir` but the browser was asked for; it is also where the returned `file_path` comes from. It
+///   is always `None` in a wasm build: the file operation is skipped there, and with no path there is
+///   nothing to write;
+/// - `open_with_browser` is an **absolute local path** for the system browser only — an `output_dir` that
+///   says `s3://…` could never be opened by a browser, so such a value is an error right here, and a
+///   relative path has to be made absolute first.
 ///
 /// There is one of these per (symbol, benchmark) pair: both are settled in [`ReportTarget::new`], so a bad
 /// configuration is reported **before** anything is rendered rather than after dozens of few-hundred-KB
 /// reports. The two display names come from the caller (which also hands them to the report), so the file
 /// name and the report legend use one and the same name.
 pub(super) struct ReportTarget {
-    /// 落盘路径，函数自己命名的；`None` 表示不落盘。
+    /// 落盘路径，函数自己命名的；`None` 表示不落盘（wasm 构建恒为此）。
     ///
-    /// The path to write to, named by the function itself; `None` means nothing is written.
+    /// The path to write to, named by the function itself; `None` means nothing is written (always so in
+    /// a wasm build).
     write_to: Option<String>,
     /// 要交给浏览器的本地绝对路径；`None` 表示不打开。
     ///
@@ -471,11 +483,15 @@ impl ReportTarget {
         // write path has to be openable and whether a temporary file is needed when `output_dir` is unset.
         let open_in_browser = browser::is_requested(options);
 
-        // 空字符串的 `output_dir` 在这里就报掉（`output_dir_path`）。
+        // 空字符串、带 NUL 字节的 `output_dir` 在这里就报掉（`output_dir_path`）。
         //
-        // An empty `output_dir` is reported right here, by `output_dir_path`.
+        // An empty `output_dir`, or one carrying a NUL byte, is reported right here, by `output_dir_path`.
         let write_to = match options.output_dir_path()? {
-            Some(dir) => Some(report_path(dir, strategy_title, benchmark_title)?),
+            // 挑一个落盘路径。wasm 构建下整个跳过文件操作，拿回来的就是 `None`（见 storage.rs）。
+            //
+            // Pick a path to write to. A wasm build skips the file operation altogether and answers `None`
+            // instead (see storage.rs).
+            Some(dir) => storage::report_path(dir, strategy_title, benchmark_title)?,
             // 要在浏览器里打开却没有落盘目录：让 browser 那边先把临时文件建好，报告写进去就是。
             //
             // The browser was asked for but no directory was configured: let the browser side create the
@@ -509,7 +525,7 @@ impl ReportTarget {
     /// the write comes first, so the file is always there by the time the browser looks at it.
     pub(super) fn deliver(&self, report: &str) -> DuckResult<()> {
         if let Some(path) = &self.write_to {
-            write_report(path, report)?;
+            storage::write_report(path, report)?;
         }
         if let Some(path) = &self.open_with_browser {
             browser::open_report(path)?;
@@ -519,82 +535,4 @@ impl ReportTarget {
     }
 }
 
-/// 名字撞上上限时重试几次：随机尾缀是 32 位，撞上几乎不可能，但「不覆盖已有文件」要是保证而不是概率。
-///
-/// How many times to retry when a name is taken: the random suffix is 32 bits wide, so a collision is
-/// practically impossible, but "nothing existing is overwritten" should be a guarantee, not a probability.
-const MAX_NAME_ATTEMPTS: usize = 8;
 
-/// 在 `output_dir` 下挑一个没被占用的文件名，返回完整路径。
-///
-/// 名字由 naming.rs 按「时间 + 策略名 + 基准名 + 随机尾缀」生成（名字里的两段就是报告图例里那两段），
-/// 这里只解决「万一撞上已存在的文件」：换一个尾缀重试；重试到上限仍然撞上就报错（先查
-/// `duck_vfs::exists`，所以不会拿别人的文件去覆盖）。
-///
-/// Pick a free file name under `output_dir` and return the full path.
-///
-/// naming.rs builds the name from "time + strategy + benchmark + random suffix" (the two display names in it
-/// are the ones the report legend shows); all this does is handle "what if that file already exists": it
-/// retries with another suffix, and errors out if it keeps colliding (`duck_vfs::exists` is checked first, so
-/// somebody else's file is never overwritten).
-fn report_path(
-    dir: &str,
-    strategy_title: &str,
-    benchmark_title: Option<&str>,
-) -> DuckResult<String> {
-    for _ in 0..MAX_NAME_ATTEMPTS {
-        let path = join(dir, &naming::file_name(strategy_title, benchmark_title));
-        if !duck_vfs::exists(&path) {
-            return Ok(path);
-        }
-    }
-
-    Err(duck_error(format!(
-        "qs_html_report_options.output_dir={dir}: could not find a free report file name in \
-         {MAX_NAME_ATTEMPTS} attempts"
-    )))
-}
-
-/// 目录 + 文件名。
-///
-/// 刻意不用 `Path::join`：它按**平台**的分隔符拼，而这里的目录可能是 `s3://bucket/reports` 这种 VFS
-/// 路径 —— 在 Windows 上会被拼成 `s3://bucket/reports\name.html`。DuckDB 的本地文件系统两边都认，所以
-/// 统一用 `/`，只把用户写在末尾的分隔符去掉（`/` 与 `\` 都算）。
-///
-/// Directory + file name.
-///
-/// `Path::join` is deliberately not used: it joins with the **platform** separator, while the directory here
-/// may be a VFS path like `s3://bucket/reports` — on Windows that would come out as
-/// `s3://bucket/reports\name.html`. DuckDB's local file system accepts either, so `/` is used throughout and
-/// only a trailing separator the user wrote (either `/` or `\`) is trimmed.
-fn join(dir: &str, file_name: &str) -> String {
-    format!("{}/{}", dir.trim_end_matches(['/', '\\']), file_name)
-}
-
-/// 把渲染好的报告写到 [`ReportTarget`] 定下的路径。
-///
-/// 走 duckfn 的便捷层 [`duck_vfs::write_string`]，它内部经 **DuckDB 的 VFS** 写入，而不是 `std::fs`：
-/// 本地磁盘、内存文件系统、wasm 构建里的文件系统、装了 httpfs 的 `s3://` / `http(s)://` 是同一条通路、
-/// 同一套语义（`std::fs` 只看得到本地磁盘，wasm 下更是没有可写的地方）。聚合函数能写文件也不靠额外
-/// 机制：duckfn 在注册期留了一条自有长连接，便捷层每次调用都在它上面现取句柄。
-///
-/// 「C API 没有 truncate」这个坑由便捷层处理掉了 —— 覆盖写就是覆盖写（旧文件更长时它内部先清零再写），
-/// 所以这里只是两件事的收尾：写、把错误原样抛出。错误里已经带了操作名与路径
-/// （`duckfn::duck_vfs::write: '<path>': ...`），不必再包一层。
-///
-/// Persists the rendered report to the path [`ReportTarget`] settled on.
-///
-/// It goes through duckfn's convenience layer [`duck_vfs::write_string`], which writes via **DuckDB's
-/// VFS** rather than `std::fs`: local disk, in-memory file systems, the wasm build's file system and
-/// `s3://` / `http(s)://` once httpfs is loaded all take the same path with the same semantics
-/// (`std::fs` only ever sees local disk, and on wasm there is nowhere writable at all). An aggregate
-/// needs no extra machinery to write either: duckfn keeps an owned long-lived connection from
-/// registration time, and the convenience layer takes fresh handles from it on every call.
-///
-/// The "C API has no truncate" pitfall is dealt with inside that layer — replace really replaces (a
-/// longer existing file is zeroed first), so all that is left here is writing and propagating the
-/// error. The error already carries the operation and the path (`duckfn::duck_vfs::write: '<path>':
-/// ...`), so there is nothing to wrap it in.
-fn write_report(path: &str, report: &str) -> DuckResult<()> {
-    duck_vfs::write_string(path, report)
-}

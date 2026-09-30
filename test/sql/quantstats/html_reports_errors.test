@@ -162,8 +162,8 @@ FROM daily_returns WHERE symbol = 'AAA';
 ----
 contains a NUL byte
 
-# 浏览器只能打开本地文件：output_dir 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
-# （这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
+# 浏览器只能打开本地文件：output_dir 指向 s3:// 这类非本地路径时直接报错，而且要报在渲染之前
+# （落盘走 std::fs，那种路径写也写不成；这里要报的必须是配置错误而不是写入错误）
 statement error
 SELECT qs_html_reports(symbol, trade_date, daily_return,
            {'benchmark': ['SPX'],

@@ -118,10 +118,10 @@ FROM (
 
 :::note[这块为什么不能在这里跑]
 
-查询本身是真的，拿到本地 DuckDB 上就能把文件写出来 —— 但 **wasm 构建根本写不了文件**，这是平台的限制。
-那边任何路径都会被报成已存在，哪怕它并不存在（一条 1 字节的幻影条目，连 DuckDB 自带的 `glob` 与
-`file_size` 也认它），于是那道防止互相覆盖的保险永远找不到空位，调用以
-`could not find a free report file name in 8 attempts` 结束。把同一段拿到你自己的 DuckDB 里跑，
+查询本身是真的，拿到本地 DuckDB 上就能把文件写出来。而 **wasm 构建一个文件都不写**：那边整个跳过文件
+操作，于是每一行的 `file_path` 都会是 `NULL`，报告待在 `html` 列里 —— 这是平台的限制，不是扩展的问题。
+浏览器里任何路径都会被报成已存在，哪怕它并不存在（一条 1 字节的幻影条目，连 DuckDB 自带的 `glob` 与
+`file_size` 也认它），所以「这个文件名空着吗」没有一个值得信的答案。把同一段拿到你自己的 DuckDB 里跑，
 文件就会出现在 `./`。
 
 :::
@@ -258,7 +258,7 @@ FROM prices;
 | 其它现象 | 原因 |
 | --- | --- |
 | `every symbol must use the same benchmark list` | `benchmark` 逐行读取，但整次调用必须一致。 |
-| 报 `duckfn::duck_vfs::write` 之类的路径错误 | `output_dir` 指向的目录必须已经存在；函数不会替你创建。 |
+| 报 `cannot write the report to '…'` | `output_dir` 必须是已经存在的**本地**目录；函数不会替你创建，远端路径（`s3://…`）在这里也写不进去。 |
 | `only local file paths can be opened in a browser` | `open_in_browser` 打不开 `s3://…`、`memory://…`，那种路径只能不用这个选项、只落盘。 |
 
 完整的行为清单见[错误路径](../guide/error-paths.md)。

@@ -118,12 +118,13 @@ DuckDB 渲染 `typeof` 时不加引号。可空的只有三个：`benchmark` 在
 一次调用出几十份报告时，默认的 `'Strategy'` 对每份都一样，图例、浏览器临时文件名与返回行里的显示名都会
 失去区分度。
 
-`output_dir` 刻意不交给它转发：quantstats-rs 落盘用的是 `std::fs`，而本扩展要的是 DuckDB 的 VFS（见下），
-所以目录由 `report.rs` 在拿到渲染结果后自己写。
+`output_dir` 刻意不交给它转发：quantstats-rs 自己写文件、名字也是它自己那套，而这里的名字要带「哪个标的、
+对哪个基准」，而且 wasm 上整个写操作都要跳过（见下），所以目录由 `report.rs` / `storage.rs` 在拿到渲染结果
+后自己写。
 
 `benchmark` 与 `benchmark_title` 都是列表字段（`Option<Vec<Option<String>>>`），但**校验只做在 `benchmark`
 上**，一次拦在 `QuantstatsHtmlOptions::benchmark_names()` 里。另外 `periods_per_year = 0`、
-`output_dir = ''` 也是在这里就报掉的配置错误 —— 都发生在渲染与文件系统调用之前。
+`output_dir = ''`、`output_dir` 里带 NUL 字节也是在这里就报掉的配置错误 —— 都发生在渲染与文件系统调用之前。
 
 ## 报告落盘
 
@@ -133,26 +134,32 @@ DuckDB 渲染 `typeof` 时不加引号。可空的只有三个：`benchmark` 在
 - 名字要带「哪个标的、对哪个基准、什么时候」，只有函数知道；而且一个标的对多个基准时，按标的拼出来的
   路径必然互相覆盖 —— 那正是旧版「配置里写完整路径」在多基准下过不去的坎；
 - 后两段就是报告里的显示名（`strategy_title` 与基准显示名），所以目录里的名字自然认得出来；
-- 随机尾缀（`fastrand`）+ 落盘前查一次 `duck_vfs::exists`（撞上就换个尾缀重试，见 `report_path`），
-  于是「不覆盖已有文件」是保证而不是概率 —— 两次调用各写各的。
+- 随机尾缀（`fastrand`）+ 落盘前查一次同名文件（`storage.rs` 里的 `Path::exists`），于是「不覆盖已有文件」
+  是保证而不是概率 —— 撞上就换个尾缀重试，两次调用各写各的。
 
 合法性与随机都交给库：`sanitize-filename` 管非法字符 / 控制字符 / Windows 保留设备名 / 结尾的点与空格，
 `fastrand` 管随机尾缀（它本来就是 tempfile 内部用的那个随机源）。本文件只补两条自己的策略：空格并成 `_`、
 每段最多 32 个字符。
 
-写文件本身用 duckfn 的便捷层 `duck_vfs::write_string`，也就是经 **DuckDB 的 VFS** 而不是 `std::fs`：
+写文件本身就是 `std::fs::write`（`storage.rs`）：一次调用完成创建、截断到零、写入，所以写完之后文件里恰好
+就是这份报告 —— 读回来的内容与函数返回值逐字节一致，测试里用 `md5` 钉住了它。
 
-- 本地磁盘、装了 `httpfs` 之后的 `s3://` / `http(s)://`，以及 DuckDB 挂上的其它文件系统，都是同一条通路、
-  同一套语义（wasm 构建什么都写不出来，见下面 [WebAssembly](#webassembly)）；
-- 这也是聚合函数唯一写得进去的路子：DuckDB 的 C API 不给聚合函数客户端上下文（没有 bind 回调，也没有
-  `duckdb_aggregate_function_get_client_context`），所以 duckfn 在注册期留了一条自有长连接，
-  从这里现取 `ClientContext` → `FileSystem`；
-- 目录按 `/` 拼（`report.rs::join`），刻意不用 `Path::join`：后者按平台分隔符拼，Windows 上会把
-  `s3://bucket/reports` 拼成 `s3://bucket/reports\name.html`。
+它以前走的是 DuckDB 的 VFS（`duck_vfs::write_string`），当时的理由站得住：VFS 能到装了 `httpfs` 的
+`s3://` / `http(s)://`；而且那是聚合函数唯一写得进去的路子 —— DuckDB 的 C API 不给聚合函数客户端上下文
+（没有 bind 回调，也没有 `duckdb_aggregate_function_get_client_context`），所以走 VFS 得让 duckfn 在注册期
+留一条自有长连接。后来有两条把它压过去了：
 
-`write_string` 是**替换**：写完之后文件里恰好就是这份报告，哪怕它以前更长（C API 没有 truncate 这件事由
-duckfn 的 `duck_vfs` 层处理 —— 旧文件更长时先清零再写正文）。本扩展因为文件名从不撞名，实际上走不到覆盖
-那一步，但读回来的内容与函数返回值逐字节一致这件事仍然成立，测试里用 `md5` 钉住了它。
+- **它在 wasm 上不成立**，而那边本来就得跳过文件操作（见 [WebAssembly](#webassembly)），并且当时的失败形态
+  是一个调用方无能为力的报错；
+- **它要一个 feature 的代价**：宿主 VFS 正是 `owned-connection` 带来的那个，而 `std::fs` 根本不需要客户端
+  上下文 —— 这也正是聚合函数能直接调它的原因。为一个本扩展别处都没用到的能力少一个 feature，划算。
+
+两个后果值得点名：
+
+- `output_dir` 现在只能是**本地**路径。`s3://bucket/reports` 以前能写、现在会以写入错误告终，文档也是这么
+  写的；
+- 目录按 `/` 拼（`storage.rs::join`），刻意不用 `Path::join`：后者按平台分隔符拼，于是同一个 `file_path`
+  在 Windows 上是 `out\name.html`、在别处是 `out/name.html` —— 而这个字符串是给用户看的。
 
 一次调用可能写好几个文件（标的数 × 基准数）。`report.rs` 的收尾分两趟：先把每个 (标的, 基准) 的
 `ReportTarget` 定下来（顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器），
@@ -179,29 +186,28 @@ duckfn 的 `duck_vfs` 层处理 —— 旧文件更长时先清零再写正文�
 
 ## WebAssembly
 
-本扩展的落盘走的是 `duck_vfs`，也就是经 C API 用 DuckDB 的文件系统 —— 这正是当初用来替掉旧行为的那条路
-（早先在 `wasm32-unknown-emscripten` 下直接丢掉路径，因为那边的 `std::fs` 没有可写的文件系统）。这个改进
-在 wasm 运行时上没能站住：
+wasm 构建**整个跳过文件操作**（`storage.rs`）：`output_dir` 是「收下、然后忽略」—— 不报错、不写文件、
+`file_path` 是 NULL，报告本身照常回到 `html` 列由宿主页面展示。这个选择不是偷懒，有两条撑着：
 
 - **wasm 构建的文件系统不忠实。** 任何不存在的路径都会返回一个 **1 字节**的幻影条目 —— `glob`、
-  `read_text`、`file_size` 都把它报成存在 —— 于是 `exists` 恒为真，没有任何 SQL 原语能区分「不存在」与
-  「存在」；duckfn 的裸写偏移在那边也是错的（写出来多一字节 / 错位）。这是平台的限制，不是 duckfn 或本扩展的
-  bug。
+  `read_text`、`file_size` 都把它报成存在 —— 于是「这个文件名空着吗」没有一个能信的答案，那道「绝不覆盖
+  已有文件」的保证也就无法兑现；裸写偏移在那边也是错的（写出来多一字节 / 错位）。这是平台的限制，不是
+  duckfn 或本扩展的 bug。
 - **从 SQL 侧绕不过去。** `COPY … TO` 只能把**查询结果**按格式（CSV / JSON / parquet）导出，而这些格式都
   载不动一份任意长的 HTML 文档的原样字节（CSV 会加引号、换行会把内容拆开）。
 
-结果是：在 wasm 上带 `output_dir` 时，`report_path` 那道「绝不覆盖」的检查永远找不到空位，调用以
-`could not find a free report file name in 8 attempts` 失败 —— 报告留在 `html` 列里，由宿主页面展示。
-原生目标上一切照文档所述。
+这段历史值得记一句：更早的版本走 DuckDB 的 VFS，结果 wasm **自己**就成了问题 —— 那边那道「绝不覆盖」的检查
+永远找不到空位，`output_dir` 以 `could not find a free report file name in 8 attempts` 失败。把 VFS 换成
+`std::fs`（见[报告落盘](#报告落盘)）之后，同一件事变成了一次明确、写在文档里的跳过。
 
-命名逻辑（`naming.rs`）仍然是**共享**的 —— wasm 上也会先把文件名拼出来（然后写入才失败），所以它用到的
-`sanitize-filename` 与 `fastrand` 是普通依赖，而非 wasm 限定的那两个。
+命名逻辑（`naming.rs`）仍然是**共享**的：它对每个目标都参与编译，哪怕 wasm 上没人调用它 —— 所以它用到的
+`sanitize-filename` 与 `fastrand` 仍是普通依赖，而不是 wasm 限定的那两个：让那个模块保持没有 `cfg`，比从
+一个根本不拼文件名的 wasm 构建里抠掉两个小 crate 更值。
 
-`open_in_browser` 是唯一一处**有意保留**的平台分支，也是本扩展仅剩的平台相关代码（`browser.rs`）：wasm
-构建里没有可以启动的浏览器进程，所以那边直接忽略这个选项 —— 不打开浏览器，也不会为此写临时文件。报告
-字符串原样返回给宿主，展示是宿主页面的事。它背后那两个 crate（`open`、`tempfile`）声明在
-`[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下，wasm 构建连编都不编它们 —— 这其实是硬要求：
-`open` 根本没有 emscripten 的实现，编不过。
+`open_in_browser` 是另一处**有意保留**的例外：wasm 构建里没有可以启动的浏览器进程，所以那边直接忽略这个
+选项 —— 不打开浏览器，也不会为此写临时文件。报告字符串原样返回给宿主，展示是宿主页面的事。它背后那两个
+crate（`open`、`tempfile`）声明在 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]` 下，wasm
+构建连编都不编它们 —— 这其实是硬要求：`open` 根本没有 emscripten 的实现，编不过。
 
 `just build_wasm`（`cargo build --release --target wasm32-unknown-emscripten --example duckfn_quantstats`）
-能正常编过；运行时行为由 DuckDB 的 VFS 决定，而不是由本扩展决定。
+能正常编过；文件操作在那边只是永远不跑。

@@ -18,8 +18,9 @@ description: What each failure looks like — a NULL result, a skipped instrumen
 | `periods_per_year = 0` | Error `periods_per_year must be greater than 0` |
 | `output_dir = ''` | Error `output_dir must not be an empty string` |
 | The `output_dir` contains a NUL byte | Error `contains a NUL byte` |
-| The `output_dir` cannot be written (missing directory, unwritable remote, …) | Error from `duckfn::duck_vfs::write` naming the path |
+| The `output_dir` cannot be written (missing directory, unwritable path, …) | Error `cannot write the report to '<path>': …` naming the path |
 | `open_in_browser` with an `output_dir` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
+| `output_dir` in a **wasm** build (the browser blocks on this site) | **Not an error**: nothing is written and `file_path` is `NULL` |
 
 Every error message starts with the registered function name (`qs_html_reports: …`), so it is obvious
 which function reported it.

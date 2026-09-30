@@ -86,9 +86,14 @@ duckfn-docs-kit（npm 包，站点直接依赖）另有一份**给 agent 看的�
    范例随包而来，自动与依赖对齐 —— 不需要任何 git 操作。
 3. 本文件不用改：它只写占位符，不钉具体版本号。
 
-> **`duck_vfs` 已从 `all` feature 里移除**：native 下确需文件系统时要显式开 `owned-connection`
-> （本仓 `Cargo.toml` 现在写的是 `features = ["all"]`，升到那一版得一起改，否则 `duck_vfs` 相关代码编译
-> 不过）。wasm 侧不用管 —— 那边本来也写不了文件（见上面「可运行 SQL 块」一节）。
+> **本仓刻意不开 `owned-connection`**：0.0.15 起宿主文件系统 `duck_vfs` 只从这个 feature 来，而落盘已经不走
+> 它了 —— `storage.rs` 用 `std::fs`，wasm 侧整个跳过文件操作。升级 duckfn 后如果依赖树里又冒出 `duck_vfs`
+> 的需求（比如某个新 feature 默认带上它），那是别的代码在用它，先看清楚再决定要不要跟。
+>
+> **This repository deliberately does not turn on `owned-connection`**: since 0.0.15 that feature is where the
+> host file system (`duck_vfs`) comes from, and persistence no longer goes through it — `storage.rs` uses
+> `std::fs` and a wasm build skips the file operation altogether. If an upgrade ever makes `duck_vfs` show up
+> as required again, that is some other code asking for it: look before following.
 
 
 ## 仓库约定
@@ -103,10 +108,10 @@ duckfn-docs-kit（npm 包，站点直接依赖）另有一份**给 agent 看的�
 - **能用 std 就用 std**，别自己拼底层积木：路径绝对化用 `std::path::absolute`，而不是
   `env::current_dir()?.join(path)`。
 - 手写只允许出现在**领域逻辑**上（quantstats 的差分规则、报告怎么渲染），或者已知的库都不合适 ——
-  后者必须在这段代码的注释里写明「为什么不用库」，例如 `browser.rs::local_path`（判断一个 VFS 路径能不能
-  交给浏览器，看的是字面上的 `://` 而不是引一个 URL 解析库 —— Windows 的 `C:\…` 在 URL 语法里同样是
-  scheme）。反过来，日期换算这类通用算术不要手写：`series.rs` 曾经自己算 epoch，现在交给 duckfn 的
-  chrono 桥（`DuckDate::to_naive_date`）。
+  后者必须在这段代码的注释里写明「为什么不用库」，例如 `browser.rs::local_path`（判断一个路径能不能交给
+  浏览器，看的是字面上的 `://` 而不是引一个 URL 解析库 —— Windows 的 `C:\…` 在 URL 语法里同样是 scheme）。
+  反过来，日期换算这类通用算术不要手写：`series.rs` 曾经自己算 epoch，现在交给 duckfn 的 chrono 桥
+  （`DuckDate::to_naive_date`）。
 - 依赖不是免费的：引入 crate 时在 `Cargo.toml` 里写一句它负责什么、为什么选它，让取舍一眼看得出来；
   只服务某个平台的依赖挂到 target 专属依赖表下
   （见 `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`），别让别的目标替它付编译成本 ——
@@ -189,14 +194,13 @@ duckfn 的属性宏默认拿 **Rust 函数名**当注册名，所以直接把函
   环境，所以上面那条「示例一律用真实数据」是被测试覆盖的：远程读不再需要手动去浏览器里点一遍。
   找不到浏览器时用 `--browser <exe>`（或 `DFK_BROWSER`）指一个；块卡死由 `--timeout` 兜底，`--report`
   导出逐块结果，`--quiet` 只报意外失败。
-- **wasm 上写不了文件（平台限制，别当 bug 修）**：DuckDB-Wasm 的文件系统不忠实 —— 任何不存在的路径都会返回
-  一条 1 字节 `\0` 的幻影条目，连 DuckDB 自带的 `glob` / `read_text` / `file_size` 都把它报成存在，所以
-  `exists` 恒真、没有任何 SQL 原语能区分「不存在」；duckfn 的裸写偏移在那边也不对（多一字节 / 错位）。
-  于是「绝不覆盖已有文件」那道检查永远找不到空位，报
-  `could not find a free report file name in 8 attempts`（`./`、`.`、`/tmp/`、`reports` 四种写法都试过，
-  一样）。`COPY … TO` 也替代不了它：它按 CSV / JSON / parquet 导出**查询结果**，载不动任意长的 HTML 原样
-  字节。所以 wasm 场景就是**直接报错**：落盘示例写成普通 ```sql 块，并在页面上说明为什么它不能在浏览器里跑，
-  别做成可运行块。
+- **wasm 下不落盘（有意如此，别当 bug 修）**：扩展在 wasm 上**整个跳过文件操作** —— `output_dir` 收下就忽略，
+  不报错、不写文件，`file_path` 是 NULL，报告仍在 `html` 列里。这不是偷懒：DuckDB-Wasm 的文件系统不忠实，
+  任何不存在的路径都会返回一条 1 字节 `\0` 的幻影条目（连 DuckDB 自带的 `glob` / `read_text` / `file_size`
+  都把它报成存在），所以「这个文件名空着吗」没有可信答案，那道「绝不覆盖已有文件」的保证也就无法兑现；
+  `COPY … TO` 也替代不了：它按 CSV / JSON / parquet 导出**查询结果**，载不动任意长的 HTML 原样字节。
+  因此**带 `output_dir` 的示例仍是普通 ```sql 块**，并在页面上说明「只有原生构建才写得出文件」——
+  别为了让它「看起来能跑」而做成可运行块（那样读者只会看到一列 `NULL`）。
 - **块里只写一条语句**：运行器与页面都只展示**最后一条语句**的结果，一个块里塞几个独立示例等于白写 ——
   一个示例一个块。
 

@@ -96,13 +96,13 @@ What `npm test` does, and what it cannot see:
   is offline, while a block reading `https://…` needs the network exactly as it does on the site. So
   the snapshot-reading blocks really run, and no manual click-through is needed. If no browser is
   detected, point `--browser <exe>` (or `DFK_BROWSER`) at one.
-- **A wasm build cannot write files at all** — a platform limitation, not something the extension can
-  work around: there, a path that does not exist comes back as a phantom one-byte entry, DuckDB's own
-  `glob` / `read_text` / `file_size` report it as present, and duckfn's raw write offset is off by a
-  byte. So the never-overwrite guard can never find a free name and `output_dir` fails with
-  `could not find a free report file name in 8 attempts`; `COPY … TO` is no substitute, since it
-  exports query results in a format that cannot carry an HTML document byte for byte. Blocks that
-  write files are therefore ordinary `sql` blocks, with a note saying why they do not run here.
+- **A wasm build writes no files** — `output_dir` is accepted and then ignored there: no error, no file,
+  `file_path` NULL, the report still in the `html` column. The file operation is skipped rather than
+  attempted, because that file system is not a faithful one: a path that does not exist comes back as a
+  phantom one-byte entry, DuckDB's own `glob` / `read_text` / `file_size` report it as present, and a raw
+  write offset is off by a byte — so "is this name free" has no trustworthy answer. The blocks that set
+  `output_dir` are therefore ordinary `sql` blocks, with a note saying that only a native DuckDB writes
+  the files.
 
 ## Preloaded extensions
 

@@ -1,7 +1,7 @@
 ---
 title: Output and browser
 sidebar_position: 4
-description: Where the reports go — output_dir through DuckDB's VFS, the generated file names, open_in_browser, and what changes on wasm.
+description: Where the reports go — output_dir, the generated file names, open_in_browser, and what changes on wasm.
 ---
 
 # Output and browser
@@ -42,23 +42,16 @@ ORDER BY (r).symbol;
 The `file_path` in each returned row is the path that very call wrote to (`NULL` when nothing was
 written), so "which files were written" can be read off the result instead of guessed.
 
-The directory **has to exist already** (it is not created for you). The write goes through **DuckDB's
-VFS** rather than `std::fs`, so local disk, `s3://` / `http(s)://` once `httpfs` is loaded, and
-anything else DuckDB mounts all go through the same path with the same semantics (VFS paths are joined
-with `/`, so `output_dir` can be `s3://bucket/reports`).
+The directory **has to exist already** (it is not created for you), and it has to be a **local** one:
+the write is a plain `std::fs` one, so `output_dir` is an ordinary file system path. A path such as
+`s3://bucket/reports` — DuckDB mounted that, not this extension — ends in a write error.
 
-:::note[This block does not run in your browser]
+:::note[A browser writes no files]
 
-Nothing about the query changes — a **wasm build cannot write files**, and that is a limitation of the
-platform rather than something the extension can work around. On that target the file system is not a
-faithful one: a path that does not exist still comes back as a phantom **one-byte** entry, and
-DuckDB's own `glob`, `read_text` and `file_size` all report it as present. So `exists` — the check
-behind "never overwrite a file" — is always true, none of the eight candidate names is ever free, and
-the call stops with `could not find a free report file name in 8 attempts`. `COPY … TO` is no way out
-either: it exports *query results* as CSV / JSON / parquet, which cannot carry an arbitrary HTML
-document through unchanged.
-
-On a native DuckDB the same block writes the files into `./`, and `file_path` carries their real paths.
+The query itself does not change, but a **wasm build writes nothing**: it runs, the reports come back
+in the `html` column, and every `file_path` is `NULL` (the file operation is skipped there — see
+[WebAssembly](#webassembly) for why). On a native DuckDB the same block creates the files in `./` and
+`file_path` carries their real paths.
 
 :::
 
@@ -95,12 +88,13 @@ One call opens one tab per **report** (one instrument against two benchmarks is 
 
 ## WebAssembly
 
-A **wasm build cannot write files at all**, and that is a platform limitation rather than a bug in
-this extension. Its file system is not a faithful one: every path that does not exist still comes back
-as a phantom one-byte entry, DuckDB's own `glob` / `read_text` / `file_size` report it as present, and
-duckfn's raw write offset is off by a byte there as well. `exists` is therefore always true, the
-never-overwrite guard can never find a free name, and `output_dir` fails with
-`could not find a free report file name in 8 attempts`. `COPY … TO` cannot stand in for it either: it
+A **wasm build writes no files**: `output_dir` is accepted and then ignored there — no error, no file,
+and `file_path` is `NULL` in every row, while the report itself still comes back in the `html` column.
+The extension skips the whole file operation on that target instead of attempting one, because
+DuckDB-Wasm's file system is not a faithful one: every path that does not exist still comes back as a
+phantom one-byte entry, DuckDB's own `glob` / `read_text` / `file_size` report it as present, and a raw
+write offset is off by a byte there too. "Is this name free?" therefore has no answer that can be
+trusted, and the never-overwrite guarantee could not be kept. `COPY … TO` is no substitute either: it
 exports *query results* in a format (CSV / JSON / parquet), and none of those can carry an arbitrary
 HTML document through byte for byte.
 

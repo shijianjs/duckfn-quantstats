@@ -79,22 +79,22 @@ pub(super) fn is_requested(options: &QuantstatsHtmlOptions) -> bool {
 
 /// 把落盘路径变成「系统浏览器能打开的本地绝对路径」。
 ///
-/// DuckDB 的 VFS 路径不一定是本地文件（`s3://`、`memory://`…），系统浏览器打不开它们，所以这里直接报错，
-/// 而不是把那种路径交给启动器去猜。判据就是字面上的 `://`：刻意不引 URL 解析库，因为 Windows 的 `C:\...`
-/// 在 URL 语法里同样是一个 scheme，用 `://` 才既挡得住 `s3://` 又不误伤盘符。
+/// 落盘路径不一定是本地的（`output_dir` 可以写成 `s3://…`，那会以写入错误告终），而系统浏览器打不开这种
+/// 路径，所以这里直接报错，而不是把它交给启动器去猜。判据就是字面上的 `://`：刻意不引 URL 解析库，因为
+/// Windows 的 `C:\...` 在 URL 语法里同样是一个 scheme，用 `://` 才既挡得住 `s3://` 又不误伤盘符。
 ///
 /// 相对路径按进程的当前目录补成绝对路径（`std::path::absolute`，不碰文件系统、不解析符号链接；Windows 上
-/// 走 `GetFullPathNameW`，不会加 `\\?\` 前缀 —— 那是 ShellExecute 认不出的东西）—— 与 DuckDB 的本地文件
-/// 系统写它时的解释一致（`duck_vfs` 也以同一个当前目录为准）。
+/// 走 `GetFullPathNameW`，不会加 `\\?\` 前缀 —— 那是 ShellExecute 认不出的东西）—— 与 `std::fs` 写它时的
+/// 解释一致（同一个当前目录）。
 ///
 /// Turn a write path into a local absolute path a browser can open.
 ///
-/// A DuckDB VFS path is not necessarily a local file (`s3://`, `memory://` …) and no system browser can open
-/// those, so this reports an error instead of handing such a path to a launcher to guess at. A relative path
-/// is made absolute against the process's current directory by `std::path::absolute` (no filesystem access, no
-/// symlink resolution; on Windows it goes through `GetFullPathNameW` and adds no `\\?\` prefix, which is
-/// something ShellExecute does not understand) — the same current directory DuckDB's local file system uses
-/// when it writes the path, since `duck_vfs` resolves it that way too.
+/// A write path is not necessarily local (`output_dir` may say `s3://…`, which ends in a write error) and no
+/// system browser can open such a path, so this reports an error instead of handing it to a launcher to guess
+/// at. A relative path is made absolute against the process's current directory by `std::path::absolute` (no
+/// filesystem access, no symlink resolution; on Windows it goes through `GetFullPathNameW` and adds no `\\?\`
+/// prefix, which is something ShellExecute does not understand) — the same current directory `std::fs`
+/// resolves it against when it writes the path.
 pub(super) fn local_path(path: &str) -> DuckResult<PathBuf> {
     if path.contains("://") {
         return Err(duck_error(format!(
@@ -116,8 +116,8 @@ pub(super) fn local_path(path: &str) -> DuckResult<PathBuf> {
 /// 后传进来），由 `tempfile` 在系统临时目录里新建：它保证这个名字当时是空的（撞上就换一个随机尾缀重试），
 /// 所以既不会覆盖已有文件，同一秒里连着出几份报告也不会互相踩。
 ///
-/// 返回的是**已经存在的空文件**的路径：报告随后照常由 `write_report` 经 DuckDB 的 VFS 写进去 —— 临时
-/// 文件的「名字」和「内容」各归各的库，而写路径仍然只有一条。落盘要 `&str`，临时路径则是我们自己拼出来的
+/// 返回的是**已经存在的空文件**的路径：报告随后照常由 `storage::write_report` 写进去 —— 临时文件的
+/// 「名字」和「内容」各归各的库，而写路径仍然只有一条。落盘要 `&str`，临时路径则是我们自己拼出来的
 /// （系统临时目录 + 前缀 + 随机尾缀），必定是合法 UTF-8，那次转换只是形状上的。
 ///
 /// 「要不要打开」由调用方判断（[`is_requested`]），所以这里只负责建文件。
@@ -130,8 +130,8 @@ pub(super) fn local_path(path: &str) -> DuckResult<PathBuf> {
 /// guarantees the name was free at that moment (a collision means another random suffix is tried), so nothing
 /// existing is overwritten and several reports generated within the same second do not step on each other.
 ///
-/// What comes back is the path of an **existing empty file**: the report then goes into it through DuckDB's
-/// VFS via `write_report` as usual — the temporary file's name and its content each come from the library
+/// What comes back is the path of an **existing empty file**: the report then goes into it via
+/// `storage::write_report` as usual — the temporary file's name and its content each come from the library
 /// that suits them, while there is still only one write path. Writing wants a `&str`, and the temporary path
 /// is one we assembled ourselves (system temp directory + prefix + random suffix), so it is valid UTF-8 by
 /// construction and that conversion is only about the type.

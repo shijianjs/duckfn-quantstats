@@ -25,11 +25,9 @@ crate-type = ["staticlib"]
 
 [dependencies]
 # 依赖用 `all` 一次带齐 duckfn 的常用功能（= duckdb-1-5 + cli + chrono + uuid + rust_decimal），
-# 不再逐个挑 feature；但 0.0.15 起 `duck_vfs` 被移出 `all`，native 侧落盘要用的它得显式开
-# `owned-connection`，所以 features 是这两个的并集。本扩展实际用到的几项：
-#   - `owned-connection` 下的 `duckfn::duck_vfs`：宿主文件系统访问 + 一行式读写。其中的 `write_string`
-#     就是「覆盖写」（内部处理了「C API 没有 truncate」，旧文件更长也照样写对），所以 `output`
-#     落盘用它，而不是 std::fs —— wasm 上根本没有可写的 std::fs；
+# 不再逐个挑 feature。**不包含 `owned-connection`**（0.0.15 起它才带来 `duck_vfs`）：本扩展的落盘走
+# `std::fs`，wasm 侧整个跳过（见 src/extension/functions/aggregate_html/storage.rs），用不着宿主 VFS。
+# 本扩展实际用到的几项：
 #   - `chrono`：时间包装类型与 chrono 的双向转换（`DuckDate::to_naive_date`、`from_naive_date` 等），
 #     越界（含 `DATE 'infinity'`）返回错误而不是 panic，单位换算由方法负责；
 #   - `DuckLazySlot<T>`：把 DuckLazy 参数「解析一次」这条路径固化成类型；
@@ -44,13 +42,11 @@ crate-type = ["staticlib"]
 # 它们就在本机 cargo 的解包目录里（`<cargo>/registry/src/*/duckfn-<版本>/`），与这里钉的版本严格对应，
 # 不需要 clone duckfn 的 git 仓库。路径与按主题的对照表见 AGENTS.md。
 #
-# The dependency turns on `all`, i.e. every duckfn feature at once (= duckdb-1-5 + owned-connection +
-# cli + chrono + uuid + rust_decimal), so no feature has to be picked one by one. What this extension
-# actually uses:
-#   - `duckfn::duck_vfs` under the `duckdb-1-5` feature: host file system access plus one-line reads
-#     and writes. Its `write_string` *is* "replace" (a longer existing file is dealt with internally,
-#     despite the C API having no truncate), which is what `output` uses instead of `std::fs` — there
-#     is no writable `std::fs` on wasm at all;
+# The dependency turns on `all`, i.e. duckfn's common features at once (= duckdb-1-5 + cli + chrono +
+# uuid + rust_decimal), so no feature has to be picked one by one. It deliberately does **not** turn on
+# `owned-connection` (which is what brings in `duck_vfs` since 0.0.15): this extension writes with
+# `std::fs` and skips the whole file operation on wasm (see
+# src/extension/functions/aggregate_html/storage.rs), so it has no use for the host VFS. What it does use:
 #   - the `chrono` feature: bidirectional conversions between the time wrapper types and chrono
 #     (`DuckDate::to_naive_date`, `from_naive_date`, …), where out-of-range values (including
 #     `DATE 'infinity'`) are errors rather than panics and the unit conversion is the method's job;
@@ -63,7 +59,7 @@ crate-type = ["staticlib"]
 #     API cannot set a function's description or examples, so the community-extension doc page can only
 #     be filled in from an exported `target/function_descriptions.csv` — this is its one source (see
 #     src/bin/duckfn.rs and the `just docs_csv` recipe). `cli` pulls clap and csv into duckfn.
-duckfn = { version = "0.0.15", features = ["all", "owned-connection"] }
+duckfn = { version = "0.0.15", features = ["all"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
@@ -77,17 +73,21 @@ quack-rs = "0.16.0"
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
 # 这也是「无需在本地编译 DuckDB」的原因（仅使用头文件，不链接库）。
 #
-# 版本下限是 DuckDB 1.5：客户端上下文 / 宿主文件系统（`duckfn::duck_vfs`）是 1.5 才进 C API 的，
-# 本扩展的 `output` 落盘依赖它，所以不再保留 1.4 兼容性。libduckdb-sys 把 DuckDB 版本编码成
+# 版本下限是 DuckDB 1.5：`all` 会打开 duckfn 的 `duckdb-1-5` feature（= quack-rs 的同一开关），
+# 也就是 C API 的**不稳定区**（标量 bind/init、copy 函数、客户端上下文……），那些槽位只在 1.5.x 里
+# 存在，1.4 的槽位布局不同。落盘本身已经不吃这一条了（走 `std::fs`，见上面），但依赖树仍然打开着它。
+# libduckdb-sys 把 DuckDB 版本编码成
 # `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，1.5.5 → 1.10505.0），
 # 于是 `>=1.10500` 就是「DuckDB >= 1.5」，并且排除掉 1.10404.0（= 1.4.4）。
 #
 # `loadable-extension` dispatches through DuckDB's API table instead of linking
 # libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 #
-# The lower bound is DuckDB 1.5: the client context / host file system
-# (`duckfn::duck_vfs`) only reached the C API in 1.5, and this extension's `output` depends on
-# it, so 1.4 compatibility is gone. libduckdb-sys encodes a DuckDB version as
+# The lower bound is DuckDB 1.5: `all` switches on duckfn's `duckdb-1-5` feature (the same switch in
+# quack-rs), i.e. the **unstable region** of the C API (scalar bind/init, copy functions, the client
+# context, …), whose slots only exist in 1.5.x — 1.4 lays that region out differently. Persistence no
+# longer has a stake in it (it uses `std::fs`, see above); the dependency tree still turns it on.
+# libduckdb-sys encodes a DuckDB version as
 # `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 1.5.5 → 1.10505.0), so `>=1.10500`
 # means "DuckDB >= 1.5" and rules out 1.10404.0 (= 1.4.4).
 libduckdb-sys = { version = ">=1.10500, <2", features = ["loadable-extension"] }

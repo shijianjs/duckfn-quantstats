@@ -131,12 +131,12 @@ ORDER BY (r).symbol;
 
 :::note[Why that block is not runnable here]
 
-The query is the real one, and on a native DuckDB it writes the files — but a **wasm build cannot write
-files at all**, which is a limitation of the platform. There, every path reports as present, even one
-that does not exist (a phantom one-byte entry that DuckDB's own `glob` and `file_size` agree with), so
-the guard that keeps reports from overwriting each other never finds a free name and the call stops
-with `could not find a free report file name in 8 attempts`. Run the same block in your own DuckDB and
-the files appear in `./`.
+The query is the real one, and on a native DuckDB it writes the files. A **wasm build writes none**:
+there the file operation is skipped, so every `file_path` would come back `NULL` and the reports would
+sit in the `html` column — a limitation of the platform rather than of the extension. In a browser every
+path reports as present, even one that does not exist (a phantom one-byte entry that DuckDB's own `glob`
+and `file_size` agree with), so "is this name free" has no answer worth trusting. Run the same block in
+your own DuckDB and the files appear in `./`.
 
 :::
 
@@ -275,7 +275,7 @@ FROM prices;
 | Other symptom | Cause |
 | --- | --- |
 | `every symbol must use the same benchmark list` | `benchmark` is read per row but has to be identical for the whole call. |
-| A path error from `duckfn::duck_vfs::write` | `output_dir` must already exist; the function never creates the directory. |
+| `cannot write the report to '…'` | `output_dir` must be an existing **local** directory; the function never creates it, and remote paths (`s3://…`) are not writable here. |
 | `only local file paths can be opened in a browser` | `open_in_browser` cannot open `s3://…` or `memory://…`; write those to disk without the option. |
 
 The complete table of behaviours is on [Error paths](../guide/error-paths.md).

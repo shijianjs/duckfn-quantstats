@@ -135,7 +135,8 @@ FROM prices;
 - **`benchmark_title` 也是列表，按下标与 `benchmark` 对齐**：`['S&P 500', 'Nasdaq 100']` 分别对应第一个与
   第二个基准。它只是展示，所以很宽松 —— 缺项（列表短了、NULL、空串）就退回那一份报告所用的基准 symbol，
   多出来的表项直接忽略。
-- **`open_in_browser` 在 wasm 下是空操作**（没有浏览器进程可启动），见[落盘与浏览器](./output-and-browser.md)。
+- **wasm 下既不落盘也不开浏览器**：那边整个跳过文件操作（`file_path` 回来是 `NULL`），
+  `open_in_browser` 也不做任何事 —— 没有浏览器进程可启动。见[落盘与浏览器](./output-and-browser.md)。
 - **演示快照很适合拿来试这些** —— 直接用
   `read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')` 读本站这份即可；
   里面有什么见[演示数据](../development-guide/demo-data/demo-dataset.md)。

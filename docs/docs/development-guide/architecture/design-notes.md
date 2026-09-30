@@ -143,14 +143,15 @@ dropped: with dozens of reports out of one call, the default `'Strategy'` is ide
 them, so the legend, the temporary file name and the returned display name would all lose their
 distinguishing power.
 
-`output_dir` is deliberately not forwarded: quantstats-rs writes with `std::fs`, while this extension
-wants DuckDB's VFS (see below) — the directory is handled by `report.rs` after the report has been
-rendered.
+`output_dir` is deliberately not forwarded: quantstats-rs writes files itself, under names of its own
+choosing, while here the name has to carry "which instrument, against which benchmark" and the whole
+write has to be skipped on wasm (see below) — the directory is handled by `report.rs`/`storage.rs` once
+the report has been rendered.
 
 `benchmark` and `benchmark_title` are both list fields (`Option<Vec<Option<String>>>`), but **only
 `benchmark` is validated**, in one place, `QuantstatsHtmlOptions::benchmark_names()`. `periods_per_year
-= 0` and `output_dir = ''` are configuration errors reported right here as well — all of them before
-anything is rendered or any file-system call happens.
+= 0`, `output_dir = ''` and an `output_dir` carrying a NUL byte are configuration errors reported right
+here as well — all of them before anything is rendered or any file-system call happens.
 
 ## Persisting the reports
 
@@ -164,34 +165,39 @@ Naming lives in the function for three reasons:
   path" design broke down;
 - the last two parts are the display names the report itself uses (`strategy_title` and the benchmark's),
   so a directory full of reports still says which is which;
-- the random suffix (`fastrand`) plus an existence check through `duck_vfs::exists` before writing
-  (retrying with another suffix on a collision — see `report_path`) makes "nothing existing is
-  overwritten" a guarantee rather than a probability: two calls each write their own files.
+- the random suffix (`fastrand`) plus an existence check (`Path::exists` in `storage.rs`, before the
+  write) makes "nothing existing is overwritten" a guarantee rather than a probability: a collision means
+  another suffix is tried, and two calls each write their own files.
 
 Legality and randomness are both delegated: `sanitize-filename` owns the illegal/control characters,
 the Windows reserved device names and the trailing dots and spaces, `fastrand` the random suffix (the
 very random source tempfile uses internally). This file only adds two policies of its own: spaces
 become `_`, and a part is capped at 32 characters.
 
-The write itself goes through duckfn's convenience layer `duck_vfs::write_string`, i.e. through
-**DuckDB's VFS** rather than `std::fs`:
+The write itself is `std::fs::write` (`storage.rs`): one call that creates, truncates to zero and writes,
+so the file holds exactly the report afterwards — `read_text()` returning exactly what the function
+returned, which the test suite pins with `md5`.
 
-- local disk, `s3://` / `http(s)://` once `httpfs` is loaded, and anything else DuckDB mounts all go
-  through the same path with the same semantics (a wasm build can write nothing at all — see
-  [WebAssembly](#webassembly));
-- it is also the only way an aggregate can write at all. DuckDB's C API gives aggregate functions no
-  client context (no bind callback, no `duckdb_aggregate_function_get_client_context`), so duckfn keeps
-  an owned long-lived connection from registration time and hands out a fresh `ClientContext` →
-  `FileSystem` from it;
-- the directory is joined with `/` (`report.rs::join`), deliberately not with `Path::join`: the latter
-  joins with the platform separator, so on Windows `s3://bucket/reports` would come out as
-  `s3://bucket/reports\name.html`.
+It used to go through DuckDB's VFS instead (`duck_vfs::write_string`), and there were reasons for that:
+the VFS reaches `s3://` / `http(s)://` once `httpfs` is loaded, and it was the only way an aggregate
+could write at all — DuckDB's C API gives aggregate functions no client context (no bind callback, no
+`duckdb_aggregate_function_get_client_context`), so the VFS route needed duckfn to keep an owned
+long-lived connection from registration time. Two things outweighed them:
 
-`write_string` **replaces** its target: afterwards the file holds exactly the report, even when it
-previously held something longer (the C API's missing truncate is handled inside duckfn's `duck_vfs`
-layer, which zeroes a longer file before writing). With never-colliding names this extension does not
-actually hit that path, but `read_text()` returning exactly what the function returned still holds and
-the test suite pins it with `md5`.
+- **it does not work on wasm**, where the report write has to be skipped anyway (see
+  [WebAssembly](#webassembly)), and the failure mode there was an error the caller could do nothing
+  about;
+- **it cost a feature**: the host VFS is what `owned-connection` brings, and `std::fs` needs no client
+  context at all, which is exactly why an aggregate can call it. One feature less for a capability this
+  extension never used elsewhere.
+
+Two consequences are worth naming:
+
+- `output_dir` is now a **local** path only. `s3://bucket/reports` used to be reachable and now ends in a
+  write error, which is what the documentation says;
+- the directory is joined with `/` (`storage.rs::join`), deliberately not with `Path::join`: the latter
+  joins with the platform separator, so the same `file_path` would read `out\name.html` on Windows and
+  `out/name.html` elsewhere — and that string is what the caller sees.
 
 One call may write several files (instruments × benchmarks). The tail in `report.rs` runs in two
 passes: it first settles every (symbol, benchmark) pair's `ReportTarget` (validating `output_dir` and
@@ -223,35 +229,35 @@ launcher itself not starting.
 
 ## WebAssembly
 
-The store path in this extension is `duck_vfs`, i.e. DuckDB's file system through the C API, and that
-is what was used to get rid of the old `std::fs` behaviour (the path was simply dropped on
-`wasm32-unknown-emscripten`, because `std::fs` has no writable file system there). The improvement did
-not survive contact with the wasm runtime:
+A wasm build **skips the whole file operation** (`storage.rs`): `output_dir` is accepted and then
+ignored — no error, no file, `file_path` NULL — while the report itself comes back in the `html` column
+for the host page to show. Two things make that the honest answer rather than a lazy one:
 
 - **a wasm build's file system is not a faithful one.** Any path that does not exist still comes back
   as a phantom **one-byte** entry — `glob`, `read_text` and `file_size` all report it as present — so
-  `exists` is always true and no SQL primitive can tell "missing" from "present". duckfn's raw write
-  offset is wrong on that target too (a file comes out one byte long / shifted). It is a limitation of
-  the platform, not of duckfn or of this extension.
+  "is this name free" has no answer that can be trusted, and the never-overwrite guarantee could not be
+  kept. A raw write offset is wrong on that target too (a file comes out one byte long / shifted). It is
+  a limitation of the platform, not of duckfn or of this extension.
 - **there is no way around it from SQL.** `COPY … TO` can only export *query results* in a format
   (CSV / JSON / parquet), and none of those carries an arbitrary HTML document through byte for byte
   (CSV would quote it, a line break would split it).
 
-The consequence: with `output_dir`, `report_path`'s never-overwrite guard can never find a free name on
-wasm, so the call fails with `could not find a free report file name in 8 attempts` — the reports stay
-in the `html` column and the host page shows them. On native targets everything behaves as documented.
+The history is worth one line: an earlier version wrote through DuckDB's VFS, which made wasm *itself* a
+problem — there the never-overwrite guard could never find a free name, so `output_dir` failed with
+`could not find a free report file name in 8 attempts`. Trading the VFS for `std::fs` (see
+[Persisting the reports](#persisting-the-reports)) turned that into an explicit, documented skip.
 
-The naming logic (`naming.rs`) is still **shared** — a wasm build names its report files before the
-write fails, which is why `sanitize-filename` and `fastrand` are ordinary dependencies rather than
-non-wasm ones.
+The naming logic (`naming.rs`) is still **shared**: it is compiled for every target even though nothing
+calls it on wasm, which is why `sanitize-filename` and `fastrand` are ordinary dependencies rather than
+non-wasm ones — keeping that module free of `cfg`s is worth more than dropping two small crates from a
+wasm build that names no files.
 
-`open_in_browser` is the one deliberate exception, and it is also the only platform-specific code left
-in the extension (`browser.rs`): a wasm build has no browser process to launch, so the option is
-ignored there — no browser, and no temporary file either. The report string comes back to the host as
-it is, and showing it is the host page's job. The two crates behind that option (`open`, `tempfile`)
-are declared under `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`, so a wasm build does not
-compile them at all — a hard requirement, in fact, since `open` has no emscripten implementation and
-would not build.
+`open_in_browser` is the other deliberate exception: a wasm build has no browser process to launch, so
+the option is ignored there — no browser, and no temporary file either. The report string comes back to
+the host as it is, and showing it is the host page's job. The two crates behind that option (`open`,
+`tempfile`) are declared under `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`, so a wasm
+build does not compile them at all — a hard requirement, in fact, since `open` has no emscripten
+implementation and would not build.
 
 `just build_wasm` (`cargo build --release --target wasm32-unknown-emscripten --example
-duckfn_quantstats`) compiles fine; the runtime behaviour is DuckDB's VFS's, not ours.
+duckfn_quantstats`) compiles fine; the file operation simply never runs there.

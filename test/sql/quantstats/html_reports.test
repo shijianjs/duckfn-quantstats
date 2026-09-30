@@ -250,8 +250,8 @@ PRAGMA threads=1;
 # ============================================================================
 # 报告落盘（output_dir）：只给目录，文件名由函数生成
 #
-# 走 **DuckDB 的 VFS**（duckfn 便捷层 duck_vfs::write_string 背后的 DuckDB 文件系统），不是 std::fs。
-# __TEST_DIR__ 是测试运行器给的临时目录。
+# 原生构建下就是 **std::fs**（wasm 构建整个跳过文件操作，见 src/extension/functions/aggregate_html/
+# storage.rs）。__TEST_DIR__ 是测试运行器给的临时目录。
 # ============================================================================
 
 statement ok
@@ -328,8 +328,8 @@ SELECT (SELECT md5((r).html) FROM (
 ----
 true
 
-# 浏览器只能打开本地文件：output_dir 指向 s3:// 这类 VFS 路径时直接报错，而且要报在渲染之前
-# （这里连 httpfs 都没装，报的必须是配置错误而不是写入错误）
+# 浏览器只能打开本地文件：output_dir 指向 s3:// 这类非本地路径时直接报错，而且要报在渲染之前
+# （落盘走 std::fs，那种路径写也写不成；这里要报的必须是配置错误而不是写入错误）
 statement error
 SELECT qs_html_reports(symbol, trade_date, daily_return,
            {'benchmark': ['SPX'],

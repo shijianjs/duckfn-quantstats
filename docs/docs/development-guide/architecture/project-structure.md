@@ -25,6 +25,7 @@ src/extension/functions/aggregate_html/
                       fill in the path
     naming.rs         the report file name: `<time>-<strategy>-<benchmark>[-<random>].html`
                       (persistence and the temporary file share the stem)
+    storage.rs        persistence: pick a free name, write with std::fs (skipped entirely on wasm)
     browser.rs        opening in the system default browser (the whole feature is ignored on wasm)
 src/extension/types/
     html_report_options.rs  the named STRUCT type `qs_html_report_options`

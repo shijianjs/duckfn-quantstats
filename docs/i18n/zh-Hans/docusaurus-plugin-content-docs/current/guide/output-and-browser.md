@@ -1,7 +1,7 @@
 ---
 title: 落盘与浏览器
 sidebar_position: 4
-description: 报告去哪 —— output_dir 走 DuckDB 的 VFS、文件名的生成规则、open_in_browser，以及 wasm 下的差别。
+description: 报告去哪 —— output_dir、文件名的生成规则、open_in_browser，以及 wasm 下的差别。
 ---
 
 # 落盘与浏览器
@@ -39,19 +39,15 @@ ORDER BY (r).symbol;
 返回行里的 `file_path` 就是这次真正写出去的路径（没落盘则为 `NULL`），所以「写了哪些文件」可以直接
 从结果里读，不必去猜。
 
-目录**必须已经存在**（函数不会替你创建）。写文件走的是 **DuckDB 的 VFS** 而不是 `std::fs`：本地磁盘、
-装了 `httpfs` 之后的 `s3://` / `http(s)://`，以及 DuckDB 挂上的其它文件系统，都是同一条通路、同一套
-语义（VFS 路径按 `/` 拼，所以 `output_dir` 写 `s3://bucket/reports` 也没问题）。
+目录**必须已经存在**（函数不会替你创建），而且必须是**本地**目录：落盘就是一次普通的 `std::fs` 写入，
+`output_dir` 因此是一个常规的文件系统路径。写成 `s3://bucket/reports` 这种 —— 那是 DuckDB 挂上的文件
+系统，不是本扩展的能力 —— 会以写入错误告终。
 
-:::note[这块在浏览器里跑不了]
+:::note[浏览器里不会写出文件]
 
-查询本身没有变 —— **wasm 构建写不了文件**，这是平台限制，扩展绕不过去。那边的文件系统不是一个忠实的
-文件系统：一个并不存在的路径仍然会返回一条 **1 字节**的幻影条目，连 DuckDB 自带的 `glob`、`read_text`
-与 `file_size` 都把它报成存在。于是 `exists`（也就是「绝不覆盖已有文件」那道检查）恒为真，八个候选名字
-一个都腾不出来，调用以 `could not find a free report file name in 8 attempts` 结束。`COPY … TO` 也救
-不了：它只能把**查询结果**按 CSV / JSON / parquet 导出，载不动一份任意长的 HTML 报告的原样字节。
-
-拿到本地 DuckDB 上跑同一段，文件会写进 `./`，`file_path` 里是真实路径。
+查询本身没有变，但 **wasm 构建一个字节都不写**：它能跑，报告照常回到 `html` 那一列，而每一行的
+`file_path` 都是 `NULL`（那边整个跳过文件操作，原因见下面的 [WebAssembly](#webassembly)）。拿到本地
+DuckDB 上跑同一段，文件会写进 `./`，`file_path` 里是真实路径。
 
 :::
 
@@ -85,11 +81,12 @@ FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 
 ## WebAssembly
 
-**wasm 构建根本写不了文件**，而且这是平台限制，不是本扩展的 bug。那边的文件系统不忠实：任何不存在的
-路径都会返回一个 1 字节的幻影条目，DuckDB 自带的 `glob` / `read_text` / `file_size` 都把它报成存在，
-duckfn 的裸写偏移在那边也差一个字节。于是 `exists` 恒为真，那道「绝不覆盖已有文件」的检查永远找不到空位，
-`output_dir` 以 `could not find a free report file name in 8 attempts` 失败。`COPY … TO` 也替代不了它：
-它按格式（CSV / JSON / parquet）导出**查询结果**，这些格式载不动一份任意长的 HTML 文档的原样字节。
+**wasm 构建一个文件都不写**：`output_dir` 在那边是「收下、然后忽略」—— 不报错、不写文件，每一行的
+`file_path` 都是 `NULL`，报告本身照常回到 `html` 那一列。那边不是「试着写、写不成」，而是**整个跳过**文件
+操作：DuckDB-Wasm 的文件系统不忠实 —— 任何不存在的路径都会返回一个 1 字节的幻影条目，DuckDB 自带的
+`glob` / `read_text` / `file_size` 都把它报成存在，裸写偏移在那边也差一个字节 —— 于是「这个文件名空着吗」
+没有一个能信的答案，那道「绝不覆盖已有文件」的保证也就无法兑现。`COPY … TO` 也替代不了它：它按格式
+（CSV / JSON / parquet）导出**查询结果**，这些格式载不动一份任意长的 HTML 文档的原样字节。
 
 所以在 wasm 上报告就留在 `html` 那一列里，交给宿主页面处理 ——
 [快速开始](../getting-started/quick-start.md)把它渲染进 iframe，宿主页面也可以把这段字符串交给

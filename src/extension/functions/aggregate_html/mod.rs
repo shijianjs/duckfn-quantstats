@@ -35,6 +35,7 @@
 //   report.rs         收尾：按 (标的, 基准) 逐份渲染、落盘、按需打开浏览器，回填每份的路径
 //   naming.rs         文件名：`<时间>-<策略名>-<基准名>[-<随机尾缀>].html`（sanitize-filename 管字法、
 //                     fastrand 管随机尾缀；落盘与浏览器临时文件共用同一套主干）
+//   storage.rs        落盘：本机文件系统（std::fs）挑空闲名字、写字节；wasm 下整个跳过文件操作
 //   browser.rs        用系统默认浏览器打开报告（tempfile 建临时文件、open 负责启动；wasm 下整个功能被忽略）
 //
 // Two SQL names, one signature each, and a whole set of reports per call.
@@ -80,6 +81,8 @@
 //   naming.rs         the file name: `<time>-<strategy>-<benchmark>[-<random>].html` (sanitize-filename
 //                     owns the legality rules, fastrand the random suffix; persistence and the browser's
 //                     temporary file share the same stem)
+//   storage.rs        persistence: pick a free name and write the bytes with std::fs; the whole file
+//                     operation is skipped on wasm
 //   browser.rs        opening the report in the system default browser (tempfile creates the temporary
 //                     file, open starts the browser; the whole feature is ignored on wasm)
 // ============================================================================
@@ -93,3 +96,4 @@ mod naming;
 mod report;
 mod series;
 mod slots;
+mod storage;

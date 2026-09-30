@@ -98,6 +98,7 @@ ci-build: ci-init
 # 跑 test/sql/**/*.test
 test: ci-build
     make test
+    git clean -fdX -- test/sql
 
 # 官方 release 构建 —— CI 打 tag 时走这条
 ci-release: ci-init
