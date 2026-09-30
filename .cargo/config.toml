@@ -12,10 +12,16 @@ rustflags = ["-Ctarget-feature=+crt-static"]
 #   wasm-ld: error: libstandalonewasm.a(__main_void.o): undefined symbol: main
 # 显式钉住 side module 即可；静态库（真正喂给 emcc 拼扩展的那个产物）不受影响。
 #
-# Building for wasm, a `cdylib` has to be linked as a **side module**: cargo also builds the
-# `cdylib` of the **duckfn dependency** (whose manifest declares rlib + cdylib + staticlib), and in
-# that path rustc does not pass `-sSIDE_MODULE=2`, so emcc links it standalone and demands a `main`
-# that does not exist. Pinning side-module mode fixes it; the staticlib — the artifact that is
-# actually linked into the extension — is untouched.
+# Building for wasm, a `cdylib` has to be linked as a **side module**: with duckfn <= 0.0.16 cargo
+# also builds the `cdylib` of the duckfn **dependency** (its manifest declared rlib + cdylib +
+# staticlib), and in that path rustc does not pass `-sSIDE_MODULE=2`, so emcc links it standalone and
+# demands a `main` that does not exist. Pinning side-module mode fixes it; the staticlib — the artifact
+# that is actually linked into the extension — is untouched.
+#
+# duckfn ≥ 0.0.17 之后整个这一节可以删掉：那之后 duckfn 的 lib 只剩 rlib（扩展产物挪到了
+# `[[example]]`），下游不会再编到它的 cdylib。它从来不影响静态库那个产物。
+#
+# From duckfn 0.0.17 on this whole section can go: the lib is a plain rlib (the extension artefacts
+# moved to an `[[example]]`), so downstream never builds duckfn's cdylib any more.
 [target.wasm32-unknown-emscripten]
 rustflags = ["-C", "link-arg=-sSIDE_MODULE=2"]
