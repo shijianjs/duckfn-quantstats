@@ -199,9 +199,14 @@ confirm the look took.
 as an empty container when the page is loaded directly in dark mode — no error box, just blank, and
 toggling the colour mode once makes it appear. That is a race in `@docusaurus/theme-mermaid`'s
 initialisation (it re-renders every diagram when `colorMode` resolves), not a problem with the diagram
-itself — so nothing in the markdown fixes it. Fixing it properly means reporting it upstream or
-swizzling the `Mermaid` component; until then, treat a blank diagram on first load as this, not as a
-broken fence.
+itself — so nothing in the markdown fixes it. It is upstream, known and still open:
+[`facebook/docusaurus#8357`](https://github.com/facebook/docusaurus/issues/8357) (`bug`, open since
+2022-11) — Mermaid cannot render diagrams concurrently, so the fix is a render queue
+([`mermaid-js/mermaid#3577`](https://github.com/mermaid-js/mermaid/issues/3577)). Two attempted fixes,
+[`#11814`](https://github.com/facebook/docusaurus/pull/11814) and
+[`#12281`](https://github.com/facebook/docusaurus/pull/12281), are not in a release, and
+`theme-mermaid` 3.10.2 carries no visibility/lazy-render path at all. Until then, treat a blank diagram
+on first load as this, not as a broken fence.
 
 **Version numbers.** Do not write a version by hand: write `{{EXTENSION_VERSION}}` (inside a code
 fence or inline code, where the braces stay literal) and it is replaced at build time from
