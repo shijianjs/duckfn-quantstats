@@ -13,7 +13,7 @@ src/extension/mod.rs  ->  duckfn_entrypoint!("duckfn_quantstats");
 src/bin/duckfn.rs     duckfn CLI entry   ->  #[path] mod extension; + duckfn::cli::run(...)
                       (only serves `just docs_csv`, not part of the extension runtime)
 
-src/extension/functions/mod.rs  ->  mod aggregate_html;
+src/extension/functions/mod.rs  ->  mod aggregate_html; mod translation;
 src/extension/functions/aggregate_html/
     mod.rs            the two SQL names / one signature each, and the mod list
     html_returns.rs   qs_html_reports            (the return branch)
@@ -21,15 +21,24 @@ src/extension/functions/aggregate_html/
     kind.rs           one path's SQL-side name: the macro-generated `SQL_NAME`
     series.rs         the internal point type, series building, price differencing
     slots.rs          the argument slots: the symbol table plus "parse each symbol's options once"
-    report.rs         the tail: render one report per (symbol, benchmark), persist, open the browser,
-                      fill in the path
+    report.rs         the tail: render one report per (symbol, benchmark), translate it when asked,
+                      persist, open the browser, fill in the path
     naming.rs         the report file name: `<time>-<strategy>-<benchmark>[-<random>].html`
                       (persistence and the temporary file share the stem)
     storage.rs        persistence: pick a free name, write with std::fs (skipped entirely on wasm)
     browser.rs        opening in the system default browser (the whole feature is ignored on wasm)
+src/extension/functions/translation/
+    mod.rs            the language option's feature: what is translatable, and where the table lives
+    keys.rs           the catalog: every translatable position's key, CSS selector and English text
+    builtin/          the six built-in languages (en carries notes only; the others a text plus a note)
+    table.rs          the process-level table: install at load time, read, rewrite
+    set.rs            qs_set_translation(language, entries) -> BOOLEAN
+    list.rs           qs_list_translations()
+    report.rs         the one lol_html rewrite (DOM mapping, the date template, month casing)
 src/extension/types/
     html_report_options.rs  the named STRUCT type `qs_html_report_options`
     html_report.rs          the result row type `QuantstatsHtmlReport` (no named type registered)
+    translation.rs          `TranslationEntry` (the named type `qs_translation_entry`) and the list row
 
 test/sql/quantstats/   SQLLogicTest files
 demo/prices.csv        the committed market snapshot

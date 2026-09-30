@@ -13,7 +13,7 @@ src/extension/mod.rs  ->  duckfn_entrypoint!("duckfn_quantstats");
 src/bin/duckfn.rs     duckfn CLI 入口  ->  #[path] mod extension; + duckfn::cli::run(...)
                       （只服务 `just docs_csv` 导出函数描述 CSV，不参与插件运行）
 
-src/extension/functions/mod.rs  ->  mod aggregate_html;
+src/extension/functions/mod.rs  ->  mod aggregate_html; mod translation;
 src/extension/functions/aggregate_html/
     mod.rs            两个 SQL 名字 / 各一个签名的分工，以及 mod 声明
     html_returns.rs   qs_html_reports            （收益率路径）
@@ -21,13 +21,22 @@ src/extension/functions/aggregate_html/
     kind.rs           一条路径在 SQL 侧的名字：宏生成的 `SQL_NAME`
     series.rs         内部点表示、序列构造、价格差分
     slots.rs          参数槽：symbol 表 +「每个 symbol 的配置只解析一次」
-    report.rs         收尾：按 (标的, 基准) 逐份渲染、落盘、按需打开浏览器、回填每份的路径
+    report.rs         收尾：按 (标的, 基准) 逐份渲染、按需翻译、落盘、按需打开浏览器、回填每份的路径
     naming.rs         报告文件名：`<时间>-<策略名>-<基准名>[-<随机尾缀>].html`（落盘与临时文件共用主干）
     storage.rs        落盘：挑空闲名字、用 std::fs 写字节（wasm 下整个跳过）
     browser.rs        用系统默认浏览器打开报告（wasm 下整个功能被忽略）
+src/extension/functions/translation/
+    mod.rs            `language` 配置项那一块：哪些能翻、翻译表活在哪
+    keys.rs           目录：每个可翻译位置的 key、CSS 选择器与英文原文
+    builtin/          六种内置语言（en 只写说明，其余写译文 + 说明）
+    table.rs          进程级翻译表：加载时装载、读取、改写
+    set.rs            qs_set_translation(language, entries) -> BOOLEAN
+    list.rs           qs_list_translations()
+    report.rs         那一次 lol_html 改写（DOM 定位、日期模板、月份大小写）
 src/extension/types/
     html_report_options.rs  命名 STRUCT 类型 `qs_html_report_options`
     html_report.rs          返回行类型 `QuantstatsHtmlReport`（不注册命名类型）
+    translation.rs          `TranslationEntry`（命名类型 `qs_translation_entry`）与列表返回行
 
 test/sql/quantstats/   SQLLogicTest 用例
 demo/prices.csv        提交进仓库的行情快照

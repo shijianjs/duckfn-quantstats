@@ -1,0 +1,205 @@
+// ============================================================================
+// 内置数据：日本語（ja）
+//
+// `(key, 訳文, 説明)` の三つ組。説明はレポート中のその要素の `title` になる（ブラウザ標準のツールチップ）。
+// 訳文は**短く**：表のセルとグラフ見出しに入るので、長いとレイアウトが崩れる。
+//
+// 用語は日本語の実務でよく使われる形（シャープレシオ／ソルティノレシオ／カルマーレシオ／アルサー指数／
+// ドローダウン／CAGR）に合わせ、Beta・Alpha・R² のような記号はそのまま残す。
+//
+// Built-in data: Japanese. `(key, translation, note)` triples; the note becomes that element's `title` (the
+// browser's native tooltip). Translations stay **short** — they land in table cells and chart titles, and
+// overlong text breaks the layout. Terminology follows Japanese practice (シャープレシオ / ソルティノレシオ /
+// カルマーレシオ / アルサー指数 / ドローダウン / CAGR), and symbol-like metrics (Beta, Alpha, R²) keep their
+// symbols.
+// ============================================================================
+
+/// 日本語の全表；完全性は読み込み時に `table.rs::install_builtin` が検査する。
+///
+/// The whole Japanese table; completeness is checked at load time by `table.rs::install_builtin`.
+pub(super) const ENTRIES: &[(&str, &str, &str)] = &[
+    // ---- レポート見出しと文書 ----
+    ("text.title", "パフォーマンスレポート（QuantStats-RS 生成）", "ブラウザのタブに出るレポート名 📄"),
+    ("text.benchmark_is", "ベンチマーク", "このレポートが比較するベンチマーク 🎯"),
+    ("text.generated_by", "生成ツール", "このレポートを描画したツールとバージョン 🛠️"),
+    ("text.no_eoy_data", "年間データはまだありません。", "丸1年分のリターンが無いときに表示されます 📅"),
+    (
+        "date.range",
+        "{y1}年{m1}{d1}日 - {y2}年{m2}{d2}日",
+        "レポートが対象とする期間：{d1} {m1} {y1} から {d2} {m2} {y2} まで。{m} は月名の訳文 📅",
+    ),
+    // ---- セクション見出し ----
+    ("section.key_performance_metrics", "主要パフォーマンス指標", "指標表：戦略とベンチマークを並べて比較 📊"),
+    ("section.worst_drawdowns", "ワースト10 ドローダウン", "深い順に並べた10件のドローダウン 🕳️"),
+    ("section.eoy_returns", "年間リターン", "年ごとの複利リターン 📅"),
+    (
+        "section.eoy_returns_vs_benchmark",
+        "年間リターン vs ベンチマーク",
+        "年ごとのリターンを戦略とベンチマークで並べる 📅",
+    ),
+    // ---- 表見出し ----
+    ("table.metric", "指標", "指標名の列。残りの2列が各系列 📋"),
+    ("table.eoy_year", "年", "暦年 ⏱️"),
+    ("table.eoy_benchmark", "ベンチマーク", "その年のベンチマークのリターン 🎯"),
+    ("table.eoy_strategy", "戦略", "その年の戦略のリターン 📈"),
+    ("table.eoy_multiplier", "倍率", "戦略÷ベンチマーク。1 を超えれば勝ち ➗"),
+    ("table.eoy_won", "勝敗", "その年にベンチマークを上回れば + 🏆"),
+    ("table.dd_started", "開始", "ドローダウンが始まった日 🕳️"),
+    ("table.dd_recovered", "回復", "直前の高値を取り戻した日 ⤴️"),
+    ("table.dd_drawdown", "下落率", "高値から安値までの下落（%） 📉"),
+    ("table.dd_days", "日数", "ドローダウンの継続日数 ⏳"),
+    // ---- 凡例と SVG ラベル ----
+    ("label.strategy", "戦略", "凡例：戦略自身の曲線 📈"),
+    ("label.benchmark", "ベンチマーク", "凡例：ベンチマークの曲線 🎯"),
+    ("label.mean", "平均", "描画値の平均。破線で表示 📊"),
+    ("dist.daily", "日次", "日次リターン 📆"),
+    ("dist.weekly", "週次", "週次リターン 🗓️"),
+    ("dist.monthly", "月次", "月次リターン 📅"),
+    ("dist.quarterly", "四半期", "四半期リターン 🧭"),
+    ("dist.yearly", "年次", "年次リターン 🎆"),
+    // ---- グラフ見出し ----
+    ("plot.cumulative_returns", "累積リターン", "1単位の資産が時間とともに増える様子 📈"),
+    (
+        "plot.cumulative_returns_vs_benchmark",
+        "累積リターン vs ベンチマーク",
+        "戦略とベンチマークの推移を同じ軸に 📈🎯",
+    ),
+    (
+        "plot.cumulative_returns_log_scaled",
+        "累積リターン（対数軸）",
+        "同じ曲線を対数軸で。等倍率の変化が同じ高さに見える 📐",
+    ),
+    (
+        "plot.cumulative_returns_vs_benchmark_log_scaled",
+        "累積リターン vs ベンチマーク（対数軸）",
+        "2本の曲線を対数軸で 📐",
+    ),
+    (
+        "plot.cumulative_returns_volatility_matched",
+        "累積リターン（ボラティリティ一致）",
+        "戦略をベンチマークと同じボラティリティに縮尺 ⚖️",
+    ),
+    (
+        "plot.cumulative_returns_vs_benchmark_volatility_matched",
+        "累積リターン vs ベンチマーク（ボラティリティ一致）",
+        "ボラティリティを揃えた比較 ⚖️",
+    ),
+    ("plot.eoy_returns", "年間リターン", "暦年ごとに1本の棒 📊"),
+    (
+        "plot.eoy_returns_vs_benchmark",
+        "年間リターン vs ベンチマーク",
+        "年ごとの棒を戦略とベンチマークで並べる 📊",
+    ),
+    ("plot.daily_returns_cumulative_sum", "日次リターン（累積和）", "日次リターンを単純合計。複利なし ➕"),
+    ("plot.return_quantiles", "リターン分位", "分位ごとのリターン分布 📊"),
+    ("plot.distribution_of_monthly_returns", "月次リターンの分布", "月次リターンの散らばり 🌡️"),
+    (
+        "plot.distribution_of_monthly_returns_vs_benchmark",
+        "月次リターンの分布 vs ベンチマーク",
+        "2系列の月次分布 🌡️",
+    ),
+    (
+        "plot.rolling_volatility_6_months",
+        "ローリング・ボラティリティ（6か月）",
+        "6か月のローリング年率ボラティリティ 🌊",
+    ),
+    ("plot.rolling_sharpe_6_months", "ローリング・シャープ（6か月）", "6か月のローリング・シャープレシオ ⚖️"),
+    (
+        "plot.rolling_sortino_6_months",
+        "ローリング・ソルティノ（6か月）",
+        "6か月のローリング・ソルティノレシオ ⚖️",
+    ),
+    (
+        "plot.rolling_beta_to_benchmark",
+        "ベンチマークに対するローリング Beta",
+        "6か月のローリング Beta 🎯",
+    ),
+    ("plot.strategy_monthly_returns", "戦略 - 月次リターン（%）", "年×月のグリッドで見る月次リターン 🗓️"),
+    ("plot.drawdown_underwater", "ドローダウン（水面下）", "直近高値からの下落幅 🕳️"),
+    ("plot.strategy_worst_5_drawdown_periods", "戦略 - ワースト5 ドローダウン期間", "最も深い5つの期間 🕳️"),
+    // ---- 指標 ----
+    ("metric.risk_free_rate", "無リスク金利", "シャープレシオが使う無リスク資産の年率 💵"),
+    ("metric.time_in_market", "市場滞在率", "ポジションが非ゼロだった期間の割合 ⏱️"),
+    ("metric.cumulative_return", "累積リターン", "全期間の複利トータルリターン 📈"),
+    ("metric.cagr", "年平均成長率", "複利での年率成長率（CAGR） 🚀"),
+    ("metric.sharpe", "シャープレシオ", "ボラティリティ1単位あたりの超過リターン ⚖️"),
+    ("metric.prob_sharpe_ratio", "シャープ確率", "真のシャープレシオが 0 を超える確率 🎲"),
+    ("metric.smart_sharpe", "スマート・シャープ", "リターンの自己相関にペナルティを課したシャープ 🧠"),
+    ("metric.sortino", "ソルティノレシオ", "下方リスク1単位あたりの超過リターン 🛡️"),
+    ("metric.smart_sortino", "スマート・ソルティノ", "自己相関にペナルティを課したソルティノ 🧠"),
+    ("metric.sortino_sqrt2", "ソルティノ/√2", "ソルティノレシオを √2 で割った値 📐"),
+    ("metric.smart_sortino_sqrt2", "スマート・ソルティノ/√2", "スマート・ソルティノを √2 で割った値 📐"),
+    ("metric.omega", "オメガレシオ", "しきい値超の利益と下回る損失の比 🎯"),
+    ("metric.max_drawdown", "最大ドローダウン", "高値から安値までの最大下落 📉"),
+    ("metric.max_dd_date", "最大DDの底", "最大ドローダウンが底を打った日 📅"),
+    ("metric.max_dd_period_start", "最大DDの開始", "最大ドローダウンが始まった高値の日 🕳️"),
+    ("metric.max_dd_period_end", "最大DDの終了", "最大ドローダウンが終わった安値の日 🕳️"),
+    ("metric.longest_dd_days", "最長DD日数", "高値を下回ったまま最も長く続いた期間 ⏳"),
+    ("metric.volatility_ann", "ボラティリティ（年率）", "リターン標準偏差の年率換算 🌊"),
+    ("metric.r_squared", "R²", "戦略の動きのうちベンチマークで説明できる割合 🎯"),
+    ("metric.information_ratio", "インフォメーションレシオ", "トラッキングエラー1単位あたりの超過リターン 🧭"),
+    ("metric.calmar", "カルマーレシオ", "年率リターン÷最大ドローダウン ⚖️"),
+    ("metric.skew", "歪度", "リターンの非対称性。負なら左裾が厚い 🪞"),
+    ("metric.kurtosis", "尖度", "正規分布と比べた裾の重さ 🐘"),
+    ("metric.expected_daily", "日次期待値", "日次リターンの幾何平均 📆"),
+    ("metric.expected_monthly", "月次期待値", "月次リターンの幾何平均 📅"),
+    ("metric.expected_yearly", "年次期待値", "年次リターンの幾何平均 🎆"),
+    ("metric.kelly_criterion", "ケリー基準", "長期的な成長が最大になる建玉比率 🎯"),
+    ("metric.risk_of_ruin", "破産確率", "資金をすべて失う確率 💀"),
+    ("metric.daily_value_at_risk", "日次バリュー・アット・リスク", "最悪5%の日に超える損失 ⚠️"),
+    ("metric.expected_shortfall", "期待ショートフォール（cVaR）", "最悪日の平均損失 🧊"),
+    ("metric.max_consecutive_wins", "最大連勝", "連続して勝った最長記録 🔥"),
+    ("metric.max_consecutive_losses", "最大連敗", "連続して負けた最長記録 🧊"),
+    ("metric.gain_pain_ratio", "ゲイン/ペイン比", "利益の合計÷損失の合計 ⚖️"),
+    ("metric.gain_pain_1m", "ゲイン/ペイン比（1か月）", "月次合計で計算したゲイン/ペイン比 🗓️"),
+    ("metric.payoff_ratio", "ペイオフレシオ", "平均利益÷平均損失 ⚖️"),
+    ("metric.profit_factor", "プロフィットファクター", "総利益÷総損失 💰"),
+    ("metric.common_sense_ratio", "コモンセンスレシオ", "プロフィットファクター×テールレシオ 🧮"),
+    ("metric.tail_ratio", "テールレシオ", "95パーセンタイル÷5パーセンタイル 📐"),
+    ("metric.cpc_index", "CPC指数", "プロフィットファクター×勝率×ペイオフレシオ 🧮"),
+    ("metric.outlier_win_ratio", "外れ値・利益比", "上位1%の日と平均上昇日の比 🎯"),
+    ("metric.outlier_loss_ratio", "外れ値・損失比", "下位1%の日と平均下落日の比 🕳️"),
+    ("metric.mtd", "月初来", "MTD。月初から直近まで 📅"),
+    ("metric.3m", "直近3か月", "足元3か月 🗓️"),
+    ("metric.6m", "直近6か月", "足元6か月 🗓️"),
+    ("metric.ytd", "年初来", "YTD。年初から直近まで 📅"),
+    ("metric.1y", "直近1年", "足元12か月 📅"),
+    ("metric.3y_ann", "直近3年（年率）", "3年間の年率換算リターン 📈"),
+    ("metric.5y_ann", "直近5年（年率）", "5年間の年率換算リターン 📈"),
+    ("metric.10y_ann", "直近10年（年率）", "10年間の年率換算リターン 📈"),
+    ("metric.all_time_ann", "全期間（年率）", "全期間の年率換算リターン 📈"),
+    ("metric.best_day", "最良の日", "最も良かった1日 📈"),
+    ("metric.worst_day", "最悪の日", "最も悪かった1日 📉"),
+    ("metric.best_month", "最良の月", "最も良かった暦月 📈"),
+    ("metric.worst_month", "最悪の月", "最も悪かった暦月 📉"),
+    ("metric.best_year", "最良の年", "最も良かった暦年 🏆"),
+    ("metric.worst_year", "最悪の年", "最も悪かった暦年 📉"),
+    ("metric.avg_drawdown", "平均ドローダウン", "全ドローダウンの平均的な深さ 🕳️"),
+    ("metric.avg_drawdown_days", "平均DD日数", "1回のドローダウンの平均日数 ⏳"),
+    ("metric.recovery_factor", "リカバリーファクター", "純リターン÷最大ドローダウン ⤴️"),
+    ("metric.ulcer_index", "アルサー指数", "ドローダウンの深さを継続期間で重み付け 🩹"),
+    ("metric.serenity_index", "セレニティ指数", "ドローダウンの痛み1単位あたりのリターン 🧘"),
+    ("metric.avg_up_month", "平均上昇月", "上昇した月の平均リターン 📈"),
+    ("metric.avg_down_month", "平均下落月", "下落した月の平均リターン 📉"),
+    ("metric.win_days", "勝率（日次）", "上昇した日の割合 🎯"),
+    ("metric.win_month", "勝率（月次）", "上昇した月の割合 🎯"),
+    ("metric.win_quarter", "勝率（四半期）", "上昇した四半期の割合 🎯"),
+    ("metric.win_year", "勝率（年次）", "上昇した年の割合 🎯"),
+    ("metric.beta", "Beta", "ベンチマークの動きへの感応度 🎯"),
+    ("metric.alpha", "Alpha", "Beta では説明できない年率リターン 🌟"),
+    ("metric.correlation", "相関", "2系列がどれだけ同じ方向に動くか 🔗"),
+    ("metric.treynor_ratio", "トレイナーレシオ", "Beta 1単位あたりの超過リターン ⚖️"),
+    // ---- 月：ヒートマップの見出しは大文字化されるが、日本語は影響を受けない ----
+    ("month.jan", "1月", "1月、一年の始まり ❄️"),
+    ("month.feb", "2月", "2月、一番短い月 🌨️"),
+    ("month.mar", "3月", "3月、春の訪れ 🌱"),
+    ("month.apr", "4月", "4月、雨が多い 🌦️"),
+    ("month.may", "5月", "5月 🌸"),
+    ("month.jun", "6月", "6月、上半期の締め ☀️"),
+    ("month.jul", "7月", "7月、真夏 🏖️"),
+    ("month.aug", "8月", "8月 🌾"),
+    ("month.sep", "9月", "9月、第3四半期の末 🍂"),
+    ("month.oct", "10月", "10月 🎃"),
+    ("month.nov", "11月", "11月 🍁"),
+    ("month.dec", "12月", "12月、年末 🎄"),
+];

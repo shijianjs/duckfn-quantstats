@@ -1,0 +1,201 @@
+// ============================================================================
+// 内置数据：Español（es）
+//
+// `(key, traducción, nota)`; la nota se convierte en el `title` de ese elemento en el informe (el tooltip
+// nativo). Las traducciones se mantienen **cortas**: van en celdas de tabla y títulos de gráfico, y un texto
+// demasiado largo rompe la maquetación.
+//
+// Terminología según el uso español (Sharpe, Sortino, Calmar, índice Ulcer, drawdown, TCAC); los símbolos
+// (Beta, Alpha, R²) se dejan tal cual.
+//
+// Built-in data: Spanish. `(key, translation, note)`; the note becomes that element's `title` (the native
+// tooltip). Translations stay **short** — they land in table cells and chart titles, and overlong text breaks
+// the layout. Terminology follows Spanish usage (Sharpe, Sortino, Calmar, índice Ulcer, drawdown, TCAC);
+// symbol-like metrics (Beta, Alpha, R²) keep their symbols.
+// ============================================================================
+
+/// 西班牙语的整张表；完整性由 `table.rs::install_builtin` 在加载期校验。
+///
+/// The whole Spanish table; completeness is checked at load time by `table.rs::install_builtin`.
+pub(super) const ENTRIES: &[(&str, &str, &str)] = &[
+    // ---- Encabezados y documento ----
+    ("text.title", "Informe de rendimiento (generado por QuantStats-RS)", "Título que aparece en la pestaña del navegador 📄"),
+    ("text.benchmark_is", "Referencia", "El índice con el que se compara este informe 🎯"),
+    ("text.generated_by", "Generado por", "La herramienta que dibujó el informe y su versión 🛠️"),
+    ("text.no_eoy_data", "Aún no hay datos anuales.", "Se muestra mientras no haya un año natural completo 📅"),
+    (
+        "date.range",
+        "{d1} {m1} {y1} - {d2} {m2} {y2}",
+        "Primera y última fecha del informe: de {d1} {m1} {y1} a {d2} {m2} {y2} 📅",
+    ),
+    // ---- Títulos de sección ----
+    ("section.key_performance_metrics", "Métricas clave", "La tabla de métricas: estrategia junto a su referencia 📊"),
+    ("section.worst_drawdowns", "Los 10 peores drawdowns", "Las diez caídas más profundas, la peor primero 🕳️"),
+    ("section.eoy_returns", "Rentabilidad anual", "Rentabilidad compuesta año a año 📅"),
+    (
+        "section.eoy_returns_vs_benchmark",
+        "Rentabilidad anual vs referencia",
+        "Rentabilidad por año, estrategia y referencia juntas 📅",
+    ),
+    // ---- Cabeceras de tabla ----
+    ("table.metric", "Métrica", "Columna con los nombres de las métricas; las demás son las series 📋"),
+    ("table.eoy_year", "Año", "Año natural ⏱️"),
+    ("table.eoy_benchmark", "Referencia", "Rentabilidad de la referencia ese año 🎯"),
+    ("table.eoy_strategy", "Estrategia", "Rentabilidad de la estrategia ese año 📈"),
+    ("table.eoy_multiplier", "Multiplicador", "Estrategia dividida por la referencia; por encima de 1 gana ➗"),
+    ("table.eoy_won", "Ganado", "+ cuando la estrategia superó a la referencia ese año 🏆"),
+    ("table.dd_started", "Inicio", "Fecha en la que empezó la caída 🕳️"),
+    ("table.dd_recovered", "Recuperado", "Fecha en la que se recuperó el máximo anterior ⤴️"),
+    ("table.dd_drawdown", "Caída", "Distancia del máximo al mínimo, en porcentaje 📉"),
+    ("table.dd_days", "Días", "Cuánto duró la caída ⏳"),
+    // ---- Leyenda y etiquetas SVG ----
+    ("label.strategy", "Estrategia", "Leyenda: la curva de la estrategia 📈"),
+    ("label.benchmark", "Referencia", "Leyenda: la curva de la referencia 🎯"),
+    ("label.mean", "Media", "Media de los valores dibujados, en línea discontinua 📊"),
+    ("dist.daily", "Diario", "Rentabilidad diaria 📆"),
+    ("dist.weekly", "Semanal", "Rentabilidad semanal 🗓️"),
+    ("dist.monthly", "Mensual", "Rentabilidad mensual 📅"),
+    ("dist.quarterly", "Trimestral", "Rentabilidad trimestral 🧭"),
+    ("dist.yearly", "Anual", "Rentabilidad anual 🎆"),
+    // ---- Títulos de gráfico ----
+    ("plot.cumulative_returns", "Rentabilidad acumulada", "Crecimiento de una unidad a lo largo del tiempo 📈"),
+    (
+        "plot.cumulative_returns_vs_benchmark",
+        "Rentabilidad acumulada vs referencia",
+        "Estrategia y referencia en el mismo eje 📈🎯",
+    ),
+    (
+        "plot.cumulative_returns_log_scaled",
+        "Rentabilidad acumulada (escala log)",
+        "La misma curva en escala logarítmica 📐",
+    ),
+    (
+        "plot.cumulative_returns_vs_benchmark_log_scaled",
+        "Rentabilidad acumulada vs referencia (escala log)",
+        "Ambas curvas en escala logarítmica 📐",
+    ),
+    (
+        "plot.cumulative_returns_volatility_matched",
+        "Rentabilidad acumulada (volatilidad ajustada)",
+        "Estrategia reescalada a la volatilidad de la referencia ⚖️",
+    ),
+    (
+        "plot.cumulative_returns_vs_benchmark_volatility_matched",
+        "Rentabilidad acumulada vs referencia (volatilidad ajustada)",
+        "Comparación con la misma volatilidad ⚖️",
+    ),
+    ("plot.eoy_returns", "Rentabilidad anual", "Una barra por año natural 📊"),
+    (
+        "plot.eoy_returns_vs_benchmark",
+        "Rentabilidad anual vs referencia",
+        "Barras anuales, estrategia y referencia 📊",
+    ),
+    ("plot.daily_returns_cumulative_sum", "Rentabilidad diaria (suma)", "Rentabilidad diaria sumada, sin componer ➕"),
+    ("plot.return_quantiles", "Cuantiles de rentabilidad", "Distribución de la rentabilidad por cuantiles 📊"),
+    ("plot.distribution_of_monthly_returns", "Distribución mensual", "Dispersión de la rentabilidad mensual 🌡️"),
+    (
+        "plot.distribution_of_monthly_returns_vs_benchmark",
+        "Distribución mensual vs referencia",
+        "Dispersión mensual de ambas series 🌡️",
+    ),
+    (
+        "plot.rolling_volatility_6_months",
+        "Volatilidad móvil (6 meses)",
+        "Volatilidad anualizada móvil de 6 meses 🌊",
+    ),
+    ("plot.rolling_sharpe_6_months", "Sharpe móvil (6 meses)", "Ratio de Sharpe móvil de 6 meses ⚖️"),
+    ("plot.rolling_sortino_6_months", "Sortino móvil (6 meses)", "Ratio de Sortino móvil de 6 meses ⚖️"),
+    ("plot.rolling_beta_to_benchmark", "Beta móvil frente a la referencia", "Beta móvil de 6 meses 🎯"),
+    ("plot.strategy_monthly_returns", "Estrategia - rentabilidad mensual (%)", "Rentabilidad mensual en rejilla año × mes 🗓️"),
+    ("plot.drawdown_underwater", "Drawdown (bajo el agua)", "Distancia por debajo del máximo alcanzado 🕳️"),
+    (
+        "plot.strategy_worst_5_drawdown_periods",
+        "Estrategia - 5 peores drawdowns",
+        "Las cinco caídas más profundas 🕳️",
+    ),
+    // ---- Métricas ----
+    ("metric.risk_free_rate", "Tasa libre de riesgo", "Tasa anual del activo sin riesgo, la usa el Sharpe 💵"),
+    ("metric.time_in_market", "Tiempo en mercado", "Proporción de periodos con posición distinta de cero ⏱️"),
+    ("metric.cumulative_return", "Rentabilidad acumulada", "Rentabilidad compuesta de todo el periodo 📈"),
+    ("metric.cagr", "TCAC", "Tasa de crecimiento anual compuesta 🚀"),
+    ("metric.sharpe", "Sharpe", "Exceso de rentabilidad por unidad de volatilidad ⚖️"),
+    ("metric.prob_sharpe_ratio", "Prob. Sharpe", "Probabilidad de que el Sharpe real supere cero 🎲"),
+    ("metric.smart_sharpe", "Sharpe smart", "Sharpe con penalización por autocorrelación 🧠"),
+    ("metric.sortino", "Sortino", "Exceso de rentabilidad por unidad de riesgo bajista 🛡️"),
+    ("metric.smart_sortino", "Sortino smart", "Sortino con penalización por autocorrelación 🧠"),
+    ("metric.sortino_sqrt2", "Sortino/√2", "Sortino dividido entre raíz de dos 📐"),
+    ("metric.smart_sortino_sqrt2", "Sortino smart/√2", "Sortino smart dividido entre raíz de dos 📐"),
+    ("metric.omega", "Omega", "Ganancias por encima del umbral frente a pérdidas por debajo 🎯"),
+    ("metric.max_drawdown", "Máximo drawdown", "Mayor caída de máximo a mínimo 📉"),
+    ("metric.max_dd_date", "Fecha del DD máx.", "Cuándo ocurrió ese mínimo 📅"),
+    ("metric.max_dd_period_start", "Inicio del DD máx.", "El máximo desde el que arranca la peor caída 🕳️"),
+    ("metric.max_dd_period_end", "Fin del DD máx.", "El mínimo en el que acaba la peor caída 🕳️"),
+    ("metric.longest_dd_days", "DD más largo (días)", "Periodo más largo por debajo del máximo anterior ⏳"),
+    ("metric.volatility_ann", "Volatilidad (anual)", "Desviación típica anualizada de la rentabilidad 🌊"),
+    ("metric.r_squared", "R²", "Parte del movimiento de la estrategia explicada por la referencia 🎯"),
+    ("metric.information_ratio", "Ratio de información", "Rentabilidad activa por unidad de error de seguimiento 🧭"),
+    ("metric.calmar", "Calmar", "Rentabilidad anualizada entre la peor caída ⚖️"),
+    ("metric.skew", "Asimetría", "Asimetría de la rentabilidad; negativa = cola izquierda más gruesa 🪞"),
+    ("metric.kurtosis", "Curtosis", "Grosor de las colas frente a una normal 🐘"),
+    ("metric.expected_daily", "Esperanza diaria", "Media geométrica de la rentabilidad diaria 📆"),
+    ("metric.expected_monthly", "Esperanza mensual", "Media geométrica de la rentabilidad mensual 📅"),
+    ("metric.expected_yearly", "Esperanza anual", "Media geométrica de la rentabilidad anual 🎆"),
+    ("metric.kelly_criterion", "Criterio de Kelly", "Tamaño de posición que maximiza el crecimiento a largo plazo 🎯"),
+    ("metric.risk_of_ruin", "Riesgo de ruina", "Probabilidad de perder todo el capital 💀"),
+    ("metric.daily_value_at_risk", "Valor en riesgo diario", "Pérdida que superan los peores 5% de días ⚠️"),
+    ("metric.expected_shortfall", "Déficit esperado (cVaR)", "Pérdida media de esos peores días 🧊"),
+    ("metric.max_consecutive_wins", "Racha máxima de ganancias", "La racha ganadora más larga 🔥"),
+    ("metric.max_consecutive_losses", "Racha máxima de pérdidas", "La racha perdedora más larga 🧊"),
+    ("metric.gain_pain_ratio", "Ganancia/Dolor", "Suma de ganancias entre suma de pérdidas ⚖️"),
+    ("metric.gain_pain_1m", "Ganancia/Dolor (1M)", "Calculado sobre sumas mensuales 🗓️"),
+    ("metric.payoff_ratio", "Ratio de beneficio", "Ganancia media entre pérdida media ⚖️"),
+    ("metric.profit_factor", "Factor de beneficio", "Beneficio bruto entre pérdida bruta 💰"),
+    ("metric.common_sense_ratio", "Ratio de sentido común", "Factor de beneficio por ratio de cola 🧮"),
+    ("metric.tail_ratio", "Ratio de cola", "Percentil 95 entre percentil 5 📐"),
+    ("metric.cpc_index", "Índice CPC", "Factor de beneficio × tasa de acierto × ratio de beneficio 🧮"),
+    ("metric.outlier_win_ratio", "Ganancias atípicas", "El mejor 1% de días frente al día alcista medio 🎯"),
+    ("metric.outlier_loss_ratio", "Pérdidas atípicas", "El peor 1% de días frente al día bajista medio 🕳️"),
+    ("metric.mtd", "MTD", "Del inicio del mes hasta hoy 📅"),
+    ("metric.3m", "3M", "Últimos tres meses 🗓️"),
+    ("metric.6m", "6M", "Últimos seis meses 🗓️"),
+    ("metric.ytd", "YTD", "Del inicio del año hasta hoy 📅"),
+    ("metric.1y", "1A", "Últimos doce meses 📅"),
+    ("metric.3y_ann", "3A (anual)", "Anualizado a tres años 📈"),
+    ("metric.5y_ann", "5A (anual)", "Anualizado a cinco años 📈"),
+    ("metric.10y_ann", "10A (anual)", "Anualizado a diez años 📈"),
+    ("metric.all_time_ann", "Total (anual)", "Anualizado en todo el periodo 📈"),
+    ("metric.best_day", "Mejor día", "El mejor día suelto 📈"),
+    ("metric.worst_day", "Peor día", "El peor día suelto 📉"),
+    ("metric.best_month", "Mejor mes", "Mejor mes natural 📈"),
+    ("metric.worst_month", "Peor mes", "Peor mes natural 📉"),
+    ("metric.best_year", "Mejor año", "Mejor año natural 🏆"),
+    ("metric.worst_year", "Peor año", "Peor año natural 📉"),
+    ("metric.avg_drawdown", "Caída media", "Profundidad media de todas las caídas 🕳️"),
+    ("metric.avg_drawdown_days", "Días de caída (media)", "Duración media de una caída ⏳"),
+    ("metric.recovery_factor", "Factor de recuperación", "Rentabilidad neta entre la peor caída ⤴️"),
+    ("metric.ulcer_index", "Índice Ulcer", "Profundidad de la caída ponderada por su duración 🩹"),
+    ("metric.serenity_index", "Índice Serenity", "Rentabilidad por unidad de dolor de caída 🧘"),
+    ("metric.avg_up_month", "Mes alcista (media)", "Rentabilidad media de los meses positivos 📈"),
+    ("metric.avg_down_month", "Mes bajista (media)", "Rentabilidad media de los meses negativos 📉"),
+    ("metric.win_days", "Días ganadores", "Proporción de días al alza 🎯"),
+    ("metric.win_month", "Meses ganadores", "Proporción de meses al alza 🎯"),
+    ("metric.win_quarter", "Trimestres ganadores", "Proporción de trimestres al alza 🎯"),
+    ("metric.win_year", "Años ganadores", "Proporción de años al alza 🎯"),
+    ("metric.beta", "Beta", "Sensibilidad a los movimientos de la referencia 🎯"),
+    ("metric.alpha", "Alpha", "Rentabilidad anualizada que el beta no explica 🌟"),
+    ("metric.correlation", "Correlación", "Cuánto se mueven juntas ambas series 🔗"),
+    ("metric.treynor_ratio", "Ratio de Treynor", "Exceso de rentabilidad por unidad de beta ⚖️"),
+    // ---- Meses: el mapa de calor los pone en mayúsculas, y eso no molesta en español ----
+    ("month.jan", "ene", "Enero ❄️"),
+    ("month.feb", "feb", "Febrero 🌨️"),
+    ("month.mar", "mar", "Marzo, empieza la primavera 🌱"),
+    ("month.apr", "abr", "Abril, mes de lluvia 🌦️"),
+    ("month.may", "may", "Mayo 🌸"),
+    ("month.jun", "jun", "Junio, fin del primer semestre ☀️"),
+    ("month.jul", "jul", "Julio, pleno verano 🏖️"),
+    ("month.aug", "ago", "Agosto 🌾"),
+    ("month.sep", "sep", "Septiembre, fin de trimestre 🍂"),
+    ("month.oct", "oct", "Octubre 🎃"),
+    ("month.nov", "nov", "Noviembre 🍁"),
+    ("month.dec", "dic", "Diciembre, fin de año 🎄"),
+];

@@ -70,8 +70,17 @@ docs:
     named STRUCT (`qs_html_report_options`, created at load time) evaluated **per row**, which is how
     each instrument gets its own `title` / `strategy_title` — build it out of the `symbol` column:
     `{'title': symbol, 'strategy_title': symbol, 'benchmark': ['SPX']}::qs_html_report_options`.
-    Other keys: `rf` (annualized risk-free rate), `periods_per_year`, `match_dates`, `output_dir` and
-    `open_in_browser`.
+    Other keys: `rf` (annualized risk-free rate), `periods_per_year`, `match_dates`, `language`,
+    `output_dir` and `open_in_browser`.
+
+    With `language` the report's own fixed texts (headings, metric names, chart titles, months, the
+    legend) come out in that language, each one carrying a short note the browser pops up from the
+    element it sits on. `en`, `zh-CN`, `ja`, `de`, `fr` and `es` are built in; `'en'` keeps the English
+    text and only adds notes, and leaving the key unset leaves the report untouched. The table lives in the running
+    DuckDB process: `qs_set_translation(language, [{key, show, description}])` overwrites or deletes
+    entries (a NULL `show` deletes one, a NULL list deletes the language, a NULL `description` keeps the
+    existing note) and `qs_list_translations()` lists the whole table. Nothing is persisted — reloading
+    the extension restores the built-in data.
 
     With `output_dir` each report is also written through DuckDB's VFS — local disk, `s3://…` once
     `httpfs` is loaded, and the wasm build's file system all take the same path — under a name the

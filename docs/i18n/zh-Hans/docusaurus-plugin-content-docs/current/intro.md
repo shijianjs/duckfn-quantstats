@@ -103,12 +103,21 @@ SELECT unnest(qs_html_reports_by_prices(
 FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 ```
 
+## 换一种语言
+
+报告缺省是英文；`language` 配置项会把报告**自己说的那些固定文本**（分节标题、指标名、图表标题、月份、图例）
+换成另一种语言，并在每一处挂一句简短说明，由浏览器用它自己的浮出提示显示出来。内置 `en`、`zh-CN`、`ja`、
+`de`、`fr`、`es` 六种，`qs_set_translation` / `qs_list_translations` 可以在运行时改写这张表 —— 见
+[翻译](./guide/translation.md)。
+
 ## 接下来去哪
 
 - [快速开始](./getting-started/quick-start.md) —— 装好之后产出第一份报告。
 - [函数](./guide/functions.md) —— 两个名字、返回形状、基准语义。
 - [配置字段](./guide/options.md) —— `qs_html_report_options` 的每一个字段。
+- [价格/净值序列](./guide/price-series.md) —— 价格路径的差分规则。
 - [落盘与浏览器](./guide/output-and-browser.md) —— `output_dir`、文件命名、`open_in_browser`。
+- [翻译](./guide/translation.md) —— `language`、浮出说明与翻译表。
 - [错误路径](./guide/error-paths.md) —— 出错时是什么样。
 
 与「构建、测试、发布这个扩展本身」有关的内容都在侧边栏最后的一级目录

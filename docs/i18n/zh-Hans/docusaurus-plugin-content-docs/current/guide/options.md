@@ -18,6 +18,7 @@ description: qs_html_report_options 的每个字段、默认值，以及「按�
 | `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
+| `language` | `VARCHAR` | `NULL` | 把报告翻译成这个语言（见[翻译](./translation.md)）；该语言必须在翻译表里有条目。`NULL` = 完全不翻译，`'en'` = 文字不变、只补英文说明 |
 | `output_dir` | `VARCHAR` | `NULL` | 把每份报告落盘到该**本地目录**，文件名由函数生成（见[落盘与浏览器](./output-and-browser.md)）；wasm 构建不落盘 |
 | `open_in_browser` | `BOOLEAN` | `false` | 用系统默认浏览器打开报告；没写 `output_dir` 时会先落一个临时文件（见[落盘与浏览器](./output-and-browser.md)） |
 
@@ -27,7 +28,8 @@ description: qs_html_report_options 的每个字段、默认值，以及「按�
 
 也是这套 API 能一次出几十份报告的前提：默认的 `'Strategy'` 对每一份都一样，图例里认不出谁是谁，
 浏览器临时文件名也会撞成同一串前缀 —— 所以缺省时退回数据里那个名字（symbol / 基准 symbol），
-报告里的图例、临时文件名与结果里的 `strategy_title` / `benchmark_title` 因此始终一致。
+报告里的图例、临时文件名与结果里的 `strategy_title` / `benchmark_title` 因此始终一致。`title` 同样是
+你的，它也不参与翻译：[翻译](./translation.md)只碰报告自己的那些固定文本。
 
 ## 配置是按行求值的一列
 

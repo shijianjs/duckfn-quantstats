@@ -129,6 +129,30 @@ sanitize-filename = "0.6"
 # dependency tree and a direct dependency adds no compilation cost at all.
 fastrand = "2.5"
 
+# lol_html：把渲染好的报告当成 HTML 流改写一遍（翻译功能，见 src/extension/functions/translation/）。
+# 选它是因为它按 CSS 选择器定位、流式处理、且能在处理过程中改写文本与标记 —— 正好对上「只认目录里那批 DOM
+# 位置、别的文本一个字都不动」这条要求（`ContentType::Html` 插回原文标记、`TextChunk` 的分片语义都由它的
+# 文档定义）。自己拿字符串替换没有这个能力，也不必为此手写 HTML 解析。
+#
+# **版本精确钉在 2.7.0，不要升到 3.x**：3.0.1 的源码里用了 let-chains（Rust 1.88 才稳定），而本仓库钉的是
+# 1.86（见 rust-version）—— 它声明的 `rust-version = "1.85"` 是上游自己的 MSRV 写错了。2.8/2.9 也有同样的
+# 代码，2.7.0 是最后一个能在 1.86 上编过的版本（`lol_html@3` 会在它自己的 dispatcher.rs 上直接报 E0658）。
+# 要升它，得先升本项目的 MSRV 并把 CI 的工具链一起改。
+#
+# lol_html: rewrites a rendered report as an HTML stream (the translation feature, see
+# src/extension/functions/translation/). It was picked because it targets CSS selectors, streams, and can rewrite
+# text and markup as it goes — exactly what "only the DOM positions in the catalog, not one character anywhere
+# else" needs (`ContentType::Html` for inserting raw markup back, the text-fragment semantics of `TextChunk`) —
+# all defined by its documentation. Hand-rolled string replacement cannot do that, and hand-writing an HTML parser
+# for it would not be worth it.
+#
+# **The version is pinned to exactly 2.7.0; do not move to 3.x**: 3.0.1's sources use let-chains (stable only in
+# Rust 1.88) while this repository pins 1.86 (see `rust-version`) — its declared `rust-version = "1.85"` is an
+# upstream MSRV mistake. 2.8/2.9 carry the same code; 2.7.0 is the last version that compiles on 1.86
+# (`lol_html@3` fails with E0658 in its own dispatcher.rs). Moving up means raising this project's MSRV and the
+# CI toolchain with it.
+lol_html = "=2.7.0"
+
 # 下面两个只服务配置里的 `open_in_browser`（用系统默认浏览器打开报告），各管一段：
 #
 #   Browser::temporary_file 用 tempfile 建临时文件，Browser::open_report 用 open 把浏览器叫起来。

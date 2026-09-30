@@ -127,6 +127,48 @@ pub(crate) struct QuantstatsHtmlOptions {
     /// returns); defaults to true.
     pub match_dates: Option<bool>,
 
+    /// 报告的语言（BCP-47 标签，如 `zh-CN`、`ja`、`de`）。缺省**不做任何翻译、也不加任何说明**。
+    ///
+    /// 取值必须与**当前翻译表**里的某个语言一致，否则报错（提示用 `qs_list_translations()` 查有哪些语言）
+    /// —— 语言写错时宁可失败，也不要悄悄出一份没翻译的报告。内置 `en`、`zh-CN`、`ja`、`de`、`fr`、`es`
+    /// 六种；`qs_set_translation()` 能在运行时增删（增删只影响当前进程，见 `functions/translation`）。
+    ///
+    /// 两个特别的取值：
+    ///
+    /// - `en`：**文字保持不变**，只补**英文**说明（挂成 `title`）。内置的 `en` 就是这么一份「原文 + 说明」
+    ///   的表，所以想给英文报告加浮出提示、又不想改字，用它；
+    /// - 其它语言：标题、指标名、月份等换成该语言的文本，并把同语言的说明挂上去。
+    ///
+    /// 翻译是渲染之后的**静态改写**：报告里不注入任何脚本，HTML 依然自包含。改写在落盘与开浏览器之前完成，
+    /// 所以磁盘上的文件、`html` 列与浏览器里看到的完全一致。
+    ///
+    /// 每个 symbol 各自解析自己的语言（跟其它选项一样），所以一张表里可以同时出中英两份报告。
+    ///
+    /// The language of the report (a BCP-47 tag such as `zh-CN`, `ja`, `de`). Unset means **no translation and no
+    /// notes at all**.
+    ///
+    /// The value has to be one of the languages in the **current translation table**, otherwise it is an error
+    /// (`qs_list_translations()` tells which languages have entries) — a mistyped language should fail rather
+    /// than quietly produce an untranslated report. Six are built in: `en`, `zh-CN`, `ja`, `de`, `fr`, `es`;
+    /// `qs_set_translation()` can add and remove languages at run time (which affects this process only, see
+    /// `functions/translation`).
+    ///
+    /// Two values are special:
+    ///
+    /// - `en` **leaves the text alone** and only adds **English** notes (as `title`s). The built-in `en` is
+    ///   exactly such an "original text + notes" table, so it is what to use to get tooltips on an English
+    ///   report without changing a word;
+    /// - any other language replaces the titles, metric names, months and so on with that language's text and
+    ///   attaches its notes.
+    ///
+    /// The translation is a **static rewrite** after rendering: no script goes into the report and the HTML
+    /// stays self-contained. It happens before persistence and before the browser opens, so the file on disk,
+    /// the `html` column and what the browser shows are the same thing.
+    ///
+    /// Every symbol resolves its own language (like the other options), so one table can produce Chinese and
+    /// English reports side by side.
+    pub language: Option<String>,
+
     /// 把每份报告落盘到该**目录**下，文件名由函数自己生成。缺省不落盘。
     ///
     /// 只给目录、不给文件名：文件名要带上「哪个标的、对哪个基准、什么时候」这些只有函数知道的信息，

@@ -269,5 +269,6 @@ FROM prices;
 - [配置字段](../guide/options.md) —— `qs_html_report_options` 的每一个字段。
 - [价格/净值序列](../guide/price-series.md) —— 价格那一支对值做了什么。
 - [落盘与浏览器](../guide/output-and-browser.md) —— 文件写到哪、怎么命名。
+- [翻译](../guide/translation.md) —— `language` 配置项，以及每个元素上的浮出说明。
 
 构建或测试扩展本身是另一个话题，在[开发指南](../development-guide/architecture/project-structure.md)。

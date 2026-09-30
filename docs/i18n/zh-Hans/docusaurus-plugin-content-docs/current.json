@@ -16,7 +16,7 @@
     "description": "The label for category 'Guide' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.Guide.link.generated-index.description": {
-    "message": "两个 SQL 名字、所有配置字段、价格路径、报告的去处，以及错误路径。",
+    "message": "两个 SQL 名字、所有配置字段、价格路径、翻译、报告的去处，以及错误路径。",
     "description": "The generated-index page description for category 'Guide' in sidebar 'docsSidebar'"
   },
   "sidebar.docsSidebar.category.Development guide": {

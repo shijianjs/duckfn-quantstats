@@ -38,6 +38,11 @@ description: 哪个 crate 负责哪一段，以及每个为什么被选中。
   Windows 保留设备名、结尾的点与空格）与「随机尾缀」。两者仍是**共享**依赖，没有挪到非 wasm 的依赖表里：
   `naming.rs` 对每个目标都参与编译，让它保持没有 `cfg` 比从 wasm 构建里抠掉两个小 crate 更值（那边反正
   不拼文件名，没人调用它）。fastrand 本来就在依赖树里（tempfile 内部用的就是它），显式依赖不增加编译成本。
+- [lol_html](https://crates.io/crates/lol_html)：翻译功能那一次 HTML 改写（见[翻译](../../guide/translation.md)）。
+  它按 CSS 选择器定位、流式处理、并在处理过程中改写文本与标记 —— 正好对上「只认目录里那些位置、别的文本一个字
+  都不动」这条要求。自己拿字符串替换没有这个能力，也不必为此手写 HTML 解析。它的版本**精确钉住**：3.x 用了
+  let-chains，需要 Rust 1.88，而本项目钉的是 1.86（3.x 声明的 `rust-version = "1.85"` 是上游写错了），所以
+  2.7.0 是最后一个能在这里编过的版本。
 - [open](https://crates.io/crates/open) 与 [tempfile](https://crates.io/crates/tempfile)：
   `open_in_browser` 的两件事 —— 把浏览器叫起来、在没有 `output_dir` 时新建一个不重名的临时文件。
   **只用于非 wasm 目标**（见[设计取舍](./design-notes.md)），所以它们挂在 target 专属的依赖表里，

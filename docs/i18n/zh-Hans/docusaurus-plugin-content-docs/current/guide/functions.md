@@ -128,7 +128,7 @@ FROM prices;
 
 - **配置的 struct 字面量必须显式写 `::qs_html_report_options`。** 不写的话它是匿名的
   `STRUCT(title VARCHAR)`，匹配不上任何签名，DuckDB 会直接说找不到函数。
-- **`'...'::JSON::qs_html_report_options` 要把 9 个键写全**（DuckDB 的 JSON→STRUCT 转换不允许缺键），
+- **`'...'::JSON::qs_html_report_options` 要把 10 个键写全**（DuckDB 的 JSON→STRUCT 转换不允许缺键），
   所以推荐直接用 struct 字面量。
 - **`benchmark` 写的是 symbol 名（列表），不是值。** 每一项都必须是表里 `symbol` 列的某个取值，整次调用
   一致；列到的 symbol 只当基准，不出现在返回的数组里。一个基准也要写成 `['SPX']`。

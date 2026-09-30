@@ -139,7 +139,7 @@ FROM prices;
 - **A struct literal must be cast with `::qs_html_report_options`.** Without it the literal is an
   anonymous `STRUCT(title VARCHAR)` that matches no signature, and DuckDB reports that no function
   matches.
-- **`'...'::JSON::qs_html_report_options` must spell out all 9 keys** (DuckDB's JSON→STRUCT
+- **`'...'::JSON::qs_html_report_options` must spell out all 10 keys** (DuckDB's JSON→STRUCT
   conversion rejects missing keys), so prefer the struct literal.
 - **`benchmark` names symbols (a list), not a value series.** Every entry has to be one of the values
   in the `symbol` column and the list has to be identical across the whole call; the symbols it names

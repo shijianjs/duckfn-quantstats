@@ -25,6 +25,9 @@
 // 报告只在 result() 里生成 —— 一次调用渲染 (标的数 × 基准数) 份。100 个标的就是 100 份完整报告（每份内含
 // 十几张 SVG），这是预期行为，不是性能 bug；聚合状态因此持有整张表的点，与「每组一份点数组」同阶。
 //
+// 翻译（配置里的 `language` 键）是收尾里的一步：渲染完之后、落盘/开浏览器之前，对 HTML 做一次静态改写，见
+// `functions/translation/`（目录、翻译表、以及那次 lol_html 改写都在那儿）。缺省不做任何翻译。
+//
 // 文件分工（按「路径 → 设施」的顺序读）：
 //
 //   html_returns.rs   路径 1/2 —— 收益率序列
@@ -32,7 +35,7 @@
 //   kind.rs           一条路径在 SQL 侧的名字（取自宏生成的 `SQL_NAME`）
 //   slots.rs          参数槽：symbol 表与「每个 symbol 的配置只解析一次」
 //   series.rs         内部点表示、序列构造、价格差分（日期换算交给 duckfn 的 chrono 桥）
-//   report.rs         收尾：按 (标的, 基准) 逐份渲染、落盘、按需打开浏览器，回填每份的路径
+//   report.rs         收尾：按 (标的, 基准) 逐份渲染、按需翻译、落盘、按需打开浏览器，回填每份的路径
 //   naming.rs         文件名：`<时间>-<策略名>-<基准名>[-<随机尾缀>].html`（sanitize-filename 管字法、
 //                     fastrand 管随机尾缀；落盘与浏览器临时文件共用同一套主干）
 //   storage.rs        落盘：本机文件系统（std::fs）挑空闲名字、写字节；wasm 下整个跳过文件操作
@@ -68,6 +71,10 @@
 // hundred full reports (each with a dozen inline SVGs); that is expected, not a performance bug, and the
 // aggregate state therefore holds the whole table's points — the same order as one point array per group.
 //
+// Translation (the `language` key in the options) is one step of the tail: after rendering and before
+// persistence and the browser, the HTML is rewritten statically once — see `functions/translation/` (the
+// catalog, the table and that one lol_html rewrite all live there). Unset means no translation at all.
+//
 // File layout (read "paths" first, then the shared pieces):
 //
 //   html_returns.rs   path 1/2 — the return series
@@ -76,8 +83,8 @@
 //   slots.rs          the argument slots: the symbol table and "parse each symbol's options once"
 //   series.rs         the internal point type, series building and price differencing (the date
 //                     conversion is duckfn's chrono bridge)
-//   report.rs         the tail: render one report per (symbol, benchmark), persist it, open a browser when
-//                     asked, and fill every report's path in
+//   report.rs         the tail: render one report per (symbol, benchmark), translate it when asked, persist
+//                     it, open a browser when asked, and fill every report's path in
 //   naming.rs         the file name: `<time>-<strategy>-<benchmark>[-<random>].html` (sanitize-filename
 //                     owns the legality rules, fastrand the random suffix; persistence and the browser's
 //                     temporary file share the same stem)

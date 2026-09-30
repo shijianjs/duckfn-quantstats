@@ -46,6 +46,13 @@ it is responsible for.
   dropping two small crates from a wasm build that names no files anyway (nothing calls it there).
   fastrand is already in the tree (tempfile uses it internally), so a direct dependency costs no extra
   compilation.
+- [lol_html](https://crates.io/crates/lol_html): the translation feature's one HTML rewrite
+  ([Translation](../../guide/translation.md)). It targets CSS selectors, streams, and can rewrite text
+  and markup as it goes — which is what "only the positions in the catalog, not one character anywhere
+  else" needs. Hand-rolled string replacement cannot do that, and hand-writing an HTML parser for it
+  would not be worth it. Its version is **pinned exactly**: 3.x uses let-chains, which need Rust 1.88
+  while this project pins 1.86 (the `rust-version = "1.85"` 3.x declares is an upstream mistake), so
+  2.7.0 is the last release that compiles here.
 - [open](https://crates.io/crates/open) and [tempfile](https://crates.io/crates/tempfile):
   `open_in_browser`'s two jobs — starting the browser and, without `output_dir`, creating a uniquely
   named temporary file. **Non-wasm targets only** (see [Design notes](./design-notes.md)), which is why
