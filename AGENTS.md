@@ -237,9 +237,34 @@ sed -i 's/\r$//' path/to/new-file.md path/to/new-script.sh
 > 仓库开启了 `core.autocrlf`，所以 `git diff` 偶尔会提示 "LF will be replaced by CRLF"，
 > 那是检出到工作区时的行为，提交进仓库的内容始终是 LF。
 
+## 共享 justfile：`scripts/common.just`
+
+日常命令（`build` / `sql` / `repl` / `lint` / `test` / `docs_*` / `ci-*` / `build_wasm*` / `release_*` …）
+都在 `scripts/common.just` 里；根 `Justfile` 只 `import "scripts/common.just"`，再留下机器相关的
+`set windows-shell` 与本项目相关的 `extension_name`。
+
+这份副本的**源在 duckfn 仓库**（`shijianjs/duckfn/scripts/common.just`）—— 与
+[duckfn-extension-template](https://github.com/shijianjs/duckfn-extension-template) 及其他由模板
+生成的项目共用同一份，逐字节相同。
+
+| 命令 | 作用 |
+| --- | --- |
+| `just sync-common` | 拉回最新副本；默认跟 `main`，`DUCKFN_JUST_REF=vX.Y.Z just sync-common` 可钉到某个已发布版本 |
+| `just check-common` | 只比对不写回，副本与源不一致时非零退出（可挂进 CI） |
+
+两条规则：
+
+- **不要在副本里改共享 recipe** —— 改了下次同步就没了。要改就改 duckfn 仓库里那份，然后各项目
+  `just sync-common`；只想在本项目里改行为，就在根 `Justfile` 里覆盖它，那需要先加
+  `set allow-duplicate-recipes := true`：不开这个开关，重名 recipe 会让 just 在解析期直接报错
+  （连 `just --list` 都跑不了）。
+- 共享文件里**不写具体版本号**（用 `X.Y.Z` 占位），所以 `scripts/release.sh` 的版本替换与它无关，
+  每次同步也不会多出一行噪音 diff。
+
 ## 发版流程
 
-发版命令都在 `Justfile` 里（`just --list` 可查），实际逻辑在 `scripts/release.sh`。
+发版命令都在 `scripts/common.just` 里（`just --list` 可查，见上面「共享 justfile」），实际逻辑在
+`scripts/release.sh`。
 放进脚本而不是直接写进 Justfile，是因为 just 的 shebang recipe 在 Windows 上需要 `cygpath`
 翻译解释器路径，而 Git Bash 并不提供它。
 

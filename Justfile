@@ -6,6 +6,13 @@
 #   - Makefile 里的 EXTENSION_NAME
 #   - 构建产物 <extension_name>.duckdb_extension
 #
+# 日常命令（build / sql / repl / lint / test / docs_* / ci-* / release_* …）都在
+# scripts/common.just 里 —— 那是**共享源**的副本（源在 duckfn 仓库的 scripts/common.just，
+# 各扩展项目一份、内容逐字节相同），由本文件 import 进来。要在本项目里覆盖某条共享 recipe，
+# 加 `set allow-duplicate-recipes := true` 再重写它。细节见 scripts/common.just 的头注释。
+#
+# 共享文件更新：just sync-common（默认跟 main，改动看 git diff）；比对：just check-common。
+#
 # 前置工具：
 #   cargo install just cargo-duckdb-ext-tools
 #
@@ -15,127 +22,11 @@
 
 # Windows 下 recipe 交给 Git Bash 执行；按自己的 Git 安装路径调整。
 # 非 Windows 上这一行不生效。
+#
+# 这是机器相关的路径，所以留在本地文件里，不放进共享文件。
 set windows-shell := ["C:\\Program Files\\Git\\bin\\bash.exe", "-c"]
+
+import "scripts/common.just"
 
 # 扩展名：全小写、只含下划线
 extension_name := "duckfn_quantstats"
-
-# duckdb 命令行。不在 PATH 里时用 `just DUCKDB=/path/to/duckdb repl` 覆盖。
-duckdb := env_var_or_default("DUCKDB", "duckdb")
-
-ext_path := "./target/debug/" + extension_name + ".duckdb_extension"
-
-# 不带参数运行 just 时列出所有 recipe
-default:
-    @just --list
-
-# 日常构建 -> target/debug/<extension_name>.duckdb_extension
-build:
-    cargo duckdb-ext build
-
-# 构建后跑一条 SQL 就退出：just sql "SELECT my_fn(1)"
-sql sql: build
-    {{duckdb}} -unsigned -c "LOAD '{{ext_path}}'; {{sql}}"
-
-# 构建后进入 REPL（扩展已 LOAD），手动试函数用：just repl
-repl: build
-    {{duckdb}} -unsigned -cmd "LOAD '{{ext_path}}';"
-
-# 全量 release 构建
-release:
-    cargo build --release
-
-# 提交前检查，warning 视为错误
-lint:
-    cargo clippy --all-targets -- -D warnings
-
-# ==== 函数描述 CSV ====
-#
-# 描述写在 #[duck_*] 属性的 description / comment / example 上，输出固定为 target/function_descriptions.csv；
-# 要连没写描述的函数一起导出（文件名带 _all 后缀）：cargo run --bin duckfn -- function_descriptions --all
-# 需要 src/bin/duckfn.rs 与 Cargo.toml 里的 duckfn feature "cli"。
-#
-# The text comes from the description / comment / example arguments of the #[duck_*] attributes and always
-# lands in target/function_descriptions.csv. Add --all (file name gets an _all suffix) to include functions
-# without any documentation. Needs src/bin/duckfn.rs and duckfn's "cli" feature in Cargo.toml.
-#
-# 生成社区扩展文档页用的 function_descriptions.csv（只做转发，逻辑在 duckfn 的 cargo CLI 里）
-docs_csv:
-    cargo run --bin duckfn -- function_descriptions
-
-# ==== 文档站（docs/，Docusaurus，中英双语） ====
-#
-# 首次先 `just docs_install` 装依赖。CI 走 `npm ci`，本地装一次即可。
-# 站点维护（目录、翻译、部署）见 docs/README.md。
-#
-# The documentation site (docs/, Docusaurus, English + Simplified Chinese). Run `just docs_install`
-# once; CI uses `npm ci`. See docs/README.md for layout, translations and deployment.
-
-# 装文档站依赖（只做一次）
-docs_install:
-    cd docs && npm install
-
-# 构建静态站点 -> docs/build（改完文档想确认链接都还通时跑它）
-docs_build:
-    cd docs && npm run build
-
-# 本地预览文档站（http://localhost:3000；中文用 npm start -- --locale zh-Hans）
-docs_start:
-    cd docs && npm start
-
-# 补翻译占位：改了 config / src / _category_.json 之后再生一次，然后填新出现的条目
-docs_translations:
-    cd docs && npx docusaurus write-translations --locale zh-Hans
-
-# 初始化 extension-ci-tools（生成 configure/ 与 python venv）；跑 make 流程前先来一次
-ci-init:
-    make configure
-
-# 官方 debug 构建 —— sqllogictest 与 CI 走这条
-ci-build: ci-init
-    make debug
-
-# 跑 test/sql/**/*.test
-test: ci-build
-    make test
-    git clean -fdX -- test/sql
-
-# 官方 release 构建 —— CI 打 tag 时走这条
-ci-release: ci-init
-    make release
-
-# WebAssembly 构建；要求 Makefile 的 [[example]] 名字与 extension_name 一致
-build_wasm:
-    cargo build --release --target wasm32-unknown-emscripten --example {{extension_name}}
-
-# 工具链（首次）：固定 Rust 版本 + 装 wasm target
-config_env:
-    rustup override set 1.86.0
-    rustup target add wasm32-unknown-emscripten
-    rustup target list --installed
-
-# ==== 发版流程（完整步骤见根目录 AGENTS.md） ====
-#
-# Release flow (the full walkthrough lives in AGENTS.md). This project does **not** publish to
-# crates.io: it is a DuckDB loadable extension distributed as the `.duckdb_extension` files attached to
-# a GitHub Release.
-
-# 发版前检查：clippy（warning 视为错误）与构建都必须干净
-release_check: lint
-    cargo build --all-targets
-
-# 提升版本号（Cargo.toml + 文档 / README / CI 注释 / 本文件）：just release_bump 0.1.0
-release_bump new_version:
-    bash scripts/release.sh bump "{{new_version}}"
-
-# 打 tag 并推送，触发 CI 构建与 Release 发布：just release_tag 0.1.0
-release_tag version:
-    bash scripts/release.sh tag "{{version}}"
-
-# 查看最近的 CI 运行状态
-release_ci:
-    gh run list --limit 5
-
-# 切到下一开发版本（不打 tag、不发布）：just release_dev 0.1.1-dev.0
-release_dev new_version:
-    bash scripts/release.sh dev "{{new_version}}"
