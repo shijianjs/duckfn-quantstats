@@ -41,6 +41,19 @@ There is **no `GROUP BY`** in SQL: the `symbol` column is the grouping key, so o
 table yields one report per instrument, and naming a benchmark — another symbol of that same table —
 yields one report per instrument *and* benchmark.
 
+One call runs the whole pipeline:
+
+```mermaid
+flowchart LR
+  A["long table<br/>symbol, date, value"] --> B["qs_html_reports<br/>or _by_prices"]
+  O["qs_html_report_options"] --> B
+  B --> C["one report per<br/>symbol x benchmark"]
+  C --> D["quantstats render:<br/>metrics, tables,<br/>inline SVGs"]
+  D --> E["STRUCT list<br/>in the result"]
+  E --> F["html column"]
+  E --> G["file in output_dir<br/>native only"]
+```
+
 The block below runs right here in your browser, over the [demo
 snapshot](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv) that every example in these
 docs reads: 1435 trading days of `GOOGL`, `MSFT` and the S&P 500 index (`SPX`):

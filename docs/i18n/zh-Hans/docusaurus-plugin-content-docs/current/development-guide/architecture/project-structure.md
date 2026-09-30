@@ -46,6 +46,18 @@ docs/                  本站
 community-extension/   社区扩展注册草稿
 ```
 
+两个 crate root 挂的是同一棵模块树：
+
+```mermaid
+flowchart TB
+  A["src/lib.rs<br/>原生 root"] --> C["src/extension/mod.rs<br/>duckfn_entrypoint"]
+  B["src/wasm_lib.rs<br/>wasm root"] --> C
+  G["src/bin/duckfn.rs<br/>只服务 docs_csv"] --> C
+  C --> D["functions/aggregate_html<br/>两个 SQL 名字"]
+  C --> E["functions/translation<br/>lang 配置项"]
+  C --> F["types/<br/>面向 SQL 的类型"]
+```
+
 ## 两个 crate root
 
 `src/lib.rs` 与 `src/wasm_lib.rs` 都只声明一个模块 `mod extension;`，其余都由

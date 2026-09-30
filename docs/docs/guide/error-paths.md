@@ -30,6 +30,21 @@ description: What each failure looks like — a NULL result, a skipped instrumen
 Every error message starts with the registered function name (`qs_html_reports: …`), so it is obvious
 which function reported it.
 
+Which failure surfaces as what:
+
+```mermaid
+flowchart TB
+  A["one call"] --> B{"any rows?"}
+  B -->|"no"| C["NULL"]
+  B -->|"yes"| D{"options valid?"}
+  D -->|"no"| E["error, prefixed with<br/>the function name"]
+  D -->|"yes"| F{"benchmark has rows?"}
+  F -->|"no"| E
+  F -->|"yes"| G{"a valid point<br/>left for it?"}
+  G -->|"no"| H["dropped from<br/>the result"]
+  G -->|"yes"| I["one report row"]
+```
+
 ## The three worth seeing
 
 Each block below is **meant to fail**: click **Run** and the message appears where the result would

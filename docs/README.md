@@ -195,6 +195,14 @@ through `options`. Mermaid ignores an unrecognised value and silently falls back
 a browser after changing them; `node` elements carry `data-look="neo"`, which is the quick way to
 confirm the look took.
 
+**Known limitation (upstream, not ours).** With more than one diagram on a page, a diagram can come out
+as an empty container when the page is loaded directly in dark mode — no error box, just blank, and
+toggling the colour mode once makes it appear. That is a race in `@docusaurus/theme-mermaid`'s
+initialisation (it re-renders every diagram when `colorMode` resolves), not a problem with the diagram
+itself — so nothing in the markdown fixes it. Fixing it properly means reporting it upstream or
+swizzling the `Mermaid` component; until then, treat a blank diagram on first load as this, not as a
+broken fence.
+
 **Version numbers.** Do not write a version by hand: write `{{EXTENSION_VERSION}}` (inside a code
 fence or inline code, where the braces stay literal) and it is replaced at build time from
 `extension-version.ts`. The value there is updated by `just release_bump`, so a release does not have

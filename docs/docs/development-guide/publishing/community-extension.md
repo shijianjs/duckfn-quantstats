@@ -25,6 +25,16 @@ needed. The registration itself is a pull request that adds **two files**:
 The directory name must equal `extension.name` exactly — the community repository's `scripts/build.py`
 checks it.
 
+Once registered, the download becomes one statement:
+
+```mermaid
+flowchart LR
+  A["description.yml<br/>and the csv"] --> B["a pull request to<br/>duckdb/community-extensions"]
+  B --> C["community build<br/>signed per version"]
+  C --> D["INSTALL duckfn_quantstats<br/>FROM community"]
+  D --> E["LOAD duckfn_quantstats"]
+```
+
 ## The CSV
 
 The `Added Functions` table on the community extension page gets a function's description, comment and

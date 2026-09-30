@@ -22,6 +22,18 @@ make debug               # the official template path, also what CI runs
 `make release` is the optimized version of the same flow. On Windows `make` has to run inside Git
 Bash.
 
+Either path lands a loadable extension:
+
+```mermaid
+flowchart LR
+  A["src/<br/>Rust sources"] --> B["cargo duckdb-ext build"]
+  A --> C["make debug<br/>the official path"]
+  A --> H["just build_wasm"]
+  B --> D["target/debug/<br/>duckfn_quantstats.duckdb_extension"]
+  C --> E["build/debug/<br/>duckfn_quantstats.duckdb_extension"]
+  H --> F["wasm32-unknown-emscripten<br/>staticlib"]
+```
+
 ## Justfile
 
 | Command | What it does |
@@ -59,16 +71,27 @@ site deployment.
 
 ### What a tag triggers
 
-Pushing `v*.*.*` starts two workflows:
+Pushing `v*.*.*` starts **Main Extension Distribution Pipeline** — it builds the extension for every
+supported platform, runs the tests, then creates (or updates) a GitHub Release for that tag with the
+built binaries attached as `<extension>-<arch>.duckdb_extension` (the wasm ones as
+`.duckdb_extension.wasm`). Release notes are the commits since the previous version tag.
 
-- **Main Extension Distribution Pipeline** — builds the extension for every supported platform, runs the
-  tests, then creates (or updates) a GitHub Release for that tag with the built binaries attached as
-  `<extension>-<arch>.duckdb_extension` (the wasm ones as `.duckdb_extension.wasm`). Release notes are
-  the commits since the previous version tag.
-- **Deploy Docs** — builds `docs/` and publishes it to GitHub Pages (needs the one-time
-  *Settings → Pages → Source: GitHub Actions* setting).
+**Deploy Docs** is not started by the tag but by that pipeline *finishing*: it builds `docs/` and
+publishes it to GitHub Pages (it waits for the release, which the site then preloads). It needs the
+one-time *Settings → Pages → Source: GitHub Actions* setting.
 
 Pull requests run the build and the tests only; publishing is gated on the ref being a version tag.
+
+What a pushed version tag sets off:
+
+```mermaid
+flowchart LR
+  tag["push a version tag"] --> pipe["extension pipeline:<br/>build every platform"]
+  pipe --> rel["GitHub Release<br/>binaries per platform"]
+  pipe --> docs["Deploy Docs<br/>triggered by the pipeline"]
+  docs --> pages["GitHub Pages"]
+  pr["open a pull request"] --> ci["pipeline only:<br/>build and tests,<br/>no release"]
+```
 
 ### Installing a release
 

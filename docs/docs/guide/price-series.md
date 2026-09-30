@@ -25,6 +25,18 @@ users never have to wonder which one to fill.
 - a symbol should hold one point per date, otherwise the difference describes the movement within that
   date.
 
+Each symbol's points go through this before a report sees them:
+
+```mermaid
+flowchart LR
+  A["points of one symbol<br/>sorted by date"] --> B["price_t / price_prev - 1"]
+  B --> C["first point dropped"]
+  B --> D["missing, zero or<br/>non-finite predecessor<br/>skipped"]
+  C --> E["period returns"]
+  D --> E
+  E --> F["the report pipeline"]
+```
+
 ## Why it needs its own name
 
 `(symbol, date, price, options)` and `(symbol, date, period_return, options)` have exactly the same

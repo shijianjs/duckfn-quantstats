@@ -6,6 +6,19 @@ description: 报告去哪 —— output_dir、文件名的生成规则、open_in
 
 # 落盘与浏览器
 
+一份生成好的报告可能去到哪：
+
+```mermaid
+flowchart TB
+  A["渲染好的报告"] --> B{"wasm 构建？"}
+  B -->|"是"| C["什么也不写<br/>file_path 为 NULL"]
+  B -->|"否"| D{"设了 output_dir？"}
+  D -->|"是"| E["每份报告一个文件<br/>file_path 有值"]
+  D -->|"否"| F["HTML 留在<br/>结果行里"]
+  E --> G["open_in_browser<br/>打开该文件"]
+  F --> H["open_in_browser<br/>先写临时文件再打开"]
+```
+
 ## 报告落盘（`output_dir`）
 
 `output_dir` 给一个**目录**，每份报告一个文件，文件名由函数生成：

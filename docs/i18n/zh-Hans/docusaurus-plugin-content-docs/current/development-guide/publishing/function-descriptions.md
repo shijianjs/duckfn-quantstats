@@ -23,6 +23,17 @@ DuckDB 的 C 扩展 API **没有**设置函数描述与示例的接口：`duckdb
 )]
 ```
 
+从属性到发布出去的那张表，链路是这样的：
+
+```mermaid
+flowchart LR
+  A["Rust 属性：<br/>description、comment、<br/>examples"] --> B["inventory 条目<br/>编译期记录"]
+  B --> C["just docs_csv"]
+  C --> D["function_descriptions.csv"]
+  D --> E["community-extensions<br/>generate_md.sh"]
+  E --> F["文档页上的<br/>Added Functions 表"]
+```
+
 三个键都可选（`example` 单条、`examples` 多条，二者互斥），**不参与注册**：宏只把它们连同注册名收进
 inventory。导出：
 

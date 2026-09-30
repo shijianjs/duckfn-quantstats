@@ -21,6 +21,18 @@ Python quantstats 的词汇：它把这类输入统称 prices，内部对看起�
 - 基准侧走同一套差分规则，差别是它差分后为空时报错（那个基准是配置里明确要的）；
 - 同一 symbol 内同一天只应有一个点，否则差分出来的是那一天内部的变动。
 
+每个 symbol 的点在进入报告之前都先过这一遍：
+
+```mermaid
+flowchart LR
+  A["单个 symbol 的点<br/>按 date 排序"] --> B["price_t / price_prev - 1"]
+  B --> C["首个点丢弃"]
+  B --> D["前值缺失、为 0<br/>或非有限数则跳过"]
+  C --> E["周期收益率"]
+  D --> E
+  E --> F["进入报告流程"]
+```
+
 ## 为什么它必须有独立的名字
 
 `(symbol, date, price, options)` 与 `(symbol, date, period_return, options)` 的类型序列完全一样

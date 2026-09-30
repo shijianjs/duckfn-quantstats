@@ -24,6 +24,16 @@ LOAD duckfn_quantstats;
 
 目录名必须与 `extension.name` 逐字相同 —— 社区仓的 `scripts/build.py` 会检查这一点。
 
+注册完成之后，下载就变成一句 SQL：
+
+```mermaid
+flowchart LR
+  A["description.yml<br/>与那份 CSV"] --> B["给 duckdb/community-extensions<br/>开一个 PR"]
+  B --> C["社区侧构建<br/>按版本签名"]
+  C --> D["INSTALL duckfn_quantstats<br/>FROM community"]
+  D --> E["LOAD duckfn_quantstats"]
+```
+
 ## CSV
 
 社区扩展页那张 `Added Functions` 表里，函数的描述、注释与示例只有一个来源，就是这份 CSV：

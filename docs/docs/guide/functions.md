@@ -49,6 +49,17 @@ table and the query is the same.
   exactly the same type sequence (`VARCHAR, DATE, DOUBLE, STRUCT`), so one name could not dispatch
   them.
 
+The whole call, from the table to the returned list:
+
+```mermaid
+flowchart TB
+  A["long table<br/>symbol, date, value"] --> B["one call<br/>no GROUP BY"]
+  B --> C["one slot per symbol<br/>points and options"]
+  D["benchmark symbols<br/>input only"] --> C
+  C --> E["one report per<br/>symbol x benchmark"]
+  E --> F["STRUCT list<br/>ascending by symbol"]
+```
+
 ## Usage
 
 The whole table, with a benchmark — the ordinary case:

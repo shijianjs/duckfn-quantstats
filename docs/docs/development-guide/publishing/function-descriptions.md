@@ -24,6 +24,17 @@ in `functions/aggregate_html/html_returns.rs` and `html_prices.rs`):
 )]
 ```
 
+The chain from that attribute to the published table:
+
+```mermaid
+flowchart LR
+  A["Rust attribute:<br/>description, comment,<br/>examples"] --> B["inventory item<br/>recorded at compile time"]
+  B --> C["just docs_csv"]
+  C --> D["function_descriptions.csv"]
+  D --> E["community-extensions<br/>generate_md.sh"]
+  E --> F["Added Functions table<br/>on the docs page"]
+```
+
 All three keys are optional (`example` for one, `examples` for several; the two are mutually
 exclusive) and take **no part in registration** — the macro only records them, along with the
 registered name, in an inventory entry. To export:

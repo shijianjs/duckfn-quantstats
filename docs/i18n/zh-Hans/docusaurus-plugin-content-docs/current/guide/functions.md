@@ -40,6 +40,17 @@ description: 两个聚合函数名字、一次调用返回什么、基准怎么�
 - 名字为什么是两个：`(symbol, date, price, options)` 与 `(symbol, date, period_return, options)` 的类型
   序列完全一样（`VARCHAR, DATE, DOUBLE, STRUCT`），同一个名字下无法分派。
 
+从长表到返回数组，整次调用是这样走的：
+
+```mermaid
+flowchart TB
+  A["长表<br/>symbol, date, value"] --> B["一次调用<br/>不写 GROUP BY"]
+  B --> C["每个 symbol 一个槽<br/>点 + 配置"]
+  D["基准 symbol<br/>只作输入"] --> C
+  C --> E["每个标的 × 基准<br/>一份报告"]
+  E --> F["STRUCT 数组<br/>按 symbol 升序"]
+```
+
 ## 用法
 
 整张表带基准 —— 最常见的情况：

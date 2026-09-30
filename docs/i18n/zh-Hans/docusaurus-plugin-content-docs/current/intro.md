@@ -38,6 +38,19 @@ LOAD duckfn_quantstats;                     -- 之后每个会话只要这一句
 SQL 里**不写 `GROUP BY`**：`symbol` 列就是分组依据，所以整张表一次调用就是「每个标的一份报告」；
 再指名一个基准（同一张表里的另一个 symbol），就是「每个标的 × 每个基准一份」。
 
+一次调用走完整条流水线：
+
+```mermaid
+flowchart LR
+  A["长表<br/>symbol, date, value"] --> B["qs_html_reports<br/>或 _by_prices"]
+  O["qs_html_report_options"] --> B
+  B --> C["每个标的 × 基准<br/>一份报告"]
+  C --> D["quantstats 渲染：<br/>指标、表格、<br/>内嵌 SVG"]
+  D --> E["结果里的<br/>STRUCT 数组"]
+  E --> F["html 列"]
+  E --> G["output_dir 里的文件<br/>仅原生"]
+```
+
 下面这块在你的浏览器里就能跑，读的是本站每个示例都用的那份
 [演示快照](https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv)：`GOOGL`、`MSFT` 与标普 500
 指数（`SPX`）各 1435 个交易日：

@@ -48,6 +48,18 @@ docs/                  this documentation site
 community-extension/   the community-extension registration draft
 ```
 
+Both crate roots attach the same module tree:
+
+```mermaid
+flowchart TB
+  A["src/lib.rs<br/>native root"] --> C["src/extension/mod.rs<br/>duckfn_entrypoint"]
+  B["src/wasm_lib.rs<br/>wasm root"] --> C
+  G["src/bin/duckfn.rs<br/>docs_csv only"] --> C
+  C --> D["functions/aggregate_html<br/>the two SQL names"]
+  C --> E["functions/translation<br/>the lang option"]
+  C --> F["types/<br/>SQL-facing types"]
+```
+
 ## The two crate roots
 
 `src/lib.rs` and `src/wasm_lib.rs` both declare exactly one module, `mod extension;`, and

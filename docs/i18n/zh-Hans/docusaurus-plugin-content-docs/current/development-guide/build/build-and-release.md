@@ -21,6 +21,18 @@ make debug               # 官方模板那条路，CI 也走它
 
 `make release` 是带优化的同一套流程。Windows 上 `make` 需要在 Git Bash 里跑。
 
+两条路都能得到可加载的扩展：
+
+```mermaid
+flowchart LR
+  A["src/<br/>Rust 源码"] --> B["cargo duckdb-ext build"]
+  A --> C["make debug<br/>官方那条路"]
+  A --> H["just build_wasm"]
+  B --> D["target/debug/<br/>duckfn_quantstats.duckdb_extension"]
+  C --> E["build/debug/<br/>duckfn_quantstats.duckdb_extension"]
+  H --> F["wasm32-unknown-emscripten<br/>staticlib"]
+```
+
 ## Justfile
 
 | 命令 | 做什么 |
@@ -55,15 +67,27 @@ make debug               # 官方模板那条路，CI 也走它
 
 ### 推 tag 会触发什么
 
-推送 `v*.*.*` 会启动两个工作流：
+推送 `v*.*.*` 会启动 **Main Extension Distribution Pipeline** —— 它为各平台构建扩展、跑测试，然后
+为该 tag 创建（或更新）GitHub Release，把构建出的二进制挂上去，命名为
+`<扩展名>-<架构>.duckdb_extension`（wasm 则是 `.duckdb_extension.wasm`）。Release 说明是上一个版本
+tag 以来的提交。
 
-- **Main Extension Distribution Pipeline** —— 为各平台构建扩展、跑测试，然后为该 tag 创建（或更新）
-  GitHub Release，把构建出的二进制挂上去，命名为 `<扩展名>-<架构>.duckdb_extension`（wasm 则是
-  `.duckdb_extension.wasm`）。Release 说明是上一个版本 tag 以来的提交。
-- **Deploy Docs** —— 构建 `docs/` 并发布到 GitHub Pages（需要一次性设置
-  *Settings → Pages → Source: GitHub Actions*）。
+**Deploy Docs** 不是由 tag 启动的，而是由那条流水线**跑完**触发：它构建 `docs/` 并发布到 GitHub
+Pages（会等 Release 就绪，站点预加载的正是它）。需要一次性设置
+*Settings → Pages → Source: GitHub Actions*。
 
 PR 只跑构建与测试；发布由「ref 是版本 tag」这条门槛决定。
+
+推送一个版本 tag 会启动这些：
+
+```mermaid
+flowchart LR
+  tag["推一个版本 tag"] --> pipe["扩展流水线：<br/>构建全部平台"]
+  pipe --> rel["GitHub Release<br/>各平台二进制"]
+  pipe --> docs["Deploy Docs<br/>由流水线触发"]
+  docs --> pages["GitHub Pages"]
+  pr["开一个 PR"] --> ci["只跑流水线：<br/>构建与测试，<br/>不发布"]
+```
 
 ### 安装发布产物
 
