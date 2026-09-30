@@ -3,7 +3,7 @@
 //
 // # 一次调用是怎么走完的
 //
-//   1. 报告选项里写 `{'language': 'zh-CN'}`（见 types/html_report_options.rs）；
+//   1. 报告选项里写 `{'lang': 'zh-CN'}`（见 types/html_report_options.rs）；
 //   2. 出报告之前先校验这个语言在当前翻译表里有条目（`table::require_language`）—— 写错语言要在渲染之前
 //      报错，而不是先渲染几十份几百 KB 的报告再发现；
 //   3. 报告渲染完之后、落盘/开浏览器之前，`report::translate_report` 用 lol_html 静态改写一次 HTML；
@@ -21,14 +21,14 @@
 //   keys.rs       目录：每个可翻译位置的 key、CSS 选择器、英文原文（`qs_set_translation` 拿它校验 key）
 //   builtin/      六种语言的内置数据（`en` 只写说明，其余五种写译文 + 说明）
 //   table.rs      进程级状态：装载、读取、改写，以及「语言不存在」的统一报错
-//   set.rs        qs_set_translation(language, entries) -> BOOLEAN
+//   set.rs        qs_set_translation(lang, entries) -> BOOLEAN
 //   list.rs       qs_list_translations()
 //   report.rs     把译法贴回报告的那次 lol_html 改写（含日期区间模板与月份大小写）
 //
 // Translation: turn the fixed texts of a QuantStats report into another language and hang a short note on every
 // position.
 //
-// How one call walks through it: the report options carry `{'language': 'zh-CN'}` (see
+// How one call walks through it: the report options carry `{'lang': 'zh-CN'}` (see
 // types/html_report_options.rs); before anything is rendered the language is checked against the current table
 // (`table::require_language`), because a mistyped language has to fail before dozens of few-hundred-KB reports
 // are rendered rather than after; once a report has been rendered and before it is persisted or opened,
@@ -45,7 +45,7 @@
 // CSS selector and English source text (`qs_set_translation` validates keys against it); `builtin/` holds the
 // built-in data of six languages (`en` carries notes only, the other five carry a translation plus a note);
 // `table.rs` is the process-level state — install, read, rewrite and the single wording for "no such language";
-// `set.rs` is `qs_set_translation(language, entries) -> BOOLEAN`; `list.rs` is `qs_list_translations()`;
+// `set.rs` is `qs_set_translation(lang, entries) -> BOOLEAN`; `list.rs` is `qs_list_translations()`;
 // `report.rs` is the one lol_html rewrite that sticks the translations back onto the report (date-range template
 // and month casing included).
 // ============================================================================

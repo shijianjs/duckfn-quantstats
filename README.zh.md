@@ -57,18 +57,18 @@ FROM (
 
 ### 翻译报告，并在每个元素上挂一句说明
 
-写上 `language` 配置项，报告**自己说的那些固定文本** —— 分节标题、指标名、图表标题、月份列、图例 —— 就会换成
+写上 `lang` 配置项，报告**自己说的那些固定文本** —— 分节标题、指标名、图表标题、月份列、图例 —— 就会换成
 那个语言，而且每一条都带一句简短说明，浏览器会从它所在的那个元素上浮出（原生提示，没有 JavaScript，报告依然
-是一个静态文件）。内置 `en`、`zh-CN`、`ja`、`de`、`fr`、`es` 六种；不写 `language` 就一个字符都不动，写
+是一个静态文件）。内置 `en`、`zh-CN`、`ja`、`de`、`fr`、`es` 六种；不写 `lang` 就一个字符都不动，写
 `'en'` 则文字不变、只补英文说明。
 
 这张表活在当前 DuckDB 进程里，由两个函数改写：
 
 ```sql
 SELECT qs_set_translation('zh-CN', [
-    {'key': 'metric.sharpe', 'show': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'}
-]);                                       -- -> true；show 传 NULL 即删除，description 传 NULL 保留原说明
-SELECT * FROM qs_list_translations();     -- 整张表：language、key、show、description
+    {'key': 'metric.sharpe', 'label': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'}
+]);                                       -- -> true；label 传 NULL 即删除，description 传 NULL 保留原说明
+SELECT * FROM qs_list_translations();     -- 整张表：lang、key、label、description
 ```
 
 不做持久化：重新加载扩展就恢复内置数据。覆盖范围（以及有意不翻译的：你自己的 `symbol`、`title` 与显示名）
@@ -86,7 +86,7 @@ SELECT * FROM qs_list_translations();     -- 整张表：language、key、show�
 | [配置字段](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/options) | `qs_html_report_options` 的每一个字段。 |
 | [价格/净值序列](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/price-series) | 价格路径的差分规则。 |
 | [落盘与浏览器](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/output-and-browser) | `output_dir`、文件命名、`open_in_browser`。 |
-| [翻译](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/translation) | `language` 配置项、浮出说明、`qs_set_translation` 与 `qs_list_translations`。 |
+| [翻译](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/translation) | `lang` 配置项、浮出说明、`qs_set_translation` 与 `qs_list_translations`。 |
 | [错误路径](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/guide/error-paths) | 每种失败与它的确切报文。 |
 | [架构](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/development-guide/architecture/project-structure) | 代码怎么分层、为什么这样、依赖了谁。 |
 | [构建、测试与发布](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/docs/development-guide/build/build-and-release) | 构建路径、测试、发版流程、wasm 目标。 |

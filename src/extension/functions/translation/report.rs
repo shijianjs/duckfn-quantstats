@@ -35,7 +35,7 @@
 // # 月份为什么要分「槽位大小写」
 //
 // 热量图表头原文是全大写的 `JAN`，日期区间原文是 `Jan`。两处共用 `month.*` 这批 key（见 keys.rs），热量图
-// 那一处按槽位风格把译文转成大写：`en` 的 `show` 是 `Jan`，渲染回热量图仍是 `JAN` —— 英文那一档一个字符都
+// 那一处按槽位风格把译文转成大写：`en` 的 `label` 是 `Jan`，渲染回热量图仍是 `JAN` —— 英文那一档一个字符都
 // 没变，日期区间拿到的也还是 `Jan`。
 //
 // Sticking the translations back onto the report: one static lol_html rewrite.
@@ -68,7 +68,7 @@
 //
 // Why the months need a "slot casing": the heatmap header is uppercase `JAN` in the source while the date range
 // is `Jan`. Both use the same `month.*` keys (see keys.rs) and the heatmap slot uppercases the translation:
-// `en`'s `show` is `Jan` and the heatmap still renders `JAN` — English is unchanged down to the character,
+// `en`'s `label` is `Jan` and the heatmap still renders `JAN` — English is unchanged down to the character,
 // while the date range still gets `Jan`.
 // ============================================================================
 
@@ -336,14 +336,14 @@ fn apply_whole_text(
     // 热量图表头按槽位风格大写（见模块头）；其余语言/位置原样。
     //
     // The heatmap header uppercases for the slot (see the module header); everything else is left as is.
-    let show = if scope.uppercase {
-        Cow::Owned(entry.show.to_uppercase())
+    let label = if scope.uppercase {
+        Cow::Owned(entry.label.to_uppercase())
     } else {
-        Cow::Borrowed(entry.show.as_str())
+        Cow::Borrowed(entry.label.as_str())
     };
 
     chunk.replace(
-        &render(scope.style, &show, &entry.description),
+        &render(scope.style, &label, &entry.description),
         ContentType::Html,
     );
 
@@ -376,15 +376,15 @@ fn apply_header_fragments(entries: &LanguageTable, chunk: &mut TextChunk, text: 
         if !out.contains(fragment) {
             continue;
         }
-        // 片段本身可能就是原文（`en` 的 `show` 等于原文）：那时替换只是给它套上一层带说明的 `<span>`，
+        // 片段本身可能就是原文（`en` 的 `label` 等于原文）：那时替换只是给它套上一层带说明的 `<span>`，
         // 文字没变，但 `out` 与 `escaped` 已经不同了 —— 这正是「要写回去」的信号。
         //
-        // The fragment may itself stay as it was (`en`'s `show` equals the source): the replacement then merely
+        // The fragment may itself stay as it was (`en`'s `label` equals the source): the replacement then merely
         // wraps it in a `<span>` carrying the note. The text is unchanged, but `out` differs from `escaped` —
         // which is exactly the signal that something has to be written back.
         out = out.replace(
             fragment,
-            &render(keys::Style::Html, &entry.show, &entry.description),
+            &render(keys::Style::Html, &entry.label, &entry.description),
         );
     }
 
@@ -400,12 +400,12 @@ fn apply_header_fragments(entries: &LanguageTable, chunk: &mut TextChunk, text: 
 /// `<h1><dt>` 的日期区间：`5 Jan, 2021 - 21 Sep, 2026` → 按语言的模板重排。
 ///
 /// 月份名字换成译文后，英文语序（`{日} {月}, {年}`）在中文/日文里读不通，所以整段按模板渲染；模板来自
-/// `date.range` 这一项的 `show`（见 keys.rs）。模板被删掉时退回「保留原语序、只换月份名」—— 少翻译一点
+/// `date.range` 这一项的 `label`（见 keys.rs）。模板被删掉时退回「保留原语序、只换月份名」—— 少翻译一点
 /// 好过把日期写成半截。
 ///
 /// The `<h1><dt>` date range: `5 Jan, 2021 - 21 Sep, 2026` reordered through the language's template. Once the
 /// month names are translated the English word order (`{day} {month}, {year}`) reads wrong in Chinese or
-/// Japanese, so the whole range renders from a template — the `show` of the `date.range` entry (see keys.rs).
+/// Japanese, so the whole range renders from a template — the `label` of the `date.range` entry (see keys.rs).
 /// When that entry has been deleted it falls back to "keep the word order, swap the month names only": one
 /// translation fewer beats a half-written date.
 fn apply_date_range(entries: &LanguageTable, chunk: &mut TextChunk, text: &str) -> bool {
@@ -429,7 +429,7 @@ fn apply_date_range(entries: &LanguageTable, chunk: &mut TextChunk, text: &str) 
                 ("{m1}", month(&range.start)),
                 ("{m2}", month(&range.end)),
             ];
-            let filled = fill_template(&template.show, &values);
+            let filled = fill_template(&template.label, &values);
 
             // 外层再套一层说明：整个区间是一个整体，而月份各自还有自己的说明（内层 `<span>` 命中时优先）。
             //
@@ -555,7 +555,7 @@ fn month_number(abbreviation: &str) -> Option<u32> {
 /// The month's HTML: the translation with its note when there is one, the source text otherwise.
 fn month_markup(part: &DatePart<'_>, entries: &LanguageTable) -> String {
     match entries.get(keys::MONTH_KEYS[(part.month_number - 1) as usize]) {
-        Some(entry) => render(keys::Style::Html, &entry.show, &entry.description),
+        Some(entry) => render(keys::Style::Html, &entry.label, &entry.description),
         None => escape(part.month, false),
     }
 }
@@ -605,8 +605,8 @@ fn fill_template(template: &str, values: &[(&str, String)]) -> String {
 ///
 /// Render one translation and its note as markup in the slot's own way. An empty note adds no wrapper at all: an
 /// empty `title` only pops up an empty box, which is worse than none.
-fn render(style: keys::Style, show: &str, description: &str) -> String {
-    let text = escape(show, false);
+fn render(style: keys::Style, label: &str, description: &str) -> String {
+    let text = escape(label, false);
 
     match style {
         keys::Style::Html => wrap_note(description, &text),
@@ -841,7 +841,7 @@ mod tests {
         let mut table = entries("zh-CN");
         table
             .entry("date.range".to_string())
-            .and_modify(|entry| entry.show = "{y1}/{m1}/{d1} - {y2}/{m2}/{d2}".to_string());
+            .and_modify(|entry| entry.label = "{y1}/{m1}/{d1} - {y2}/{m2}/{d2}".to_string());
 
         let out = rewrite(REPORT, &table, "zh-CN").expect("rewriting succeeds");
 

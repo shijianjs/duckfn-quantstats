@@ -21,9 +21,9 @@ description: 每种失败长什么样 —— 返回 NULL、略过某个标的，
 | `output_dir` 写不进去（目录不存在、路径不可写等） | 报错 `cannot write the report to '<路径>': …`，带路径 |
 | `open_in_browser` 配的 `output_dir` 不是本地路径（`s3://…`、`memory://…`） | 报错 `only local file paths can be opened in a browser` |
 | **wasm 构建**（本站那些浏览器里跑的块）写了 `output_dir` | **不算错误**：什么也不写，`file_path` 是 `NULL` |
-| `language` 在翻译表里没有条目 | 报错 `no translations for language '…'`，并指向 `qs_list_translations()` |
+| `lang` 在翻译表里没有条目 | 报错 `no translations for language '…'`，并指向 `qs_list_translations()` |
 | `qs_set_translation` 的 `key` 不在目录里 | 报错 `unknown key '…'` |
-| `qs_set_translation` 的 `language` 是空串 | 报错 `language must not be an empty string` |
+| `qs_set_translation` 的语言标签是空串 | 报错 `language must not be an empty string` |
 | `qs_set_translation` 列表里有 NULL 元素、缺 `key`，或同一个 `key` 出现两次 | 报错 `must not contain a NULL element` / `every entry needs a 'key'` / `key '…' appears twice in one call` |
 | `qs_set_translation` 删一个本来就不存在的 key 或语言 | **不算错误**：返回 `false`（表没有变化） |
 

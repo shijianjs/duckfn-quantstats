@@ -28,11 +28,11 @@ src/extension/functions/aggregate_html/
     storage.rs        persistence: pick a free name, write with std::fs (skipped entirely on wasm)
     browser.rs        opening in the system default browser (the whole feature is ignored on wasm)
 src/extension/functions/translation/
-    mod.rs            the language option's feature: what is translatable, and where the table lives
+    mod.rs            the `lang` option's feature: what is translatable, and where the table lives
     keys.rs           the catalog: every translatable position's key, CSS selector and English text
     builtin/          the six built-in languages (en carries notes only; the others a text plus a note)
     table.rs          the process-level table: install at load time, read, rewrite
-    set.rs            qs_set_translation(language, entries) -> BOOLEAN
+    set.rs            qs_set_translation(lang, entries) -> BOOLEAN
     list.rs           qs_list_translations()
     report.rs         the one lol_html rewrite (DOM mapping, the date template, month casing)
 src/extension/types/

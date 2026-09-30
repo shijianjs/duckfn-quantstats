@@ -25,7 +25,7 @@
 // 报告只在 result() 里生成 —— 一次调用渲染 (标的数 × 基准数) 份。100 个标的就是 100 份完整报告（每份内含
 // 十几张 SVG），这是预期行为，不是性能 bug；聚合状态因此持有整张表的点，与「每组一份点数组」同阶。
 //
-// 翻译（配置里的 `language` 键）是收尾里的一步：渲染完之后、落盘/开浏览器之前，对 HTML 做一次静态改写，见
+// 翻译（配置里的 `lang` 键）是收尾里的一步：渲染完之后、落盘/开浏览器之前，对 HTML 做一次静态改写，见
 // `functions/translation/`（目录、翻译表、以及那次 lol_html 改写都在那儿）。缺省不做任何翻译。
 //
 // 文件分工（按「路径 → 设施」的顺序读）：
@@ -71,7 +71,7 @@
 // hundred full reports (each with a dozen inline SVGs); that is expected, not a performance bug, and the
 // aggregate state therefore holds the whole table's points — the same order as one point array per group.
 //
-// Translation (the `language` key in the options) is one step of the tail: after rendering and before
+// Translation (the `lang` key in the options) is one step of the tail: after rendering and before
 // persistence and the browser, the HTML is rewritten statically once — see `functions/translation/` (the
 // catalog, the table and that one lol_html rewrite all live there). Unset means no translation at all.
 //

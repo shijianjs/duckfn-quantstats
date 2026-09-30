@@ -60,19 +60,19 @@ A [generated example](https://shijianjs.github.io/duckfn-quantstats/demo/qs_repo
 
 ### Translated reports, with notes on every element
 
-Set the `language` key and the report's own fixed texts — headings, metric names, chart titles, month
+Set the `lang` key and the report's own fixed texts — headings, metric names, chart titles, month
 columns, the legend — come out in that language, each one carrying a short note the browser pops up
 from the element it sits on (its native tooltip; no JavaScript, and the report stays one static file).
-`en`, `zh-CN`, `ja`, `de`, `fr` and `es` are built in; `language` unset leaves the report untouched and
+`en`, `zh-CN`, `ja`, `de`, `fr` and `es` are built in; `lang` unset leaves the report untouched and
 `'en'` adds English notes without changing a word.
 
 The table lives in the running DuckDB process and two functions rewrite it:
 
 ```sql
 SELECT qs_set_translation('zh-CN', [
-    {'key': 'metric.sharpe', 'show': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'}
-]);                                       -- -> true; NULL entries delete, NULL description keeps the note
-SELECT * FROM qs_list_translations();     -- the whole table: language, key, show, description
+    {'key': 'metric.sharpe', 'label': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'}
+]);                                       -- -> true; a NULL label deletes, a NULL description keeps the note
+SELECT * FROM qs_list_translations();     -- the whole table: lang, key, label, description
 ```
 
 Nothing is persisted: reloading the extension restores the built-in data. See
@@ -92,7 +92,7 @@ The user guide and the development notes live in a bilingual Docusaurus site
 | [Options](https://shijianjs.github.io/duckfn-quantstats/docs/guide/options) | Every field of `qs_html_report_options`. |
 | [Price (or NAV) series](https://shijianjs.github.io/duckfn-quantstats/docs/guide/price-series) | The differencing rules of the price branch. |
 | [Output and browser](https://shijianjs.github.io/duckfn-quantstats/docs/guide/output-and-browser) | `output_dir`, the generated file names, `open_in_browser`. |
-| [Translation](https://shijianjs.github.io/duckfn-quantstats/docs/guide/translation) | The `language` option, the notes, `qs_set_translation` and `qs_list_translations`. |
+| [Translation](https://shijianjs.github.io/duckfn-quantstats/docs/guide/translation) | The `lang` option, the notes, `qs_set_translation` and `qs_list_translations`. |
 | [Error paths](https://shijianjs.github.io/duckfn-quantstats/docs/guide/error-paths) | Every failure, and its exact message. |
 | [Architecture](https://shijianjs.github.io/duckfn-quantstats/docs/development-guide/architecture/project-structure) | How the code is laid out, why, and what it depends on. |
 | [Build, test and release](https://shijianjs.github.io/duckfn-quantstats/docs/development-guide/build/build-and-release) | The build paths, the tests, the release flow, the wasm target. |

@@ -18,13 +18,12 @@ SELECT count(*) FROM duckdb_types() WHERE type_name = 'qs_html_report_options';
 
 # `benchmark` 与 `benchmark_title` 都是列表：前者是 symbol 名，后者按下标与它一一对应。
 #
-# `language` 是唯一的例外：它是 SQL 关键字（`SHOW`、`SELECT language` 那类写法），所以 DuckDB 渲染
-# `typeof` 时会给它加引号 —— 那是它的渲染，不是我们的字段名。`qs_list_translations()` 的 `show` 列同理，
-# 单独取那一列时要写 `"show"`（`SELECT *` 不受影响）。
+# 字段名都刻意避开了 SQL 关键字：语言那一项叫 `lang`（不是 `language`），译文那一列叫 `label`（不是
+# `show`）—— 所以 `typeof` 渲染出来不带引号，`SELECT lang, label FROM qs_list_translations()` 也能裸写。
 query T
 SELECT typeof(NULL::qs_html_report_options);
 ----
-STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR[], benchmark VARCHAR[], rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, "language" VARCHAR, output_dir VARCHAR, open_in_browser BOOLEAN)
+STRUCT(title VARCHAR, strategy_title VARCHAR, benchmark_title VARCHAR[], benchmark VARCHAR[], rf DOUBLE, periods_per_year UINTEGER, match_dates BOOLEAN, lang VARCHAR, output_dir VARCHAR, open_in_browser BOOLEAN)
 
 query I
 SELECT count(*) FROM duckdb_functions()

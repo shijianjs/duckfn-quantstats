@@ -1,5 +1,5 @@
 # name: test/sql/quantstats/translations.test
-# description: 翻译：qs_list_translations() 的内置内容（六种语言 × 129 个 key）、qs_set_translation() 的覆盖 / 保留说明 / 删除单项 / 删除整个语言 / 返回布尔、未知 key 与错误入参的报错、language 配置项真的改写了报告（各作用域各断言一处；en 只加说明不改字；没配 language 时一个字都不动）、以及未知语言报错
+# description: 翻译：qs_list_translations() 的内置内容（六种语言 × 129 个 key）、qs_set_translation() 的覆盖 / 保留说明 / 删除单项 / 删除整个语言 / 返回布尔、未知 key 与错误入参的报错、lang 配置项真的改写了报告（各作用域各断言一处；en 只加说明不改字；没配 lang 时一个字都不动）、以及未知语言报错
 # group: [quantstats]
 
 require duckfn_quantstats
@@ -32,7 +32,7 @@ SELECT (r).html LIKE '%夏普比率%'
    AND (r).html LIKE '%<title>一月，一年之始%'
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'benchmark': ['SPX'], 'language': 'zh-CN'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX'], 'lang': 'zh-CN'}::qs_html_report_options)) AS r
     FROM daily_returns
 ) WHERE (r).symbol = 'AAA';
 ----
@@ -49,7 +49,7 @@ SELECT (r).html NOT LIKE '%>Metric<%'
    AND (r).html LIKE '%Strategy Tearsheet%'
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'benchmark': ['SPX'], 'language': 'zh-CN'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX'], 'lang': 'zh-CN'}::qs_html_report_options)) AS r
     FROM daily_returns
 ) WHERE (r).symbol = 'AAA';
 ----
@@ -63,13 +63,13 @@ SELECT (r).html LIKE '%>Sharpe</span>%'
    AND (r).html LIKE '%<span title=%'
 FROM (
     SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-                   {'benchmark': ['SPX'], 'language': 'en'}::qs_html_report_options)) AS r
+                   {'benchmark': ['SPX'], 'lang': 'en'}::qs_html_report_options)) AS r
     FROM daily_returns
 ) WHERE (r).symbol = 'AAA';
 ----
 true
 
-# 没配 language：报告里一个翻译用的 span 都没有（缺省行为就是「一个字都不动」）。
+# 没配 lang：报告里一个翻译用的 span 都没有（缺省行为就是「一个字都不动」）。
 query I
 SELECT (r).html NOT LIKE '%<span title=%'
    AND (r).html LIKE '%>Sharpe<%'
@@ -84,7 +84,7 @@ true
 # 语言写错：报错并指向 qs_list_translations()（而不是静默出一份没翻译的报告）。
 statement error
 SELECT unnest(qs_html_reports(symbol, trade_date, daily_return,
-               {'benchmark': ['SPX'], 'language': 'no-such-language'}::qs_html_report_options))
+               {'benchmark': ['SPX'], 'lang': 'no-such-language'}::qs_html_report_options))
 FROM daily_returns;
 ----
 no translations for language 'no-such-language'
@@ -94,7 +94,7 @@ no translations for language 'no-such-language'
 # ============================================================================
 
 query II
-SELECT count(DISTINCT language), count(DISTINCT key) FROM qs_list_translations();
+SELECT count(DISTINCT lang), count(DISTINCT key) FROM qs_list_translations();
 ----
 6	129
 
@@ -106,60 +106,60 @@ SELECT count(*) FROM qs_list_translations();
 # 每个语言覆盖全部 key（少一条就是「某个报告里有一处英文没被翻译」，装配时就会拒绝加载）。
 query I
 SELECT count(*) FROM (
-    SELECT language FROM qs_list_translations() GROUP BY language HAVING count(DISTINCT key) <> 129
+    SELECT lang FROM qs_list_translations() GROUP BY lang HAVING count(DISTINCT key) <> 129
 );
 ----
 0
 
-# `en` 的 show 就是报告里的英文原文（`metric.cagr` 的原文里那个 `﹪` 是 U+FE6A，不是 ASCII 的 `%`）。
+# `en` 的 label 就是报告里的英文原文（`metric.cagr` 的原文里那个 `﹪` 是 U+FE6A，不是 ASCII 的 `%`）。
 query T
-SELECT "show" FROM qs_list_translations() WHERE language = 'en' AND key = 'metric.cagr';
+SELECT label FROM qs_list_translations() WHERE lang = 'en' AND key = 'metric.cagr';
 ----
 CAGR﹪
 
 # ============================================================================
 # qs_set_translation：覆盖、保留说明、删除、返回值
 #
-# 列表里的 struct 字面量要**写满三个字段**（`key` / `show` / `description`）才对得上签名；要省略字段就显式
+# 列表里的 struct 字面量要**写满三个字段**（`key` / `label` / `description`）才对得上签名；要省略字段就显式
 # cast 成 `qs_translation_entry[]`，缺的字段会被补成 NULL —— 「只给 key」是删除的写法，所以 cast 在这里是常态。
 # ============================================================================
 
-# 覆盖：`show` 与 `description` 都换掉。
+# 覆盖：`label` 与 `description` 都换掉。
 statement ok
-SELECT qs_set_translation('zh-CN', [{'key': 'metric.sharpe', 'show': '夏普', 'description': '改过的说明'}]
+SELECT qs_set_translation('zh-CN', [{'key': 'metric.sharpe', 'label': '夏普', 'description': '改过的说明'}]
 );
 
 query TT
-SELECT "show", description FROM qs_list_translations()
-WHERE language = 'zh-CN' AND key = 'metric.sharpe';
+SELECT label, description FROM qs_list_translations()
+WHERE lang = 'zh-CN' AND key = 'metric.sharpe';
 ----
 夏普	改过的说明
 
 # 返回值是「表是否真的变了」：原样再写一遍 -> false。
 query I
-SELECT qs_set_translation('zh-CN', [{'key': 'metric.sharpe', 'show': '夏普', 'description': '改过的说明'}]
+SELECT qs_set_translation('zh-CN', [{'key': 'metric.sharpe', 'label': '夏普', 'description': '改过的说明'}]
 );
 ----
 false
 
 # 真的改了 -> true。
 query I
-SELECT qs_set_translation('de', [{'key': 'month.jan', 'show': 'Januar'}]::qs_translation_entry[]);
+SELECT qs_set_translation('de', [{'key': 'month.jan', 'label': 'Januar'}]::qs_translation_entry[]);
 ----
 true
 
-# 只给 show、不给 description：原有说明保留（不必重抄一遍）。
+# 只给 label、不给 description：原有说明保留（不必重抄一遍）。
 query T
-SELECT description FROM qs_list_translations() WHERE language = 'de' AND key = 'month.jan';
+SELECT description FROM qs_list_translations() WHERE lang = 'de' AND key = 'month.jan';
 ----
 Januar ❄️
 
-# 删除单个 key：`show` 为 NULL。
+# 删除单个 key：`label` 为 NULL。
 statement ok
 SELECT qs_set_translation('de', [{'key': 'month.jan'}]::qs_translation_entry[]);
 
 query I
-SELECT count(*) FROM qs_list_translations() WHERE language = 'de' AND key = 'month.jan';
+SELECT count(*) FROM qs_list_translations() WHERE lang = 'de' AND key = 'month.jan';
 ----
 0
 
@@ -169,12 +169,12 @@ SELECT qs_set_translation('de', [{'key': 'month.jan'}]::qs_translation_entry[]);
 ----
 false
 
-# `show` 是空串与 NULL 等价：都是删除。
+# `label` 是空串与 NULL 等价：都是删除。
 statement ok
-SELECT qs_set_translation('de', [{'key': 'month.feb', 'show': ''}]::qs_translation_entry[]);
+SELECT qs_set_translation('de', [{'key': 'month.feb', 'label': ''}]::qs_translation_entry[]);
 
 query I
-SELECT count(*) FROM qs_list_translations() WHERE language = 'de' AND key = 'month.feb';
+SELECT count(*) FROM qs_list_translations() WHERE lang = 'de' AND key = 'month.feb';
 ----
 0
 
@@ -185,7 +185,7 @@ SELECT qs_set_translation('es', NULL);
 true
 
 query I
-SELECT count(*) FROM qs_list_translations() WHERE language = 'es';
+SELECT count(*) FROM qs_list_translations() WHERE lang = 'es';
 ----
 0
 
@@ -198,20 +198,20 @@ false
 # 删掉之后 es 就真的没有条目了（不回退到内置数据）；qs_set_translation 可以把它重新建起来 ——
 # 只给了一部分 key，那这个语言就只有这一条：
 statement ok
-SELECT qs_set_translation('es', [{'key': 'metric.sharpe', 'show': 'Sharpe', 'description': 'creado'}]
+SELECT qs_set_translation('es', [{'key': 'metric.sharpe', 'label': 'Sharpe', 'description': 'creado'}]
 );
 
 query I
-SELECT count(*) FROM qs_list_translations() WHERE language = 'es';
+SELECT count(*) FROM qs_list_translations() WHERE lang = 'es';
 ----
 1
 
 # 语言标签两边都按**去空白**处理，写 `' de '` 与 `'de'` 是同一个语言（复制粘贴时少踩一脚）。
 statement ok
-SELECT qs_set_translation(' de ', [{'key': 'month.apr', 'show': 'April'}]::qs_translation_entry[]);
+SELECT qs_set_translation(' de ', [{'key': 'month.apr', 'label': 'April'}]::qs_translation_entry[]);
 
 query T
-SELECT "show" FROM qs_list_translations() WHERE language = 'de' AND key = 'month.apr';
+SELECT label FROM qs_list_translations() WHERE lang = 'de' AND key = 'month.apr';
 ----
 April
 
@@ -220,34 +220,34 @@ April
 # ============================================================================
 
 statement error
-SELECT qs_set_translation('', [{'key': 'metric.sharpe', 'show': 'x'}]::qs_translation_entry[]);
+SELECT qs_set_translation('', [{'key': 'metric.sharpe', 'label': 'x'}]::qs_translation_entry[]);
 ----
 language must not be an empty string
 
 # key 必须在内置目录里：key 对应报告里一个真实的 DOM 位置，凭空造的 key 永远不会生效。
 statement error
-SELECT qs_set_translation('zh-CN', [{'key': 'metric.no_such_metric', 'show': 'x'}]::qs_translation_entry[]);
+SELECT qs_set_translation('zh-CN', [{'key': 'metric.no_such_metric', 'label': 'x'}]::qs_translation_entry[]);
 ----
 unknown key 'metric.no_such_metric'
 
 # 列表元素为 NULL：没有 key 可指，无法判断它想删什么。
 statement error
 SELECT qs_set_translation('zh-CN',
-           [{'key': 'metric.sharpe', 'show': 'x'}::qs_translation_entry, NULL::qs_translation_entry]);
+           [{'key': 'metric.sharpe', 'label': 'x'}::qs_translation_entry, NULL::qs_translation_entry]);
 ----
 must not contain a NULL element
 
 # 缺 key。
 statement error
-SELECT qs_set_translation('zh-CN', [{'show': 'x'}]::qs_translation_entry[]);
+SELECT qs_set_translation('zh-CN', [{'label': 'x'}]::qs_translation_entry[]);
 ----
 every entry needs a 'key'
 
 # 一次调用里重复同一个 key：谁覆盖谁取决于顺序，那不是调用方想表达的意思。
 statement error
 SELECT qs_set_translation('zh-CN',
-           [{'key': 'metric.sharpe', 'show': 'x'}::qs_translation_entry,
-            {'key': 'metric.sharpe', 'show': 'y'}::qs_translation_entry]);
+           [{'key': 'metric.sharpe', 'label': 'x'}::qs_translation_entry,
+            {'key': 'metric.sharpe', 'label': 'y'}::qs_translation_entry]);
 ----
 key 'metric.sharpe' appears twice in one call
 
@@ -257,8 +257,8 @@ SELECT qs_set_translation('zh-CN', CAST([] AS qs_translation_entry[]));
 ----
 false
 
-# language 是 NULL：duckfn 对非 Option 入参的既有语义 —— 整行短路成 NULL，函数体不执行。
+# 第一个参数是 NULL：duckfn 对非 Option 入参的既有语义 —— 整行短路成 NULL，函数体不执行。
 query I
-SELECT qs_set_translation(NULL, [{'key': 'metric.sharpe', 'show': 'x'}]::qs_translation_entry[]);
+SELECT qs_set_translation(NULL, [{'key': 'metric.sharpe', 'label': 'x'}]::qs_translation_entry[]);
 ----
 NULL

@@ -1,12 +1,12 @@
 ---
 title: 翻译
 sidebar_position: 6
-description: language 配置项、内置的六种语言、每个元素上浮出的说明，以及用 qs_set_translation / qs_list_translations 在运行时改写翻译表。
+description: lang 配置项、内置的六种语言、每个元素上浮出的说明，以及用 qs_set_translation / qs_list_translations 在运行时改写翻译表。
 ---
 
 # 翻译
 
-报告缺省是英文 —— 那是 quantstats-rs 渲染出来的。写上 `language` 配置项，报告**自己说的那些固定文本**
+报告缺省是英文 —— 那是 quantstats-rs 渲染出来的。写上 `lang` 配置项，报告**自己说的那些固定文本**
 （分节标题、指标名、月份、图表标题、图例）就会换成另一种语言，而且每一条都带一句简短说明，浏览器会从它所在
 的那个元素上浮出：
 
@@ -20,7 +20,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX'],
-                'language': 'zh-CN',
+                'lang': 'zh-CN',
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
     FROM prices
@@ -29,13 +29,17 @@ FROM (
 
 把鼠标停在上面那份报告的任意一个指标名、图表标题或月份上，浏览器会用同一种语言显示它的简要说明。
 
-## `language` 配置项
+## `lang` 配置项
 
 | 取值 | 结果 |
 | --- | --- |
 | 不写（缺省） | **什么都不做** —— 报告里一个字符都不变 |
 | `'en'` | 英文原文原样保留，额外补上**英文**说明 |
 | 任何其它语言 | 文本换成该语言，并补上该语言的说明 |
+
+字段叫 `lang` 而不是 `language`（`language` 是 DuckDB 的关键字）。要注意结构体字面量里**写错的键会被
+DuckDB 静默忽略** —— 比如旁边有个合法的 `'title'` 时，`{'language': 'zh-CN'}` 只会出一份没翻译的报告，
+不会报错，所以务必写成 `'lang'`。
 
 取值必须是**当前翻译表里有条目的语言**（下面那六种内置语言，加上你用 `qs_set_translation` 加进去的）。
 没有条目的取值会报错，而不是悄悄出一份没翻译的报告：
@@ -46,7 +50,7 @@ WITH prices AS (
     WHERE symbol = 'GOOGL'
 )
 SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-           {'language': 'english'}::qs_html_report_options))
+           {'lang': 'english'}::qs_html_report_options))
 FROM prices;
 ```
 
@@ -89,31 +93,31 @@ JavaScript、也没有运行时 i18n，报告依然是一个自包含的静态�
 ### 查看这张表
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
-SELECT * FROM qs_list_translations() WHERE language = 'de' AND key LIKE 'plot.%';
+SELECT * FROM qs_list_translations() WHERE lang = 'de' AND key LIKE 'plot.%';
 ```
 
-`language` 就是配置里要写的那个语言标签，`key` 是报告里某一处位置的名字，`show` 是那一处要显示的文字，
-`description` 是浮出的说明。其中两个列名是 SQL 关键字，单独取时要加引号（`"show"`）—— `SELECT *` 不用。
+`lang` 就是配置里要写的那个语言标签，`key` 是报告里某一处位置的名字，`label` 是那一处要显示的文字，
+`description` 是浮出的说明。四个名字都不是 SQL 关键字，所以都能裸写（`SELECT lang, label FROM …`）。
 
 ### 改写
 
-`qs_set_translation(language, entries)` 收一个 `{key, show, description}` 列表，返回布尔值。它只作用于
+`qs_set_translation(lang, entries)` 收一个 `{key, label, description}` 列表，返回布尔值。它只作用于
 **当前进程**：
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
 SELECT qs_set_translation('ja', [
-    {'key': 'metric.max_drawdown', 'show': '最大下落', 'description': '高値からの最大の落ち込み 📉'}
+    {'key': 'metric.max_drawdown', 'label': '最大下落', 'description': '高値からの最大の落ち込み 📉'}
 ]);
-SELECT "show", description FROM qs_list_translations()
-WHERE language = 'ja' AND key = 'metric.max_drawdown';
+SELECT label, description FROM qs_list_translations()
+WHERE lang = 'ja' AND key = 'metric.max_drawdown';
 ```
 
 改写只有三条规则：
 
 | 你写的 | 结果 |
 | --- | --- |
-| 给了 `show`（写不写 `description` 都行） | 该 key 的文字被替换；不写 `description` 就保留原有说明 |
-| `show` 是 `NULL` 或 `''` | 该 key 被**删除** —— 没有文字、没有说明，也不回退到内置数据 |
+| 给了 `label`（写不写 `description` 都行） | 该 key 的文字被替换；不写 `description` 就保留原有说明 |
+| `label` 是 `NULL` 或 `''` | 该 key 被**删除** —— 没有文字、没有说明，也不回退到内置数据 |
 | 整个列表是 `NULL` | **整个语言**被删除 |
 
 返回值告诉你这张表**是不是真的变了**，所以删一个本来就没有的 key 会得到一个无害的 `false`：
@@ -131,17 +135,17 @@ DOM 位置，凭空造一个永远不会生效。
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
 SELECT qs_set_translation('nl', [
-    {'key': 'metric.sharpe', 'show': 'Sharpe-ratio', 'description': 'Overrendement per eenheid volatiliteit ⚖️'},
-    {'key': 'metric.max_drawdown', 'show': 'Max drawdown', 'description': 'Diepste daling van piek naar dal 📉'}
+    {'key': 'metric.sharpe', 'label': 'Sharpe-ratio', 'description': 'Overrendement per eenheid volatiliteit ⚖️'},
+    {'key': 'metric.max_drawdown', 'label': 'Max drawdown', 'description': 'Diepste daling van piek naar dal 📉'}
 ]);
-SELECT language, key, "show" FROM qs_list_translations() WHERE language = 'nl' ORDER BY key;
+SELECT lang, key, label FROM qs_list_translations() WHERE lang = 'nl' ORDER BY key;
 ```
 
 再把它删掉就是列表传 `NULL`，布尔值告诉你它本来在不在：
 
 ```sql {"type":"duckfn","show":"table"}
 SELECT qs_set_translation('nl', NULL) AS deleted_whole_language;
-SELECT count(*) AS rows_left FROM qs_list_translations() WHERE language = 'nl';
+SELECT count(*) AS rows_left FROM qs_list_translations() WHERE lang = 'nl';
 ```
 
 ## 翻译发生在什么时候

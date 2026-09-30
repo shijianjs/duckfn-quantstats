@@ -22,9 +22,9 @@
 //
 // 月份出现在两处：热量图表头（原文全大写 `JAN`）与 `<h1><dt>` 的日期区间（原文 `Jan`，chrono 的 `%b`）。
 // 两处共用 `month.jan`…`month.dec`，锚点写**散文里的那种写法**（`Jan`），热量图那一处靠
-// [`Scope::uppercase`] 把「查找」与「渲染」两端都转成大写 —— 于是：`en` 的 `show` 是 `Jan`，热量图渲染出来
+// [`Scope::uppercase`] 把「查找」与「渲染」两端都转成大写 —— 于是：`en` 的 `label` 是 `Jan`，热量图渲染出来
 // 仍是 `JAN`（英文那一档一个字符都没变），日期区间拿到的也还是 `Jan`。12 个 key 同时喂两处，不必为大小写各留
-// 一份数据，也不必让 `en` 为月份单列一套 `show`。
+// 一份数据，也不必让 `en` 为月份单列一套 `label`。
 //
 // The translatable catalog: what every translatable position is called, where it lives in the DOM and
 // what its English source text is.
@@ -49,9 +49,9 @@
 // Why the months have a single set of keys: months appear twice — in the heatmap header (uppercase `JAN`) and
 // in the `<h1><dt>` date range (source `Jan`, chrono's `%b`) — sharing `month.jan` … `month.dec`, with the
 // anchor written the **prose** way (`Jan`) and the heatmap slot using [`Scope::uppercase`] to uppercase both
-// ends: the lookup and the rendered text. So `en`'s `show` is `Jan` while the heatmap still renders `JAN`
+// ends: the lookup and the rendered text. So `en`'s `label` is `Jan` while the heatmap still renders `JAN`
 // (English is byte-identical) and the date range still gets `Jan` — twelve keys feed both places, with no
-// second set for casing and no month-specific `show` overrides in `en`.
+// second set for casing and no month-specific `label` overrides in `en`.
 // ============================================================================
 
 /// 一个可翻译位置**怎么被找到**，以及它那批「英文原文 → key」。
@@ -416,14 +416,14 @@ pub(super) const H4_FRAGMENTS: &[(&str, &str)] = &[
 
 /// `<h1><dt>` 日期区间的 key，以及 `en` 的那份**模板**。
 ///
-/// 这一项的 `show` 和其它 key 不同：它是一段带占位符的模板，`{d1} {m1} {y1}` 是起点、`{d2} {m2} {y2}` 是终点
+/// 这一项的 `label` 和其它 key 不同：它是一段带占位符的模板，`{d1} {m1} {y1}` 是起点、`{d2} {m2} {y2}` 是终点
 /// （`d` 日 / `m` 月名 / `y` 年）。`quantstats-rs` 用 `%e %b, %Y` 写死英文语序，而中文、日文要的是
 /// 「2021年1月5日」，靠替换月份名字改不掉语序，所以这一项按模板渲染 —— 顺带也把日期的排版交给了翻译表，
 /// 想换成本地写法不必改代码。
 ///
 /// 模板里的 `{m1}`/`{m2}` 会被 [`MONTH_KEYS`] 那批 key 的译文替换（并挂上月份的说明）。
 ///
-/// The key of the `<h1><dt>` date range plus the **template** used for `en`. This entry's `show` differs
+/// The key of the `<h1><dt>` date range plus the **template** used for `en`. This entry's `label` differs
 /// from the others: it is a template with placeholders, `{d1} {m1} {y1}` for the start and `{d2} {m2}
 /// {y2}` for the end (`d` day, `m` month name, `y` year). quantstats-rs hard-codes the English word order
 /// through `%e %b, %Y`, and Chinese or Japanese want "2021年1月5日" — replacing month names cannot reorder a
@@ -524,11 +524,11 @@ pub(super) const SCOPES: &[Scope] = &[
     },
 ];
 
-/// 目录里全部 `(英文原文, key)`；`en` 的 `show` 与内置数据的完整性自检都用它。
+/// 目录里全部 `(英文原文, key)`；`en` 的 `label` 与内置数据的完整性自检都用它。
 ///
 /// 只在一处消费（扩展加载期），所以直接现算，不做缓存。
 ///
-/// Every `(English source, key)` in the catalog; it backs `en`'s `show` values and the completeness check on
+/// Every `(English source, key)` in the catalog; it backs `en`'s `label` values and the completeness check on
 /// the built-in data. Computed on the spot — it is consumed exactly once, at extension load.
 pub(super) fn all() -> impl Iterator<Item = (&'static str, &'static str)> {
     SCOPES

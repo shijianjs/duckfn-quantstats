@@ -21,9 +21,9 @@ description: What each failure looks like — a NULL result, a skipped instrumen
 | The `output_dir` cannot be written (missing directory, unwritable path, …) | Error `cannot write the report to '<path>': …` naming the path |
 | `open_in_browser` with an `output_dir` that is not a local path (`s3://…`, `memory://…`) | Error `only local file paths can be opened in a browser` |
 | `output_dir` in a **wasm** build (the browser blocks on this site) | **Not an error**: nothing is written and `file_path` is `NULL` |
-| `language` with no entries in the translation table | Error `no translations for language '…'`, pointing at `qs_list_translations()` |
+| `lang` with no entries in the translation table | Error `no translations for language '…'`, pointing at `qs_list_translations()` |
 | `qs_set_translation` with a `key` that is not in the catalog | Error `unknown key '…'` |
-| `qs_set_translation` with an empty `language` | Error `language must not be an empty string` |
+| `qs_set_translation` with an empty language tag | Error `language must not be an empty string` |
 | `qs_set_translation` with a NULL element in the list, a missing `key`, or the same `key` twice | Error `must not contain a NULL element` / `every entry needs a 'key'` / `key '…' appears twice in one call` |
 | `qs_set_translation` deleting a key or a language that is not there | **Not an error**: it returns `false` (the table did not change) |
 

@@ -1,12 +1,12 @@
 ---
 title: Translation
 sidebar_position: 6
-description: The language option, the six built-in languages, the notes that pop up from each element, and how to rewrite the translation table at run time with qs_set_translation and qs_list_translations.
+description: The lang option, the six built-in languages, the notes that pop up from each element, and how to rewrite the translation table at run time with qs_set_translation and qs_list_translations.
 ---
 
 # Translation
 
-Reports are English by default — that is what quantstats-rs renders. Set the `language` option and the
+Reports are English by default — that is what quantstats-rs renders. Set the `lang` option and the
 report's own fixed texts (headings, metric names, month names, chart titles, the legend) come out in
 another language, each one carrying a short note the browser pops up from the element it sits on:
 
@@ -20,7 +20,7 @@ FROM (
     SELECT unnest(qs_html_reports_by_prices(
                symbol, date, price,
                {'benchmark': ['SPX'],
-                'language': 'zh-CN',
+                'lang': 'zh-CN',
                 'title': symbol,
                 'strategy_title': symbol}::qs_html_report_options)) AS r
     FROM prices
@@ -30,13 +30,17 @@ FROM (
 Hover a metric name, a chart title or a month in that report and the browser shows a short explanation
 of it, in the same language.
 
-## The `language` option
+## The `lang` option
 
 | Value | What happens |
 | --- | --- |
 | not set (the default) | **Nothing at all** — not one character of the report changes |
 | `'en'` | The English text stays exactly as it is, and **English notes** are added |
 | any other language | The text is replaced by that language, and its notes are added |
+
+The option is called `lang` rather than `language` because `language` is a DuckDB keyword. Note that a
+mistyped key inside a struct literal is **silently ignored** by DuckDB — `{'language': 'zh-CN'}` next to
+a valid `'title'` produces an untranslated report instead of an error, so spell it `'lang'`.
 
 The value has to be a language that **has entries in the translation table** (the six built-in ones below,
 plus anything you added with `qs_set_translation`). A value with no entries is an error rather than a
@@ -48,7 +52,7 @@ WITH prices AS (
     WHERE symbol = 'GOOGL'
 )
 SELECT unnest(qs_html_reports_by_prices(symbol, date, price,
-           {'language': 'english'}::qs_html_report_options))
+           {'lang': 'english'}::qs_html_report_options))
 FROM prices;
 ```
 
@@ -96,32 +100,32 @@ DuckDB) restores the built-in data — which is also the way back if you change 
 ### Listing the table
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
-SELECT * FROM qs_list_translations() WHERE language = 'de' AND key LIKE 'plot.%';
+SELECT * FROM qs_list_translations() WHERE lang = 'de' AND key LIKE 'plot.%';
 ```
 
-`language` is the tag you write in the options, `key` names one position in the report, `show` is the
-text that position gets, and `description` is the note. Two column names are SQL keywords, so select them
-quoted (`"show"`) — `SELECT *` needs no quoting.
+`lang` is the tag you write in the options, `key` names one position in the report, `label` is the text
+that position gets, and `description` is the note. None of the four is a SQL keyword, so all of them can
+be written bare (`SELECT lang, label FROM …`).
 
 ### Rewriting it
 
-`qs_set_translation(language, entries)` takes a list of `{key, show, description}` and returns a boolean.
+`qs_set_translation(lang, entries)` takes a list of `{key, label, description}` and returns a boolean.
 It applies to the **current process** only:
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
 SELECT qs_set_translation('ja', [
-    {'key': 'metric.max_drawdown', 'show': '最大下落', 'description': '高値からの最大の落ち込み 📉'}
+    {'key': 'metric.max_drawdown', 'label': '最大下落', 'description': '高値からの最大の落ち込み 📉'}
 ]);
-SELECT "show", description FROM qs_list_translations()
-WHERE language = 'ja' AND key = 'metric.max_drawdown';
+SELECT label, description FROM qs_list_translations()
+WHERE lang = 'ja' AND key = 'metric.max_drawdown';
 ```
 
 Three rules cover the writes:
 
 | You write | You get |
 | --- | --- |
-| `show` (with or without `description`) | That key's text is replaced; omitting `description` keeps the existing note |
-| `show` = `NULL` or `''` | That key is **deleted** — no text, no note, and no fallback to the built-in data |
+| `label` (with or without `description`) | That key's text is replaced; omitting `description` keeps the existing note |
+| `label` = `NULL` or `''` | That key is **deleted** — no text, no note, and no fallback to the built-in data |
 | the whole list = `NULL` | The **whole language** is deleted |
 
 The boolean tells you whether the table actually changed, so deleting a key that is not there is a
@@ -141,17 +145,17 @@ as they are (English, with no note) while the rest of the report is translated.
 
 ```sql {"type":"duckfn","show":"table","option":{"height":"420px"}}
 SELECT qs_set_translation('nl', [
-    {'key': 'metric.sharpe', 'show': 'Sharpe-ratio', 'description': 'Overrendement per eenheid volatiliteit ⚖️'},
-    {'key': 'metric.max_drawdown', 'show': 'Max drawdown', 'description': 'Diepste daling van piek naar dal 📉'}
+    {'key': 'metric.sharpe', 'label': 'Sharpe-ratio', 'description': 'Overrendement per eenheid volatiliteit ⚖️'},
+    {'key': 'metric.max_drawdown', 'label': 'Max drawdown', 'description': 'Diepste daling van piek naar dal 📉'}
 ]);
-SELECT language, key, "show" FROM qs_list_translations() WHERE language = 'nl' ORDER BY key;
+SELECT lang, key, label FROM qs_list_translations() WHERE lang = 'nl' ORDER BY key;
 ```
 
 Deleting that language again is a `NULL` list, and the boolean says whether it was there:
 
 ```sql {"type":"duckfn","show":"table"}
 SELECT qs_set_translation('nl', NULL) AS deleted_whole_language;
-SELECT count(*) AS rows_left FROM qs_list_translations() WHERE language = 'nl';
+SELECT count(*) AS rows_left FROM qs_list_translations() WHERE lang = 'nl';
 ```
 
 ## Where the translation happens

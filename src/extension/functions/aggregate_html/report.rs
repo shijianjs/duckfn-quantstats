@@ -26,7 +26,7 @@
 // 顺序是刻意定的：
 //
 //   1. 先建好每个标的的序列，再把每个 (标的, 基准) 对的显示名与落盘目标（[`ReportTarget`]）都定下来，
-//      顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器、以及 `language` 在翻译表里
+//      顺带校验 `output_dir` 非空、`open_in_browser` 指的路径能不能交给浏览器、以及 `lang` 在翻译表里
 //      有没有条目 —— 配置错误因此发生在渲染之前，不会白渲染几十份几百 KB 的报告；
 //   2. 再逐个渲染、**按需翻译**（渲染之后、落盘与开浏览器之前，见 `translation::translate_report`）、落盘、
 //      按需开浏览器；
@@ -76,7 +76,7 @@
 // The order is deliberate:
 //
 //   1. build every instrument's series, then settle every (symbol, benchmark) pair's display names and
-//      destination ([`ReportTarget`]), validating `output_dir`, `open_in_browser` and "does this `language` have
+//      destination ([`ReportTarget`]), validating `output_dir`, `open_in_browser` and "does this `lang` have
 //      entries" on the way — a bad configuration is therefore reported before anything is rendered, rather than
 //      after dozens of few-hundred-KB reports;
 //   2. render, **translate when asked** (after rendering and before persistence and the browser, see
@@ -311,7 +311,7 @@ fn render_reports(
         // A mistyped language is reported right here rather than after a report has been rendered: when the
         // translation table has no such language, `require_language` fails and points at
         // `qs_list_translations()`.
-        if let Some(language) = strategy.options.language.as_deref() {
+        if let Some(language) = strategy.options.lang.as_deref() {
             translation::require_language(language)?;
         }
 
@@ -363,13 +363,13 @@ fn render_reports(
         // 翻译发生在**渲染之后、落盘与开浏览器之前**：磁盘上的文件、返回行里的 `html` 与浏览器里打开的页面
         // 因此是同一份内容，不存在「文件是英文、返回值是中文」这种错位。
         //
-        // 没配 `language`（或整列是 NULL）时整段跳过 —— 缺省行为就是「一个字都不动」。
+        // 没配 `lang`（或整列是 NULL）时整段跳过 —— 缺省行为就是「一个字都不动」。
         //
         // The translation happens **after rendering and before persistence and the browser**: the file on disk,
         // the `html` in the returned row and the page the browser opens are therefore the same content, with no
-        // "the file is English, the return value is Chinese" mismatch. Without a `language` (or with the whole
+        // "the file is English, the return value is Chinese" mismatch. Without a `lang` (or with the whole
         // column NULL) this is skipped entirely — the default is "not one character changed".
-        let report = match planned.options.language.as_deref() {
+        let report = match planned.options.lang.as_deref() {
             Some(language) => translation::translate_report(&report, language)?,
             None => report,
         };

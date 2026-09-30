@@ -20,7 +20,7 @@
 // # 为什么是一个 `LazyLock<RwLock<BTreeMap<..>>>`
 //
 // 翻译表不属于任何一次查询：`qs_set_translation` 改的是「这个 DuckDB 进程里的表」，之后每一次
-// `qs_html_reports(..., {'language': 'zh-CN'})` 都读同一份。所以它是进程级静态 + 一把读写锁（DuckDB 会
+// `qs_html_reports(..., {'lang': 'zh-CN'})` 都读同一份。所以它是进程级静态 + 一把读写锁（DuckDB 会
 // 在多个工作线程上跑聚合，读要能并发）。`BTreeMap` 而不是 `HashMap`：`qs_list_translations()` 的输出要
 // 按 (language, key) 有序，用 BTreeMap 就不必再排一遍。
 //
@@ -42,7 +42,7 @@
 // deleted it" and "it still works" cannot both be true without confusion.
 //
 // Why a `LazyLock<RwLock<BTreeMap<..>>>`: the table belongs to no single query — `qs_set_translation` changes
-// the table of **this DuckDB process** and every later `qs_html_reports(..., {'language': 'zh-CN'})` reads the
+// the table of **this DuckDB process** and every later `qs_html_reports(..., {'lang': 'zh-CN'})` reads the
 // same one — so it is a process-level static behind a read/write lock (DuckDB runs aggregates on several
 // worker threads, so reads have to be concurrent). A `BTreeMap` rather than a `HashMap` because
 // `qs_list_translations()` has to be ordered by (language, key), which then needs no extra sort.
@@ -70,10 +70,10 @@ use super::{builtin, keys};
 /// One key's entry in one language: the display text and the tooltip note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
-    /// 写进报告里的显示文本。
+    /// 写进报告里的显示文本（SQL 侧那一列叫 `label`）。
     ///
-    /// The display text written into the report.
-    pub(crate) show: String,
+    /// The display text written into the report (that column is called `label` on the SQL side).
+    pub(crate) label: String,
 
     /// 报告里那个元素的 `title`；空串表示不挂说明。
     ///
@@ -180,14 +180,14 @@ pub(crate) fn require_language(language: &str) -> DuckResult<()> {
 /// `qs_set_translation` 的实现主体：改写或删除一个语言的条目，返回「表是否真的变了」。
 ///
 /// `entries` 为 `None` 表示整个语言删掉（SQL 里的 `NULL`）；为 `Some(list)` 时逐项处理，规则见
-/// [`TranslationEntry`]（`show` 为空 => 删这一项；`description` 为 NULL => 保留原有说明）。
+/// [`TranslationEntry`]（`label` 为空 => 删这一项；`description` 为 NULL => 保留原有说明）。
 ///
 /// 返回「是否真的变了」而不是恒真的 `true`：`qs_set_translation('zh-CN', [{'key': …}])` 里写一个已经删掉的
 /// key、或者覆盖成完全相同的文本，都不算变化。这个布尔因此是唯一能区分「生效了」与「无事发生」的信号。
 ///
 /// The body of `qs_set_translation`: rewrite or delete one language's entries and report whether the table
 /// really changed. `entries` being `None` deletes the whole language (SQL `NULL`); `Some(list)` is processed
-/// entry by entry under the rules of [`TranslationEntry`] (an empty `show` deletes that entry; a NULL
+/// entry by entry under the rules of [`TranslationEntry`] (an empty `label` deletes that entry; a NULL
 /// `description` keeps the existing one). The return value is "did it change" rather than a constant `true`:
 /// asking to delete a key that is already gone, or overwriting with identical text, is not a change — and this
 /// boolean is the only signal that tells "it took effect" apart from "nothing happened".
@@ -266,12 +266,12 @@ pub(super) fn apply(
             let entry = entry.as_ref().expect("validated above");
             let key = entry.key.as_deref().expect("validated above").trim();
 
-            match entry.show.as_deref() {
+            match entry.label.as_deref() {
                 // 空译文 = 删这一项（连同说明）。不做任何回退。
                 //
                 // An empty translation deletes the entry, note included, with no fallback.
                 None | Some("") => changed |= language_table.remove(key).is_some(),
-                Some(show) => {
+                Some(label) => {
                     // `description` 为 NULL 表示「保留原有说明」：只改译文时不必把说明重抄一遍。语言表里
                     // 本来没有这一项时，原说明视为空串。
                     //
@@ -285,7 +285,7 @@ pub(super) fn apply(
                             .unwrap_or_default(),
                     };
                     let new = Entry {
-                        show: show.to_string(),
+                        label: label.to_string(),
                         description,
                     };
                     if language_table.get(key) != Some(&new) {
@@ -309,18 +309,18 @@ pub(super) fn apply(
     Ok(changed)
 }
 
-/// 当前翻译表的一份快照，按 (language, key) 升序 —— `qs_list_translations()` 的每一行。
+/// 当前翻译表的一份快照，按 (lang, key) 升序 —— `qs_list_translations()` 的每一行。
 ///
-/// The current table as a snapshot ordered by (language, key) — one row per entry for
+/// The current table as a snapshot ordered by (lang, key) — one row per entry for
 /// `qs_list_translations()`.
 pub(super) fn snapshot() -> Vec<TranslationRow> {
     read()
         .iter()
         .flat_map(|(language, entries)| {
             entries.iter().map(move |(key, entry)| TranslationRow {
-                language: language.clone(),
+                lang: language.clone(),
                 key: key.clone(),
-                show: entry.show.clone(),
+                label: entry.label.clone(),
                 description: entry.description.clone(),
             })
         })

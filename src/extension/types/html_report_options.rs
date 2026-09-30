@@ -129,6 +129,9 @@ pub(crate) struct QuantstatsHtmlOptions {
 
     /// 报告的语言（BCP-47 标签，如 `zh-CN`、`ja`、`de`）。缺省**不做任何翻译、也不加任何说明**。
     ///
+    /// 字段名是 `lang` 而不是 `language`：`language` 是 DuckDB 的关键字，裸写列名/键名会踩坑。注意结构体
+    /// 字面量里写错键名（比如写成 `'language'`）会被 DuckDB 静默忽略 —— 那样报告不会翻译，也不会报错。
+    ///
     /// 取值必须与**当前翻译表**里的某个语言一致，否则报错（提示用 `qs_list_translations()` 查有哪些语言）
     /// —— 语言写错时宁可失败，也不要悄悄出一份没翻译的报告。内置 `en`、`zh-CN`、`ja`、`de`、`fr`、`es`
     /// 六种；`qs_set_translation()` 能在运行时增删（增删只影响当前进程，见 `functions/translation`）。
@@ -146,6 +149,10 @@ pub(crate) struct QuantstatsHtmlOptions {
     ///
     /// The language of the report (a BCP-47 tag such as `zh-CN`, `ja`, `de`). Unset means **no translation and no
     /// notes at all**.
+    ///
+    /// The field is `lang` rather than `language` because `language` is a DuckDB keyword. Note that a
+    /// mistyped key inside a struct literal (say `'language'`) is silently ignored by DuckDB: the report
+    /// then stays English without any error.
     ///
     /// The value has to be one of the languages in the **current translation table**, otherwise it is an error
     /// (`qs_list_translations()` tells which languages have entries) — a mistyped language should fail rather
@@ -167,7 +174,7 @@ pub(crate) struct QuantstatsHtmlOptions {
     ///
     /// Every symbol resolves its own language (like the other options), so one table can produce Chinese and
     /// English reports side by side.
-    pub language: Option<String>,
+    pub lang: Option<String>,
 
     /// 把每份报告落盘到该**目录**下，文件名由函数自己生成。缺省不落盘。
     ///

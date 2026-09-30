@@ -18,7 +18,7 @@ description: qs_html_report_options 的每个字段、默认值，以及「按�
 | `rf` | `DOUBLE` | `0.0` | 无风险利率，**年化**（`0.04` = 4%），与 quantstats 的 `rf` 口径一致 |
 | `periods_per_year` | `UINTEGER` | `252` | 年化周期数，必须大于 0 |
 | `match_dates` | `BOOLEAN` | `true` | 是否把策略与基准的起始日对齐 |
-| `language` | `VARCHAR` | `NULL` | 把报告翻译成这个语言（见[翻译](./translation.md)）；该语言必须在翻译表里有条目。`NULL` = 完全不翻译，`'en'` = 文字不变、只补英文说明 |
+| `lang` | `VARCHAR` | `NULL` | 把报告翻译成这个语言（见[翻译](./translation.md)）；该语言必须在翻译表里有条目。`NULL` = 完全不翻译，`'en'` = 文字不变、只补英文说明。叫 `lang` 是因为 `language` 是 SQL 关键字 |
 | `output_dir` | `VARCHAR` | `NULL` | 把每份报告落盘到该**本地目录**，文件名由函数生成（见[落盘与浏览器](./output-and-browser.md)）；wasm 构建不落盘 |
 | `open_in_browser` | `BOOLEAN` | `false` | 用系统默认浏览器打开报告；没写 `output_dir` 时会先落一个临时文件（见[落盘与浏览器](./output-and-browser.md)） |
 

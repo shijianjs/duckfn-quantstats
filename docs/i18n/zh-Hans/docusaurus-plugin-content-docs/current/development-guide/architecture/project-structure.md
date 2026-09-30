@@ -26,11 +26,11 @@ src/extension/functions/aggregate_html/
     storage.rs        落盘：挑空闲名字、用 std::fs 写字节（wasm 下整个跳过）
     browser.rs        用系统默认浏览器打开报告（wasm 下整个功能被忽略）
 src/extension/functions/translation/
-    mod.rs            `language` 配置项那一块：哪些能翻、翻译表活在哪
+    mod.rs            `lang` 配置项那一块：哪些能翻、翻译表活在哪
     keys.rs           目录：每个可翻译位置的 key、CSS 选择器与英文原文
     builtin/          六种内置语言（en 只写说明，其余写译文 + 说明）
     table.rs          进程级翻译表：加载时装载、读取、改写
-    set.rs            qs_set_translation(language, entries) -> BOOLEAN
+    set.rs            qs_set_translation(lang, entries) -> BOOLEAN
     list.rs           qs_list_translations()
     report.rs         那一次 lol_html 改写（DOM 定位、日期模板、月份大小写）
 src/extension/types/

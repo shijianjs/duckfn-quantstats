@@ -3,7 +3,7 @@
 //
 // # 六种语言，两种写法
 //
-// `en` 只写**说明**：它的 `show` 就是 `keys.rs` 里那个位置的英文原文。这样做有两个理由 ——
+// `en` 只写**说明**：它的 `label` 就是 `keys.rs` 里那个位置的英文原文。这样做有两个理由 ——
 // 抄一份英文原文进来等于多一份会过期的真相，而且抄错了会让**英文报告的文字变样**（`en` 的语义是「文字
 // 不变，只加说明」，那是最不该出错的一档）。
 //
@@ -23,7 +23,7 @@
 //
 // Built-in translation data: assembled into one complete table, with self-checks during assembly.
 //
-// Six languages, two shapes. `en` only carries **notes**: its `show` values are the English sources from
+// Six languages, two shapes. `en` only carries **notes**: its `label` values are the English sources from
 // `keys.rs`. Two reasons — copying the English text in would be a second source of truth that goes stale, and
 // a typo in it would visibly **change the English report** (the `en` contract is "same text, notes added",
 // which is the one tier that must not drift). The other five carry `(key, translation, note)` triples, and the
@@ -100,9 +100,9 @@ pub(super) fn table() -> DuckResult<Tables> {
     Ok(tables)
 }
 
-/// `en` 的那张表：`show` 取目录里的英文原文，说明取 `en::DESCRIPTIONS`。
+/// `en` 的那张表：`label` 取目录里的英文原文，说明取 `en::DESCRIPTIONS`。
 ///
-/// The `en` table: `show` comes from the catalog's English source and the note from `en::DESCRIPTIONS`.
+/// The `en` table: `label` comes from the catalog's English source and the note from `en::DESCRIPTIONS`.
 fn english(catalog: &BTreeMap<&str, &str>) -> DuckResult<LanguageTable> {
     // 说明先收成表，再逐 key 取 —— 反过来的话每个 key 都要扫一遍说明数组。
     //
@@ -125,7 +125,7 @@ fn english(catalog: &BTreeMap<&str, &str>) -> DuckResult<LanguageTable> {
         table.insert(
             (*key).to_string(),
             Entry {
-                show: (*source).to_string(),
+                label: (*source).to_string(),
                 description: (*note).to_string(),
             },
         );
@@ -144,7 +144,7 @@ fn check(
     catalog: &BTreeMap<&str, &str>,
 ) -> DuckResult<LanguageTable> {
     let mut table = LanguageTable::new();
-    for (key, show, description) in entries {
+    for (key, label, description) in entries {
         if !catalog.contains_key(key) {
             return Err(duck_error(format!(
                 "built-in {language}: unknown key '{key}' — keys.rs does not know it"
@@ -158,7 +158,7 @@ fn check(
         table.insert(
             (*key).to_string(),
             Entry {
-                show: (*show).to_string(),
+                label: (*label).to_string(),
                 description: (*description).to_string(),
             },
         );

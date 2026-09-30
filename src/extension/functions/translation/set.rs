@@ -1,12 +1,12 @@
 // ============================================================================
-// qs_set_translation(language, entries) -> BOOLEAN
+// qs_set_translation(lang, entries) -> BOOLEAN
 //
 // 一次调用改写一个语言的一批 key；规则的正文在 `types/translation.rs`（`TranslationEntry` 的三个字段各
 // 自意味着什么）与 `table.rs::apply`（怎么落进那张表）。这个文件只负责把它接成 SQL：
 //
 //   SELECT qs_set_translation('zh-CN', [
-//       {'key': 'metric.sharpe', 'show': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'},
-//       {'key': 'month.jan',    'show': '1月',     'description': '一月 ❄️'}
+//       {'key': 'metric.sharpe', 'label': '夏普比率', 'description': '每单位波动换来的超额收益 ⚖️'},
+//       {'key': 'month.jan',    'label': '1月',     'description': '一月 ❄️'}
 //   ]);
 //   -- true
 //
@@ -56,9 +56,9 @@ use super::table;
 #[duck_scalar_function(
     special_null_handling = true,
     description = "Overwrites or deletes translations of one language in this DuckDB process, entry by entry",
-    comment = "Setting 'show' to NULL or an empty string deletes that key and its note; a NULL entries list deletes the whole language; a NULL 'description' keeps the existing note. Nothing is persisted: reloading the extension or restarting the process restores the built-in data",
+    comment = "Setting 'label' to NULL or an empty string deletes that key and its note; a NULL entries list deletes the whole language; a NULL 'description' keeps the existing note. Nothing is persisted: reloading the extension or restarting the process restores the built-in data",
     examples = [
-        "SELECT qs_set_translation('de', [{'key': 'month.jan', 'show': 'Januar', 'description': 'January'}])",
+        "SELECT qs_set_translation('de', [{'key': 'month.jan', 'label': 'Januar', 'description': 'January'}])",
         "SELECT qs_set_translation('zh-CN', NULL)"
     ]
 )]

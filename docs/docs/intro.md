@@ -113,7 +113,7 @@ FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv');
 
 ## In another language
 
-Reports are English by default; the `language` option translates the report's own fixed texts (headings,
+Reports are English by default; the `lang` option translates the report's own fixed texts (headings,
 metric names, chart titles, months, the legend) and hangs a short note on each of them, which the browser
 shows as its native tooltip. `en`, `zh-CN`, `ja`, `de`, `fr` and `es` are built in, and
 `qs_set_translation` / `qs_list_translations` rewrite the table at run time — see
@@ -127,7 +127,7 @@ shows as its native tooltip. `en`, `zh-CN`, `ja`, `de`, `fr` and `es` are built 
 - [Price (or NAV) series](./guide/price-series.md) — the differencing rules of the price branch.
 - [Output and browser](./guide/output-and-browser.md) — `output_dir`, the generated file names,
   `open_in_browser`.
-- [Translation](./guide/translation.md) — `language`, the notes, and the translation table.
+- [Translation](./guide/translation.md) — `lang`, the notes, and the translation table.
 - [Error paths](./guide/error-paths.md) — what a failure looks like.
 
 Everything about building, testing or publishing the extension itself is under

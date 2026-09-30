@@ -1,7 +1,7 @@
 // ============================================================================
 // 内置数据：英文说明（`en` 的整张表）
 //
-// `en` 只给说明：它的 `show` 就是目录里的英文原文（`keys::all()`），由 `builtin::table()` 装配 ——
+// `en` 只给说明：它的 `label` 就是目录里的英文原文（`keys::all()`），由 `builtin::table()` 装配 ——
 // 抄一份英文原文进来只会有第二份会过期的真相，而且一不小心抄错就会让英文报告的文字**变了样**。
 //
 // 说明里允许用 emoji（用户明确要的「生动些」），但只用主流系统都自带的那几个：表格、涨跌、钱、时钟、
@@ -9,7 +9,7 @@
 //
 // Built-in data: the English notes (the whole `en` table).
 //
-// `en` only carries notes: its `show` values are the catalog's English sources (`keys::all()`), assembled by
+// `en` only carries notes: its `label` values are the catalog's English sources (`keys::all()`), assembled by
 // `builtin::table()` — copying the English text in here would be a second source of truth that goes stale,
 // and a typo in it would visibly **change** the English report.
 //

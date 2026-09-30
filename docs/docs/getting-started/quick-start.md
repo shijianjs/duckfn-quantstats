@@ -286,7 +286,7 @@ The complete table of behaviours is on [Error paths](../guide/error-paths.md).
 - [Options](../guide/options.md) — every field of `qs_html_report_options`.
 - [Price (or NAV) series](../guide/price-series.md) — what the price branch does with the values.
 - [Output and browser](../guide/output-and-browser.md) — where the files go and how they are named.
-- [Translation](../guide/translation.md) — the `language` option, and the notes on each element.
+- [Translation](../guide/translation.md) — the `lang` option, and the notes on each element.
 
 Building or testing the extension itself is a different subject — that lives in the
 [Development guide](../development-guide/architecture/project-structure.md).
