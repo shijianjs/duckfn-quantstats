@@ -3,6 +3,7 @@ import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
 import {remarkVersionPlaceholder} from 'duckfn-docs-kit/remark';
 import {remarkRunnableSql} from 'duckfn-docs-kit/sql/remark';
+import {remarkMermaid} from 'duckfn-docs-kit/mermaid/remark';
 import {dfkExtensions} from 'duckfn-docs-kit/sql/extensions';
 import {dfkTocToggle} from 'duckfn-docs-kit/toc-toggle/plugin';
 import {EXTENSION_VERSION} from './extension-version';
@@ -79,13 +80,6 @@ const config: Config = {
 
   onBrokenLinks: 'throw',
 
-  // ```mermaid 围栏由下面 themes 里注册的主题渲染成示意图 —— 见 architecture 等页面的流程图。
-  //
-  // ```mermaid fences render as diagrams through the theme registered in `themes` below.
-  markdown: {
-    mermaid: true,
-  },
-
   // GitHub Pages serves `<path>/index.html` at `<path>/`, and 301-redirects `<path>` to `<path>/`.
   // Keeping the slash in Docusaurus' own output means the sitemap, the canonical tags and every
   // internal link advertise the URL that answers 200 instead of a redirect hop. It only changes how
@@ -127,14 +121,9 @@ const config: Config = {
     extensionVersion: EXTENSION_VERSION,
   },
 
-  // 站点的客户端增强全部来自 kit 的插件（见下面 plugins），这里只注册一个主题：Mermaid，它把
-  // ```mermaid 围栏渲染成示意图，并自行跟随明暗模式。
+  // 站点的客户端增强全部来自 kit 的插件（见下面 plugins）。
   //
-  // The only theme this site registers is Mermaid (it turns ```mermaid fences into diagrams and
-  // follows the light/dark color mode on its own); the client-side enhancements all come from the
-  // kit's plugins below.
-  themes: ['@docusaurus/theme-mermaid'],
-
+  // The client-side enhancements all come from the kit's plugins below.
   presets: [
     [
       'classic',
@@ -143,12 +132,18 @@ const config: Config = {
           sidebarPath: './sidebars.ts',
           // Replaces the `{{EXTENSION_VERSION}}` placeholder with the version from
           // docs/extension-version.ts, so a release only has to update that one file.
-          // Both plugins ship in duckfn-docs-kit; only the version value is site-specific.
+          // All three plugins ship in duckfn-docs-kit; only the version value is site-specific.
           // `remarkRunnableSql` turns `sql {"type":"duckfn",…}` fenced blocks into
-          // `<dfk-sql>` runnable examples (see docs/README.md).
+          // `<dfk-sql>` runnable examples (see docs/README.md); `remarkMermaid` turns
+          // ```mermaid fences into `<dfk-mermaid>` diagrams, whose look and palette come from the
+          // kit's defaults — pass `remarkMermaid({config: {…}})` to override them.
+          //
+          // remarkMermaid 把 ```mermaid 围栏转成 <dfk-mermaid> 图；主题的观感/配色由 kit 的默认值
+          // 提供，要改就传 `remarkMermaid({config: {…}})`。
           remarkPlugins: [
             [remarkVersionPlaceholder, {version: EXTENSION_VERSION, placeholder: '{{EXTENSION_VERSION}}'}],
             remarkRunnableSql,
+            remarkMermaid,
           ],
           // Remove this to remove the "edit this page" links.
           editUrl: `${REPO_URL}/tree/main/docs/`,
@@ -191,23 +186,6 @@ const config: Config = {
     docs: {
       sidebar: {
         hideable: true,
-      },
-    },
-    // Mermaid 的观感与配色：`neo` look + redux 色板（亮色 `redux-color`、暗色 `redux-dark-color`）。
-    // `theme` 必须是 `{light, dark}` 这个对象（组件读的是 `theme[colorMode]`，切换明暗时会重新
-    // initialize），而 `look` 没有明暗两态，走 `options`（它会被 spread 进 `mermaid.initialize`）。
-    //
-    // Mermaid's look and palette: the `neo` look with the redux themes. `theme` has to be the
-    // `{light, dark}` object (the component reads `theme[colorMode]` and re-initialises on a mode
-    // switch); `look` has no per-mode variant and goes through `options`, which is spread into
-    // `mermaid.initialize`.
-    mermaid: {
-      theme: {
-        light: 'redux-color',
-        dark: 'redux-dark-color',
-      },
-      options: {
-        look: 'neo',
       },
     },
     // Replace with your project's social card
