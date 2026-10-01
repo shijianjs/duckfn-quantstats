@@ -125,6 +125,10 @@ Add a row on every release; the last row is the current one.
   version check, and quack-rs' own slot-layout check for the unstable region — quack-rs only knows the
   releases in its layout table, so `QUACK_RS_TARGET_DUCKDB_VERSION` (exported by the `Makefile` from the
   pin above) is what tells a build against a brand-new DuckDB that its layout is the compiled one.
+- **Locally, moving the pin is not enough**: `configure/venv` is a one-time directory stamp, so `make`
+  never refreshes the test runner inside it. After a bump, upgrade it in place
+  (`configure/venv/Scripts/python -m pip install --upgrade "duckdb==<new version>"`, `bin/python3` on
+  other platforms) — otherwise the freshly built extension is refused by the stale runner.
 - **`@duckdb/duckdb-wasm`** is the dev build whose *bundled* engine is that same DuckDB (the two are
   unrelated version numbers). The docs kit pins it — 0.4.0 pins `1.33.1-dev64.0`, i.e. DuckDB v1.5.5 —
   so `docs/package.json` carries an `overrides` entry that moves it to the matching build until a kit

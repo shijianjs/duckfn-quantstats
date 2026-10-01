@@ -118,6 +118,9 @@ DuckDB 只有在扩展元数据里的版本与**当前引擎**逐字相同时才
   检查之外，quack-rs 自己还校验不稳定区的槽位布局，而它只认识布局表里收录过的发行版 ——
   `QUACK_RS_TARGET_DUCKDB_VERSION`（`Makefile` 从上面的钉版导出）就是用来告诉一个针对全新 DuckDB 编译的
   构建「布局就是它编译时那份」的。
+- **本地光改钉版不够**：`configure/venv` 是一次性的目录戳，`make` 之后不会再刷新里面的测试运行器。改完钉版
+  要在原地升级它（`configure/venv/Scripts/python -m pip install --upgrade "duckdb==<新版本>"`，别的平台是
+  `bin/python3`），否则刚构建出来的扩展会被那个落后的运行器拒绝加载。
 - **`@duckdb/duckdb-wasm`**：**内置引擎**是同一个 DuckDB 的那个 dev 构建（两者的版本号没有对应关系）。
   它由 docs kit 钉住 —— 0.4.0 钉的是 `1.33.1-dev64.0`，即 DuckDB v1.5.5 —— 所以 `docs/package.json` 用一条
   `overrides` 把它挪到匹配的构建上，等 kit 出新版再撤（见 `docs/README.md` 的 *Preloaded extensions*）。
