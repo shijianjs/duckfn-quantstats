@@ -12,11 +12,14 @@ use duckfn::DuckStruct;
 // 译文那一侧用 `label` 而不是 `show`（`SHOW` 是 SQL 语句）。这样列可以裸写，`SELECT lang, label FROM …`
 // 与 `{'lang': 'zh-CN'}` 都不必加引号。
 //
-// 写入口注册成命名类型（`create_type = true`），于是 SQL 里既能写字面量列表，也能 cast：
+// 写入口注册成命名类型（`create_type = "replace"`），于是 SQL 里既能写字面量列表，也能 cast：
 //
 //   SELECT qs_set_translation('zh-CN', [
 //       {'key': 'metric.sharpe', 'label': '夏普比率', 'description': '…'}
 //   ]);
+//
+// 用 replace 而不是 `true`（`CREATE TYPE IF NOT EXISTS`）：定义一变，遗留的旧类型会让 cast 悄悄按旧字段
+// 解析；`qs_` 前缀已把撞名压到几乎不可能，覆盖因此比保留安全。
 //
 // 字段**全部**是 `Option<T>`，理由与 `html_report_options.rs` 相同：DuckDB 给 struct 字面量缺的键补
 // NULL，而 duckfn 见到「非 Option 字段是 NULL」会把**整个 struct** 变成 NULL —— 那样只写 `key` 的项会被
@@ -32,8 +35,11 @@ use duckfn::DuckStruct;
 // (a DuckDB keyword) and the translated text uses `label` rather than `show` (`SHOW` is a statement), so
 // both `SELECT lang, label FROM …` and `{'lang': 'zh-CN'}` need no quoting.
 //
-// The write-side entry is registered as a named type (`create_type = true`) so SQL can pass a literal
-// list or cast to it. Every field is `Option<T>` for the same reason as in `html_report_options.rs`:
+// The write-side entry is registered as a named type (`create_type = "replace"`) so SQL can pass a
+// literal list or cast to it. Replace rather than `true` (`CREATE TYPE IF NOT EXISTS`): once the
+// definition changes, a leftover old type would make a cast silently parse the old fields, while the
+// `qs_` prefix already makes a name clash all but impossible — overwriting is the safer default.
+// Every field is `Option<T>` for the same reason as in `html_report_options.rs`:
 // DuckDB fills a struct literal's missing keys with NULL and duckfn turns the **whole struct** into NULL
 // when a non-Option field reads NULL — which would silently drop an entry that only carries `key`, and
 // "only `key`" is exactly how a deletion is written.
@@ -59,7 +65,7 @@ use duckfn::DuckStruct;
 #[derive(Clone, Debug, Default, DuckStruct)]
 #[duck(
     sql_name = "qs_translation_entry",
-    create_type = true
+    create_type = "replace"
 )]
 pub(crate) struct TranslationEntry {
     /// 要改写或删除的 key。

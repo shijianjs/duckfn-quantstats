@@ -4,10 +4,13 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 // ============================================================================
 // 报告配置：一个具名 STRUCT 类型，可在 SQL 里直接 cast
 //
-// `#[duck(create_type = true)]` 让 duckfn 在扩展加载期执行
-//   CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...);
+// `#[duck(create_type = "replace")]` 让 duckfn 在扩展加载期执行
+//   CREATE OR REPLACE TYPE "qs_html_report_options" AS STRUCT(...);
 // 之后 SQL 里可以直接写 `{'title': 'x'}::qs_html_report_options`，
 // 也可以把 JSON 字符串转成它（`'{"title": "x"}'::JSON::qs_html_report_options`）。
+//
+// 用 replace 而不是 `true`（`CREATE TYPE IF NOT EXISTS`）：字段一变，遗留的旧类型会让 cast 悄悄按旧
+// 字段解析；`qs_` 前缀已把撞名压到几乎不可能，覆盖因此比保留安全。
 //
 // 字段**全部**是 `Option<T>`，这是硬要求：DuckDB 的 struct 字面量缺字段时会补 NULL，
 // 而 duckfn 读到「非 Option 字段为 NULL」时会让**整个 struct** 变成 NULL。那样用户写的
@@ -15,10 +18,12 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 //
 // Report options: a named STRUCT type that SQL can cast to directly.
 //
-// `#[duck(create_type = true)]` makes duckfn run
-//   `CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...)`
+// `#[duck(create_type = "replace")]` makes duckfn run
+//   `CREATE OR REPLACE TYPE "qs_html_report_options" AS STRUCT(...)`
 // at load time, so SQL can write `{'title': 'x'}::qs_html_report_options`, or cast a JSON
-// string to it.
+// string to it. Replace rather than `true` (`CREATE TYPE IF NOT EXISTS`): once the fields change, a
+// leftover old type would make a cast silently parse the old ones, while the `qs_` prefix already
+// makes a name clash all but impossible — overwriting is the safer default.
 //
 // Every field is an `Option<T>` on purpose: DuckDB fills missing keys of a struct literal with NULL,
 // and duckfn turns the **whole struct** into NULL when a non-Option field reads NULL — so a user's
@@ -41,7 +46,7 @@ use quantstats_rs::HtmlReportOptions as ReportOptions;
 #[derive(Clone, Debug, Default, DuckStruct)]
 #[duck(
     sql_name = "qs_html_report_options",
-    create_type = true
+    create_type = "replace"
 )]
 pub(crate) struct QuantstatsHtmlOptions {
     /// 报告标题。缺省沿用 [`ReportOptions::default`]。

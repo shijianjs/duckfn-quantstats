@@ -124,9 +124,11 @@ and the elements go into the child vector through the write path `#[derive(DuckS
 
 ## The options type
 
-`#[duck(create_type = true)]` makes duckfn run
-`CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...)` at load time, which is what makes
-`{'title': 'x'}::qs_html_report_options` (and the JSON form) possible in SQL.
+`#[duck(create_type = "replace")]` makes duckfn run
+`CREATE OR REPLACE TYPE "qs_html_report_options" AS STRUCT(...)` at load time, which is what makes
+`{'title': 'x'}::qs_html_report_options` (and the JSON form) possible in SQL. Replace rather than
+`true` (`CREATE TYPE IF NOT EXISTS`) so a definition change is not shadowed by a leftover old type;
+the `qs_` prefix already makes a name clash all but impossible.
 
 Every field is an `Option<T>` on purpose: DuckDB fills the missing keys of a struct literal with NULL,
 and duckfn turns the **whole struct** into NULL when a non-Option field reads NULL — so a user's

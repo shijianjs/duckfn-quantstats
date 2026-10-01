@@ -102,9 +102,10 @@ DuckDB 渲染 `typeof` 时不加引号。可空的只有三个：`benchmark` 在
 
 ## 配置类型
 
-`#[duck(create_type = true)]` 让 duckfn 在扩展加载期执行
-`CREATE TYPE IF NOT EXISTS "qs_html_report_options" AS STRUCT(...)`，SQL 里才写得出
-`{'title': 'x'}::qs_html_report_options`（以及 JSON 形式）。
+`#[duck(create_type = "replace")]` 让 duckfn 在扩展加载期执行
+`CREATE OR REPLACE TYPE "qs_html_report_options" AS STRUCT(...)`，SQL 里才写得出
+`{'title': 'x'}::qs_html_report_options`（以及 JSON 形式）。用 replace 而不是 `true`
+（`CREATE TYPE IF NOT EXISTS`），是为了让定义变更不被遗留的旧类型遮住；`qs_` 前缀已把撞名压到几乎不可能。
 
 字段**全部**是 `Option<T>`，这是硬要求：DuckDB 的 struct 字面量缺字段时会补 NULL，而 duckfn 读到
 「非 Option 字段为 NULL」时会让**整个 struct** 变成 NULL。那样用户写的 `{'rf': 0.1}` 会整体退化成默认值，
