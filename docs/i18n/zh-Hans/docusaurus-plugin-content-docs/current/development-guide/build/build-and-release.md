@@ -114,7 +114,10 @@ DuckDB 只有在扩展元数据里的版本与**当前引擎**逐字相同时才
 - **DuckDB**：`MainDistributionPipeline.yml` 里的 `duckdb_version`（配合它的 `DUCKDB_VERSION`，后者还
   参与发布产物命名）与 `Makefile` 里的 `TARGET_DUCKDB_VERSION`，两者一起动。版本检查卡的就是它们：
   流水线的测试环境从 PyPI 装**当前**的 DuckDB，所以钉的版本一旦落后于已发布的 DuckDB，构建就会以
-  *“The file was built specifically for DuckDB version …”* 失败。
+  *“The file was built specifically for DuckDB version …”* 失败。这个钉版后面还站着一道检查：C API 的版本
+  检查之外，quack-rs 自己还校验不稳定区的槽位布局，而它只认识布局表里收录过的发行版 ——
+  `QUACK_RS_TARGET_DUCKDB_VERSION`（`Makefile` 从上面的钉版导出）就是用来告诉一个针对全新 DuckDB 编译的
+  构建「布局就是它编译时那份」的。
 - **`@duckdb/duckdb-wasm`**：**内置引擎**是同一个 DuckDB 的那个 dev 构建（两者的版本号没有对应关系）。
   它由 docs kit 钉住 —— 0.4.0 钉的是 `1.33.1-dev64.0`，即 DuckDB v1.5.5 —— 所以 `docs/package.json` 用一条
   `overrides` 把它挪到匹配的构建上，等 kit 出新版再撤（见 `docs/README.md` 的 *Preloaded extensions*）。

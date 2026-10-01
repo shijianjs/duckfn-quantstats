@@ -14,6 +14,14 @@ USE_UNSTABLE_C_API=1
 # 目标 DuckDB 版本 / Target DuckDB version
 TARGET_DUCKDB_VERSION=v1.5.6
 
+# 告诉 quack-rs 这份绑定是按哪个 DuckDB 发行版编译的，好让它的 ABI 检查接受一个**比它布局表更新**的发行版
+# —— DuckDB 一发版、而 quack-rs 还没收录那次不稳定区布局时就是这个情形（quack-rs 自带的脚手架里也有这一行）。
+#
+# Tells quack-rs which DuckDB release these bindings were built against, so its ABI check accepts a release
+# its layout table predates — the case every time DuckDB ships before quack-rs learns that layout. quack-rs'
+# own scaffold emits exactly this line, and it follows `set_duckdb_version`, which rewrites the pin above in CI.
+export QUACK_RS_TARGET_DUCKDB_VERSION = $(TARGET_DUCKDB_VERSION)
+
 all: configure debug
 
 # 引入 DuckDB 提供的 makefile / Include makefiles from DuckDB

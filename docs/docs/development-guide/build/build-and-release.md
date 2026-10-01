@@ -121,7 +121,10 @@ Add a row on every release; the last row is the current one.
   also names the release assets) and `TARGET_DUCKDB_VERSION` in the `Makefile` — they move together.
   They are exactly what the version check enforces: the pipeline's test environment installs the
   current DuckDB from PyPI, so a pin that lags the released DuckDB fails the build with
-  *"The file was built specifically for DuckDB version …"*.
+  *"The file was built specifically for DuckDB version …"*. Two guards sit behind the pin: the C API's
+  version check, and quack-rs' own slot-layout check for the unstable region — quack-rs only knows the
+  releases in its layout table, so `QUACK_RS_TARGET_DUCKDB_VERSION` (exported by the `Makefile` from the
+  pin above) is what tells a build against a brand-new DuckDB that its layout is the compiled one.
 - **`@duckdb/duckdb-wasm`** is the dev build whose *bundled* engine is that same DuckDB (the two are
   unrelated version numbers). The docs kit pins it — 0.4.0 pins `1.33.1-dev64.0`, i.e. DuckDB v1.5.5 —
   so `docs/package.json` carries an `overrides` entry that moves it to the matching build until a kit
