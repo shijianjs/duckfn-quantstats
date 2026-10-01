@@ -4,7 +4,7 @@
 # 触发面三种：PR（只构建 + 测试，不发布 —— 发布那条由下面 `github-release` 的 `if` 把着）、
 # 版本 tag（构建后发布 Release）、手动触发。推 main **不**构建，那一段是有意注释掉的。
 #
-# 推一个版本 tag（例如 `git tag v0.1.0 && git push origin v0.1.0`）会为所有支持的平台构建扩展，然后
+# 推一个版本 tag（例如 `git tag v0.2.0 && git push origin v0.2.0`）会为所有支持的平台构建扩展，然后
 # 为该 tag 发布一个 GitHub Release，把构建出的扩展二进制全部作为 release 资产挂上去。
 #
 # This workflow calls the main distribution pipeline from DuckDB to build the extension and publishes a
@@ -12,7 +12,7 @@
 # the `if` on `github-release` below), on version tags (build, then publish) and on a manual dispatch;
 # pushes to main deliberately build nothing (that trigger is commented out).
 #
-# Pushing a version tag (e.g. v0.1.0) builds the extension for every supported platform and then publishes
+# Pushing a version tag (e.g. v0.2.0) builds the extension for every supported platform and then publishes
 # a GitHub Release for that tag, with all built extension binaries attached as release assets.
 #
 name: Main Extension Distribution Pipeline

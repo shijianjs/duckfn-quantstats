@@ -4,4 +4,4 @@
 // {{EXTENSION_VERSION}}，由 duckfn-docs-kit 的 remark 插件在构建时替换
 // （注册处见 docusaurus.config.ts 的 remarkPlugins）。
 // 发版时 `just release_bump X.Y.Z` 会连同它一起更新（scripts/release.sh 单独改这个文件）。
-export const EXTENSION_VERSION = '0.1.0';
+export const EXTENSION_VERSION = '0.2.0';
