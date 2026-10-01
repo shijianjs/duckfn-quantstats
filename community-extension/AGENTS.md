@@ -75,7 +75,9 @@ gh pr create --repo duckdb/community-extensions --base main --head shijianjs:add
   --title '…' --body-file …
 ```
 
-- 首次提交的 PR：<https://github.com/duckdb/community-extensions/pull/2778>（2026-09-23，只加那两张文件）。
+- 首次提交的 PR：<https://github.com/duckdb/community-extensions/pull/2778>（2026-09-23，只加那两张文件，已合并）。
+- 更新到 v0.2.0 的 PR：<https://github.com/duckdb/community-extensions/pull/2884>（2026-10-01，按上面那句「另开一个」走：
+  分支 `update-duckfn-quantstats-0.2.0`，基于当时的 `upstream/main`）。
 - **每次发版都要回来改这一行**：`repo.ref` 换成新发布提交的 SHA（`git rev-list -n 1 v0.1.1`），
   `version` 跟着改成 `0.1.1`，改完在本仓 `community-extension/` 里改，再复制进那份克隆，推到同一条 PR 分支
   （PR 会自动更新）或另开一个。注册项钉的是具体提交，不会自己跟。
