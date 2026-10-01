@@ -104,6 +104,31 @@ because it is not signed by DuckDB's distribution key. That is what the
 [community-extension](../publishing/community-extension.md) route fixes: once registered, `INSTALL … FROM community`
 fetches a signed build for the user's platform.
 
+## Version matrix
+
+DuckDB loads an extension only when the version written into its metadata is the exact version of the
+running engine, so every release pins one DuckDB — and the WebAssembly runtime the documentation site
+preloads that extension into has to be the build with the same engine:
+
+| Extension | DuckDB (built and tested against) | `@duckdb/duckdb-wasm` |
+| --- | --- | --- |
+| v0.1.0 | v1.5.5 | 1.33.1-dev64.0 |
+| v0.2.0 | v1.5.6 | 1.33.1-dev65.0 |
+
+Add a row on every release; the last row is the current one.
+
+- **DuckDB** is `duckdb_version` in `MainDistributionPipeline.yml` (with its `DUCKDB_VERSION`, which
+  also names the release assets) and `TARGET_DUCKDB_VERSION` in the `Makefile` — they move together.
+  They are exactly what the version check enforces: the pipeline's test environment installs the
+  current DuckDB from PyPI, so a pin that lags the released DuckDB fails the build with
+  *"The file was built specifically for DuckDB version …"*.
+- **`@duckdb/duckdb-wasm`** is the dev build whose *bundled* engine is that same DuckDB (the two are
+  unrelated version numbers). The docs kit pins it — 0.4.0 pins `1.33.1-dev64.0`, i.e. DuckDB v1.5.5 —
+  so `docs/package.json` carries an `overrides` entry that moves it to the matching build until a kit
+  release catches up (see `docs/README.md`, *Preloaded extensions*).
+- To find out which engine a build really bundles, ask it: `duckdb-node-blocking.cjs` inside the
+  package runs one `SELECT version()` under Node, no browser needed.
+
 ## WebAssembly
 
 ```shell

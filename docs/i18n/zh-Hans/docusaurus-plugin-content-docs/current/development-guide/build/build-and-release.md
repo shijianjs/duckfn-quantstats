@@ -99,6 +99,28 @@ LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/du
 [社区扩展](../publishing/community-extension.md)那条路解决的就是这件事：注册之后，
 `INSTALL … FROM community` 会取回与用户平台匹配的签名产物。
 
+## 版本对应
+
+DuckDB 只有在扩展元数据里的版本与**当前引擎**逐字相同时才会加载它，所以每一版都钉住一个 DuckDB ——
+而文档站把那个扩展预加载进去的 WebAssembly 运行时，必须是**同一个引擎**的那个构建：
+
+| 扩展版本 | DuckDB（构建与测试所用） | `@duckdb/duckdb-wasm` |
+| --- | --- | --- |
+| v0.1.0 | v1.5.5 | 1.33.1-dev64.0 |
+| v0.2.0 | v1.5.6 | 1.33.1-dev65.0 |
+
+每发一版补一行，最后一行就是当前版本。
+
+- **DuckDB**：`MainDistributionPipeline.yml` 里的 `duckdb_version`（配合它的 `DUCKDB_VERSION`，后者还
+  参与发布产物命名）与 `Makefile` 里的 `TARGET_DUCKDB_VERSION`，两者一起动。版本检查卡的就是它们：
+  流水线的测试环境从 PyPI 装**当前**的 DuckDB，所以钉的版本一旦落后于已发布的 DuckDB，构建就会以
+  *“The file was built specifically for DuckDB version …”* 失败。
+- **`@duckdb/duckdb-wasm`**：**内置引擎**是同一个 DuckDB 的那个 dev 构建（两者的版本号没有对应关系）。
+  它由 docs kit 钉住 —— 0.4.0 钉的是 `1.33.1-dev64.0`，即 DuckDB v1.5.5 —— 所以 `docs/package.json` 用一条
+  `overrides` 把它挪到匹配的构建上，等 kit 出新版再撤（见 `docs/README.md` 的 *Preloaded extensions*）。
+- 想知道某个构建到底内置哪个引擎，直接问它：包里的 `duckdb-node-blocking.cjs` 能在 Node 里跑一句
+  `SELECT version()`，不用浏览器。
+
 ## WebAssembly
 
 ```shell
