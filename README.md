@@ -11,7 +11,8 @@ list.
 No Python, no `pip install quantstats`, no notebook: it is a DuckDB extension, so it runs wherever
 DuckDB runs — Linux, macOS, Windows, and DuckDB-Wasm in the browser.
 
-**Requires DuckDB 1.5 or newer** (built and tested against v1.5.6).
+**Requires DuckDB 1.3 or newer** — built against DuckDB 1.5.5 headers, declaring the C API floor it needs
+(v1.2.0), so one binary loads into 1.3.2 through 1.5.6 alike.
 
 ## Install
 

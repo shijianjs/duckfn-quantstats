@@ -12,8 +12,9 @@ block on this page runs against one snapshot, and every one of them runs *here*,
 
 ## Prerequisites
 
-- **DuckDB 1.5 or newer.** The extension is built against DuckDB 1.5 headers and tested against
-  v1.5.6, so 1.4 is not supported.
+- **DuckDB 1.3 or newer.** The extension is built against DuckDB 1.5.5 headers, but the version it
+  carries is a floor rather than an exact match: it was measured on 1.3.2, 1.4.0, 1.4.5, 1.5.0, 1.5.5
+  and 1.5.6.
 - Any way to send SQL to it. These pages use the `duckdb` CLI, but a Python/Java/Node client or a GUI
   works the same.
 

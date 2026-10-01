@@ -162,8 +162,8 @@ function badges(repoUrl: string): HeroBadge[] {
     },
     {
       href: 'https://duckdb.org',
-      src: 'https://img.shields.io/badge/DuckDB-1.5%2B-14459b.svg?style=flat',
-      alt: 'DuckDB 1.5 or newer',
+      src: 'https://img.shields.io/badge/DuckDB-1.3%2B-14459b.svg?style=flat',
+      alt: 'DuckDB 1.3 or newer',
     },
   ];
 }
@@ -257,7 +257,7 @@ function featuresContent(): FeaturesContent {
           id: 'homepage.features.output.details',
           description: 'Home page feature card description',
           message:
-            "output_dir writes every report through DuckDB's VFS (local disk, s3://, wasm) with a never-colliding name the function generates; open_in_browser opens them once they are there.",
+            "output_dir writes every report to a local folder, under a never-colliding name the function generates; open_in_browser opens them once they are there.",
         }),
       },
       {

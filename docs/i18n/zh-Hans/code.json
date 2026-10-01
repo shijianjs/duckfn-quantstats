@@ -601,7 +601,7 @@
     "description": "Home page feature card title"
   },
   "homepage.features.output.details": {
-    "message": "output_dir 经 DuckDB 的 VFS 落盘（本地、s3://、wasm 都行），文件名由函数生成且永不覆盖；open_in_browser 在文件就位后直接打开。",
+    "message": "output_dir 把每份报告落到本地目录，文件名由函数生成且永不覆盖；open_in_browser 在文件就位后直接打开。",
     "description": "Home page feature card description"
   },
   "homepage.features.platform.title": {

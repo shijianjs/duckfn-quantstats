@@ -101,10 +101,13 @@ LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/du
 
 ## 版本对应
 
-本扩展只待在 DuckDB C API 的**稳定区**里（`Makefile` 里的 `USE_UNSTABLE_C_API=0`），所以元数据里带的是引擎
-版本的**下限**、而不是逐字匹配：针对 v1.5.5 构建的产物在 1.5.6 引擎里照常加载，并跑完全部 sqllogictest。
-因此钉版不必追赶上游的每个 DuckDB 发行版 —— 它记录的是「构建与测试所依据的那个发行版」，以及文档站预加载
-用的 WebAssembly 运行时必须是哪个引擎：
+本扩展只待在 DuckDB C API 的**稳定区**里（`Makefile` 里的 `USE_UNSTABLE_C_API=0`），这改变了元数据里那一栏的
+含义：`abi_type = C_STRUCT` 下它被当作 **C API 版本**读，不是 DuckDB 发行版本号，引擎只在自身 C API 更旧时才
+拒绝加载。因此 `Makefile` 钉的是 `v1.2.0` —— DuckDB 1.3.2 ~ 1.5.5 共同停留的 C API 版本，一份产物通吃：实测在
+1.3.2、1.4.0、1.4.5、1.5.0、1.5.5、1.5.6 上都能加载并跑通真实调用。在那里改填发行版本号（v1.5.6），就只有那个
+引擎肯收 —— 正是这里想避免的绑定。
+
+下表记录的是「构建与测试所依据的发行版」，以及文档站预加载用的 WebAssembly 运行时必须是哪个引擎：
 
 | 扩展版本 | DuckDB（构建与测试所用） | `@duckdb/duckdb-wasm` |
 | --- | --- | --- |
@@ -114,11 +117,11 @@ LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/du
 每发一版补一行，最后一行就是当前版本。
 
 - **DuckDB**：`MainDistributionPipeline.yml` 里的 `duckdb_version`（配合它的 `DUCKDB_VERSION`，后者还
-  参与发布产物命名）与 `Makefile` 里的 `TARGET_DUCKDB_VERSION`，两者一起动。它既是头文件的来源，也是写进
-  扩展元数据的那个号（`append_extension_metadata.py -dv`，以及传给 cargo 的
-  `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION`），所以引擎只要**不低于**它即可。不稳定区关着的时候，产物里没有
-  任何地方去读引擎的确切版本：quack-rs 的槽位布局检查在发问之前就返回 `StableOnly`（`quack-rs/src/abi.rs`），
-  `Makefile` 里那个 `QUACK_RS_TARGET_DUCKDB_VERSION` 导出因此也就不需要了。
+  参与发布产物命名）—— 它决定 CI 签出哪份 DuckDB 源码、测试跑在哪个引擎上。它**不再**等于 `Makefile` 里的
+  `TARGET_DUCKDB_VERSION`：后者携带的是声明的 C API 下限（`append_extension_metadata.py -dv`），在头文件下限
+  动之前一直是 `v1.2.0`。头文件本身来自 `Cargo.toml` 钉的 `libduckdb-sys`（1.10505.0 → DuckDB 1.5.5）。不稳定
+  区关着的时候，产物里没有任何地方去读引擎的确切版本：quack-rs 的槽位布局检查在发问之前就返回 `StableOnly`
+  （`quack-rs/src/abi.rs`），`Makefile` 里那个 `QUACK_RS_TARGET_DUCKDB_VERSION` 导出因此也就不需要了。
 - **本地光改钉版不够**：`configure/venv` 是一次性的目录戳，`make` 之后不会再刷新里面的测试运行器。改完钉版
   要在原地升级它（`configure/venv/Scripts/python -m pip install --upgrade "duckdb==<新版本>"`，别的平台是
   `bin/python3`），否则刚构建出来的扩展会被那个落后的运行器拒绝加载。
