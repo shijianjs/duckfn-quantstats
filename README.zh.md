@@ -9,7 +9,7 @@
 不用 Python、不用 `pip install quantstats`、不用 notebook：它是 DuckDB 扩展，所以 DuckDB 能跑的地方
 它就能跑 —— Linux、macOS、Windows，以及浏览器里的 DuckDB-Wasm。
 
-**要求 DuckDB 1.5 及以上**（本扩展在 v1.5.5 上构建与测试）。
+**要求 DuckDB 1.5 及以上**（本扩展在 v1.5.6 上构建与测试）。
 
 ## 安装
 

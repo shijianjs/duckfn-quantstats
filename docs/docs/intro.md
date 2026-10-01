@@ -24,7 +24,7 @@ LOAD duckfn_quantstats;                     -- afterwards, this is all a session
 ```
 
 :::tip[DuckDB 1.5 or newer]
-The extension is built and tested against v1.5.5, and its dependency tree turns on duckfn's
+The extension is built and tested against v1.5.6, and its dependency tree turns on duckfn's
 `duckdb-1-5` feature — the unstable part of DuckDB's C API — so 1.4 is not supported.
 :::
 

@@ -33,7 +33,7 @@ jobs:
     name: Build extension binaries
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
     with:
-      duckdb_version: v1.5.5
+      duckdb_version: v1.5.6
       ci_tools_version: v1.5-variegata
       extension_name: duckfn_quantstats
       extra_toolchains: rust;python3
@@ -65,7 +65,7 @@ jobs:
       # 与上面 `duckdb_version` 一致：它也是 ci-tools 给产物命名时用的那一段。
       #
       # Must match `duckdb_version` above: it is also the segment ci-tools uses to name the artifacts.
-      DUCKDB_VERSION: v1.5.5
+      DUCKDB_VERSION: v1.5.6
     steps:
       # 取回全部 tag：生成 release notes 时要知道「上一个版本 tag 是哪个」。
       #

@@ -37,6 +37,9 @@
     "@types/react": "^19.0.0",
     "typescript": "~6.0.2"
   },
+  "overrides": {
+    "@duckdb/duckdb-wasm": "1.33.1-dev65.0"
+  },
   "browserslist": {
     "production": [
       ">0.5%",

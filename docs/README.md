@@ -129,8 +129,12 @@ deployment, which waits for the pipeline, then preloads). Release downloads are 
 `.cache/duckfn-docs-kit/` and only re-fetched when the release asset's sha256 changes. Both `.cache/`
 and `static/duckdb-extensions/` are gitignored — a file placed there by hand needs `git add -f`.
 
-The extension is built by CI for DuckDB v1.5.5; the kit pins `@duckdb/duckdb-wasm` to the exact dev
-build whose engine matches. When either side moves, re-check that the live blocks still run.
+The extension is built by CI for DuckDB v1.5.6, and the wasm runtime it is preloaded into has to match:
+the kit pins `@duckdb/duckdb-wasm` to an exact dev build whose bundled engine is the same DuckDB
+(0.4.0 pins `1.33.1-dev64.0`, i.e. v1.5.5), so `docs/package.json` carries an `overrides` entry
+forcing `1.33.1-dev65.0` (= v1.5.6) — drop it once a kit release moves the pin itself. Which engine a
+build actually bundles is one `SELECT version()` away: `duckdb-node-blocking.cjs` in the package runs
+it under Node. When either side moves, re-check that the live blocks still run.
 
 ## Testing the examples
 

@@ -77,7 +77,7 @@ quack-rs = "0.16.0"
 # 也就是 C API 的**不稳定区**（标量 bind/init、copy 函数、客户端上下文……），那些槽位只在 1.5.x 里
 # 存在，1.4 的槽位布局不同。落盘本身已经不吃这一条了（走 `std::fs`，见上面），但依赖树仍然打开着它。
 # libduckdb-sys 把 DuckDB 版本编码成
-# `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，1.5.5 → 1.10505.0），
+# `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，1.5.6 → 1.10506.0），
 # 于是 `>=1.10500` 就是「DuckDB >= 1.5」，并且排除掉 1.10404.0（= 1.4.4）。
 #
 # `loadable-extension` dispatches through DuckDB's API table instead of linking
@@ -88,7 +88,7 @@ quack-rs = "0.16.0"
 # context, …), whose slots only exist in 1.5.x — 1.4 lays that region out differently. Persistence no
 # longer has a stake in it (it uses `std::fs`, see above); the dependency tree still turns it on.
 # libduckdb-sys encodes a DuckDB version as
-# `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 1.5.5 → 1.10505.0), so `>=1.10500`
+# `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 1.5.6 → 1.10506.0), so `>=1.10500`
 # means "DuckDB >= 1.5" and rules out 1.10404.0 (= 1.4.4).
 libduckdb-sys = { version = ">=1.10500, <2", features = ["loadable-extension"] }
 quantstats-rs = "0.1.0"

@@ -12,7 +12,7 @@ EXTENSION_NAME=duckfn_quantstats
 USE_UNSTABLE_C_API=1
 
 # 目标 DuckDB 版本 / Target DuckDB version
-TARGET_DUCKDB_VERSION=v1.5.5
+TARGET_DUCKDB_VERSION=v1.5.6
 
 all: configure debug
 

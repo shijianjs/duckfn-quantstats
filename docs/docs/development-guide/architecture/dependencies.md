@@ -26,8 +26,8 @@ it is responsible for.
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension`
   enabled — so **no local DuckDB build is required**. The version floor is `>= 1.10500` (DuckDB 1.5.0:
-  the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.5 is
-  `1.10505.0`), because `all` switches on duckfn's `duckdb-1-5` feature — the unstable region of the C
+  the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.6 is
+  `1.10506.0`), because `all` switches on duckfn's `duckdb-1-5` feature — the unstable region of the C
   API (scalar bind/init, copy functions, the client context), whose slots only exist in 1.5.x.
   Persistence no longer has a stake in that floor; the dependency tree still turns the feature on.
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes

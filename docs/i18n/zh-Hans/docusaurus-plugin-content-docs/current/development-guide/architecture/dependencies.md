@@ -23,7 +23,7 @@ description: 哪个 crate 负责哪一段，以及每个为什么被选中。
   引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
   因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
-  编码成 `1.<major*10000 + minor*100 + patch>.0`，1.5.5 就是 `1.10505.0`），因为 `all` 会打开 duckfn 的
+  编码成 `1.<major*10000 + minor*100 + patch>.0`，1.5.6 就是 `1.10506.0`），因为 `all` 会打开 duckfn 的
   `duckdb-1-5` feature —— C API 的**不稳定区**（标量 bind/init、copy 函数、客户端上下文），那些槽位只在
   1.5.x 里存在。落盘已经不再吃这条下限了，但依赖树仍然开着它。
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`

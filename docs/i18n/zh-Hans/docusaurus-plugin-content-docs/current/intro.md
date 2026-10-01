@@ -22,7 +22,7 @@ LOAD duckfn_quantstats;                     -- 之后每个会话只要这一句
 ```
 
 :::tip[DuckDB 1.5 及以上]
-本扩展在 v1.5.5 上构建与测试，且依赖打开了 duckfn 的 `duckdb-1-5` feature（C API 的不稳定区），
+本扩展在 v1.5.6 上构建与测试，且依赖打开了 duckfn 的 `duckdb-1-5` feature（C API 的不稳定区），
 所以不支持 1.4。
 :::
 
