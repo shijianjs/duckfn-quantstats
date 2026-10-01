@@ -106,9 +106,11 @@ fetches a signed build for the user's platform.
 
 ## Version matrix
 
-DuckDB loads an extension only when the version written into its metadata is the exact version of the
-running engine, so every release pins one DuckDB — and the WebAssembly runtime the documentation site
-preloads that extension into has to be the build with the same engine:
+This extension stays inside the **stable region of DuckDB's C API** (`USE_UNSTABLE_C_API=0` in the
+`Makefile`), so the version its metadata carries is a floor rather than an exact match: a build made
+against v1.5.5 loads into a 1.5.6 engine and passes the whole sqllogictest suite. A pin therefore does
+not have to chase every upstream DuckDB release — it records which release the build and the tests
+rest on, and which engine the documentation site's WebAssembly runtime has to be:
 
 | Extension | DuckDB (built and tested against) | `@duckdb/duckdb-wasm` |
 | --- | --- | --- |
@@ -119,12 +121,12 @@ Add a row on every release; the last row is the current one.
 
 - **DuckDB** is `duckdb_version` in `MainDistributionPipeline.yml` (with its `DUCKDB_VERSION`, which
   also names the release assets) and `TARGET_DUCKDB_VERSION` in the `Makefile` — they move together.
-  They are exactly what the version check enforces: the pipeline's test environment installs the
-  current DuckDB from PyPI, so a pin that lags the released DuckDB fails the build with
-  *"The file was built specifically for DuckDB version …"*. Two guards sit behind the pin: the C API's
-  version check, and quack-rs' own slot-layout check for the unstable region — quack-rs only knows the
-  releases in its layout table, so `QUACK_RS_TARGET_DUCKDB_VERSION` (exported by the `Makefile` from the
-  pin above) is what tells a build against a brand-new DuckDB that its layout is the compiled one.
+  It is where the headers come from and the number written into the extension's metadata
+  (`append_extension_metadata.py -dv`, plus `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION` to cargo), so the
+  engine only has to be *at least* that. Nothing in the built extension reads the engine's exact version
+  while the unstable region is off: quack-rs' slot-layout guard returns `StableOnly` before it ever asks
+  (`quack-rs/src/abi.rs`), which is why the `QUACK_RS_TARGET_DUCKDB_VERSION` export is gone from the
+  `Makefile`.
 - **Locally, moving the pin is not enough**: `configure/venv` is a one-time directory stamp, so `make`
   never refreshes the test runner inside it. After a bump, upgrade it in place
   (`configure/venv/Scripts/python -m pip install --upgrade "duckdb==<new version>"`, `bin/python3` on

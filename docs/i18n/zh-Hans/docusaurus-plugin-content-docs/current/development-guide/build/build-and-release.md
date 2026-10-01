@@ -101,8 +101,10 @@ LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/du
 
 ## 版本对应
 
-DuckDB 只有在扩展元数据里的版本与**当前引擎**逐字相同时才会加载它，所以每一版都钉住一个 DuckDB ——
-而文档站把那个扩展预加载进去的 WebAssembly 运行时，必须是**同一个引擎**的那个构建：
+本扩展只待在 DuckDB C API 的**稳定区**里（`Makefile` 里的 `USE_UNSTABLE_C_API=0`），所以元数据里带的是引擎
+版本的**下限**、而不是逐字匹配：针对 v1.5.5 构建的产物在 1.5.6 引擎里照常加载，并跑完全部 sqllogictest。
+因此钉版不必追赶上游的每个 DuckDB 发行版 —— 它记录的是「构建与测试所依据的那个发行版」，以及文档站预加载
+用的 WebAssembly 运行时必须是哪个引擎：
 
 | 扩展版本 | DuckDB（构建与测试所用） | `@duckdb/duckdb-wasm` |
 | --- | --- | --- |
@@ -112,12 +114,11 @@ DuckDB 只有在扩展元数据里的版本与**当前引擎**逐字相同时才
 每发一版补一行，最后一行就是当前版本。
 
 - **DuckDB**：`MainDistributionPipeline.yml` 里的 `duckdb_version`（配合它的 `DUCKDB_VERSION`，后者还
-  参与发布产物命名）与 `Makefile` 里的 `TARGET_DUCKDB_VERSION`，两者一起动。版本检查卡的就是它们：
-  流水线的测试环境从 PyPI 装**当前**的 DuckDB，所以钉的版本一旦落后于已发布的 DuckDB，构建就会以
-  *“The file was built specifically for DuckDB version …”* 失败。这个钉版后面还站着一道检查：C API 的版本
-  检查之外，quack-rs 自己还校验不稳定区的槽位布局，而它只认识布局表里收录过的发行版 ——
-  `QUACK_RS_TARGET_DUCKDB_VERSION`（`Makefile` 从上面的钉版导出）就是用来告诉一个针对全新 DuckDB 编译的
-  构建「布局就是它编译时那份」的。
+  参与发布产物命名）与 `Makefile` 里的 `TARGET_DUCKDB_VERSION`，两者一起动。它既是头文件的来源，也是写进
+  扩展元数据的那个号（`append_extension_metadata.py -dv`，以及传给 cargo 的
+  `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION`），所以引擎只要**不低于**它即可。不稳定区关着的时候，产物里没有
+  任何地方去读引擎的确切版本：quack-rs 的槽位布局检查在发问之前就返回 `StableOnly`（`quack-rs/src/abi.rs`），
+  `Makefile` 里那个 `QUACK_RS_TARGET_DUCKDB_VERSION` 导出因此也就不需要了。
 - **本地光改钉版不够**：`configure/venv` 是一次性的目录戳，`make` 之后不会再刷新里面的测试运行器。改完钉版
   要在原地升级它（`configure/venv/Scripts/python -m pip install --upgrade "duckdb==<新版本>"`，别的平台是
   `bin/python3`），否则刚构建出来的扩展会被那个落后的运行器拒绝加载。

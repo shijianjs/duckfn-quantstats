@@ -12,8 +12,8 @@ block on this page runs against one snapshot, and every one of them runs *here*,
 
 ## Prerequisites
 
-- **DuckDB 1.5 or newer.** The host file system behind `output_dir` only reached DuckDB's C API in
-  1.5, so 1.4 is not supported; the extension is built and tested against v1.5.6.
+- **DuckDB 1.5 or newer.** The extension is built against DuckDB 1.5 headers and tested against
+  v1.5.6, so 1.4 is not supported.
 - Any way to send SQL to it. These pages use the `duckdb` CLI, but a Python/Java/Node client or a GUI
   works the same.
 

@@ -11,10 +11,14 @@ and write down why a dependency is there. Every entry below has a comment in `Ca
 it is responsible for.
 
 - [duckfn](https://crates.io/crates/duckfn): attribute macros that register ordinary Rust functions
-  with DuckDB. The dependency turns on `all` (duckfn's common features at once) and deliberately **not**
-  `owned-connection` — that one is what brings in `duck_vfs`, duckfn's host file system, and nothing
-  here needs it: persistence is `std::fs` on a native build and skipped altogether on wasm (see
-  [Design notes](./design-notes.md)). What this extension uses is:
+  with DuckDB. The dependency names its two features explicitly, `cli` and `chrono`, and deliberately
+  avoids `all`: `all` also turns on `duckdb-1-5` (the same switch in quack-rs), the **unstable region**
+  of the C API — copy functions, the host VFS, the scalar bind/init slots — and staying out of that
+  region is what lets a later DuckDB release load the binary (see the `USE_UNSTABLE_C_API=0` note in
+  the `Makefile`). `owned-connection`, which is what brings in `duck_vfs` since 0.0.15, is not needed
+  either: persistence is `std::fs` on a native build and skipped altogether on wasm (see
+  [Design notes](./design-notes.md)), so there is no use for a host file system. What this extension
+  uses is:
   - `chrono`, which converts the time wrapper types (`DuckDate::to_naive_date` and friends);
   - `DuckLazySlot<T>`, which turns "parse the DuckLazy argument once" into a type;
   - `cli`, the command-line tool behind `src/bin/duckfn.rs` (it pulls clap and csv into duckfn).
@@ -27,9 +31,10 @@ it is responsible for.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension`
   enabled — so **no local DuckDB build is required**. The version floor is `>= 1.10500` (DuckDB 1.5.0:
   the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.6 is
-  `1.10506.0`), because `all` switches on duckfn's `duckdb-1-5` feature — the unstable region of the C
-  API (scalar bind/init, copy functions, the client context), whose slots only exist in 1.5.x.
-  Persistence no longer has a stake in that floor; the dependency tree still turns the feature on.
+  `1.10506.0`), which is the release this build rests on. duckfn and quack-rs each carry a
+  `>=1.4.4, <2` floor of their own; holding it tighter here is this project's own choice, and it pins
+  which headers the dependency tree uses. It is no longer driven by the `duckdb-1-5` feature — that one
+  is off (see the `duckfn` entry above).
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes
   only `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is
   unreachable), so both paths are built on it instead of recomputing metrics — that would create a
