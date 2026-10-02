@@ -1,7 +1,7 @@
 extension:
   name: duckfn_quantstats
   description: Complete quantstats HTML tearsheets from SQL - one long table in, one full report per instrument out, benchmarks included
-  version: 0.2.0
+  version: 0.3.0
   language: Rust
   build: cargo
   license: MIT
