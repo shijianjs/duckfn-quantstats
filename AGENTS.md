@@ -336,8 +336,7 @@ just release_tag 0.1.0     # 打 tag v0.1.0，推送 main 与 tag
 ```
 
 `release_tag` 先检查工作区是否干净，再核对 `Cargo.toml` 的 `[package] version` 与 tag 一致 ——
-扩展二进制里的版本号（`cargo duckdb-ext build` 打印的 `Packing Extension Version`）是构建时由 cargo
-写进去的，对不上就会发出一个自称别的版本的 Release。
+扩展二进制里的版本号（`make debug` 追加进扩展元数据的 extension version）是构建时写进去的，对不上就会发出一个自称别的版本的 Release。
 
 推送 tag 触发两个工作流：`.github/workflows/MainDistributionPipeline.yml` 为各平台构建扩展并跑测试，
 然后为该 tag 创建（或更新）GitHub Release，把构建出的 `.duckdb_extension` 全部挂上去（推 main 本身不构建）；

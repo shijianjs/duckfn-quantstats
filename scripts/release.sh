@@ -206,12 +206,12 @@ cmd_tag() {
         die "工作区不干净，先提交再打 tag"
     fi
 
-    # tag 必须与 Cargo.toml 的 [package] version 一致：扩展二进制里的版本号是构建时由 cargo 写进去的
-    # （`cargo duckdb-ext build` 会打印 "Packing Extension Version"），对不上就会发出一个自称别的
+    # tag 必须与 Cargo.toml 的 [package] version 一致：扩展二进制里的版本号是构建时由官方流程
+    # （`make debug` 触发 append_extension_metadata）写进扩展元数据的，对不上就会发出一个自称别的
     # 版本的 Release。
     #
     # The tag must match Cargo.toml's `[package] version`: the version inside the built extension is
-    # written by cargo at build time (`cargo duckdb-ext build` prints "Packing Extension Version"), so a
+    # written at build time by the official flow (`make debug` runs append_extension_metadata), so a
     # mismatch would publish a release claiming another version.
     dev=$(package_version)
     if [ "$dev" != "$version" ]; then
