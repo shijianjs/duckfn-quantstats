@@ -20,6 +20,9 @@
 .env.development.local
 .env.test.local
 .env.production.local
+# Playwright Test output (report viewer + failure traces/screenshots)
+/playwright-report/
+/test-results/
 
 npm-debug.log*
 yarn-debug.log*
