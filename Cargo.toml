@@ -66,7 +66,7 @@ crate-type = ["staticlib"]
 # `rust_decimal` are unused here too. `owned-connection` (which is what brings in `duck_vfs` since
 # 0.0.15) is not needed either: persistence uses `std::fs` and a wasm build skips the whole file
 # operation (see src/extension/functions/aggregate_html/storage.rs), so there is no use for the host VFS.
-duckfn = { version = "0.0.18", features = ["cli", "chrono"] }
+duckfn = { version = "0.0.19", features = ["cli", "chrono"] }
 
 # duckfn 本身就建立在下面两个 crate 之上；需要直接使用它们的类型或 builder 时显式加上。
 # quack-rs：duckfn_entrypoint! 展开出的代码直接引用 `quack_rs::` 路径，必须显式依赖。
@@ -75,7 +75,7 @@ duckfn = { version = "0.0.18", features = ["cli", "chrono"] }
 # types or builders directly.
 # quack-rs: the code expanded by `duckfn_entrypoint!` refers to `quack_rs::` paths,
 # so it must be a direct dependency.
-quack-rs = "0.16.0"
+quack-rs = "0.18.0"
 
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
 # 这也是「无需在本地编译 DuckDB」的原因（仅使用头文件，不链接库）。

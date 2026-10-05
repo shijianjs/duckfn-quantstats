@@ -339,9 +339,9 @@ dependencies = [
 
 [[package]]
 name = "duckfn"
-version = "0.0.18"
+version = "0.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3a9b070d0169a2b436d433f9343525e4de877641cc6ebbb85d1e2f939027c17"
+checksum = "204303b0b719e1030903a0dfbe5392206ecb1ff6459c6f9e0bf38d6f5125d8e1"
 dependencies = [
  "chrono",
  "clap",
@@ -356,9 +356,9 @@ dependencies = [
 
 [[package]]
 name = "duckfn-macro"
-version = "0.0.18"
+version = "0.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e68ef75dccfb5748585256dfb605853ff67794b09aa5c7d5ff4a29e5c2d8fbea"
+checksum = "a64fdc55e20b17b304056a3197fb8a87f06ec3fd3d946f3e870c81ac5350ffb2"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -867,9 +867,9 @@ dependencies = [
 
 [[package]]
 name = "quack-rs"
-version = "0.16.0"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d4bf222b328f61b897441cc4a61c3a4644fb2ca1c8885271a820e56c6680c0e"
+checksum = "dc2e38943b270bcd6c2df14407e226f496b60c7ffa035c11d0b154a7fbf7f6d9"
 dependencies = [
  "cc",
  "libduckdb-sys",
