@@ -302,17 +302,21 @@ const config: Config = {
     // https://docsearch.algolia.com/apply). Uncomment the block below, fill in your own values, and
     // set `algoliaIndexBaseUrl` to the sub-path the index was crawled from (usually `/<repo>/`).
     //
-    // algolia: {
-    //   appId: 'YOUR_APP_ID',
-    //   apiKey: 'YOUR_SEARCH_API_KEY',   // the public search key; safe to commit
-    //   indexName: 'YOUR_INDEX_NAME',
-    //   // The index URLs carry the GitHub Pages sub-path; a deployment served from a domain root
-    //   // (`npm start`) has to drop it again, otherwise hits link to /zh-Hans/<sub-path>/...
-    //   replaceSearchResultPathname: {
-    //     from: '^/duckfn_quantstats/',
-    //     to: '/',
-    //   },
-    // },
+    algolia: {
+      // The application ID provided by Algolia
+      appId: 'J72GU161MT',
+
+      // Public API key: it is safe to commit it
+      apiKey: 'ed529cc7365e034dee6c1359a3ecddda',
+
+      indexName: 'duckfn-quantstats',
+      // The index URLs carry the GitHub Pages sub-path; a deployment served from a domain root
+      // (`npm start`) has to drop it again, otherwise hits link to /zh-Hans/<sub-path>/...
+      replaceSearchResultPathname: {
+        from: '^/duckfn_quantstats/',
+        to: '/',
+      },
+    },
   } satisfies Preset.ThemeConfig,
 };
 
