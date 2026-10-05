@@ -313,7 +313,7 @@ const config: Config = {
       // The index URLs carry the GitHub Pages sub-path; a deployment served from a domain root
       // (`npm start`) has to drop it again, otherwise hits link to /zh-Hans/<sub-path>/...
       replaceSearchResultPathname: {
-        from: '^/duckfn_quantstats/',
+        from: '^/duckfn-quantstats/',
         to: '/',
       },
     },
