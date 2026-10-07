@@ -2,6 +2,8 @@
 
 # duckfn_quantstats
 
+[![Downloads last week](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=downloads%20last%20week&color=blue&logo=duckdb)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
+
 A DuckDB extension that turns a table of prices or returns into **quantstats HTML tearsheets straight
 from SQL**: hand it one date-ordered long table and it groups by `symbol` internally, produces one
 complete report per instrument (and one per benchmark, when the options name several), and returns

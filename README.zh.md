@@ -2,6 +2,8 @@
 
 # duckfn_quantstats
 
+[![上周下载量](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=%E4%B8%8A%E5%91%A8%E4%B8%8B%E8%BD%BD%E9%87%8F&color=blue&logo=duckdb)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
+
 一个 DuckDB 扩展，用 **SQL 直接出 quantstats HTML tearsheet**：把一张按日期排列的长表交给它，
 函数内部按 `symbol` 分组，每个标的产出一份完整的报告（配置里指名基准时，一个标的对几个基准就出几份），
 并把这些报告（连同各自的基准、显示名与实际落盘路径）作为**一个数组**返回。
