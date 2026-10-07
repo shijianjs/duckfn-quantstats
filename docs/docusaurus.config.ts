@@ -178,9 +178,28 @@ const config: Config = {
     dfkTocToggle(),
   ],
 
-  // 搜索是可选的（见下面注释），所以没有为它注册 theme：classic preset 已经注册了
-  // `docusaurus-theme-search-algolia`，`themeConfig.algolia` 一填上它就自己生效 —— 再列一次会以
-  // `Plugin "docusaurus-theme-search-algolia" is used 2 times with ID "default"` 失败。
+  // 搜索在构建期由 `@easyops-cn/docusaurus-search-local` 生成（它的 postBuild，每个 locale 一份
+  // lunr 索引），随站点静态发布 —— 不需要 Algolia 账号、索引申请和 API key，索引与站点永远出自同一次
+  // 构建。放在 `themes`（不是 `plugins`）才能让它的 `SearchBar`/`SearchPage` 盖掉 classic preset 注册
+  // 的 `docusaurus-theme-search-algolia`：站点主题在 preset 之后加载，而后者在没有
+  // `themeConfig.algolia` 时本就是哑的 —— 所以 themeConfig 里也不再需要 `algolia`。
+  themes: [
+    [
+      '@easyops-cn/docusaurus-search-local',
+      {
+        // 已发布的每个 locale 都要列在这里：索引按 locale 分别构建，`zh` 才会打开中文分词（建索引时
+        // 用 jieba，浏览器里走 lunr 的 zh 管线）；不列的话中文页面会被当成无法切分的连续字符。
+        language: ['en', 'zh'],
+        // 打开搜索结果时在目标页面上高亮命中的关键词（mark.js）：命中落在长正文里时，这才是可用的。
+        highlightSearchTermsOnTargetPage: true,
+        // 把索引 hash 放进文件名（而不是 `?_=` 查询串），重新部署后浏览器/Pages 缓存里不会留旧索引。
+        hashed: 'filename',
+        // 本站没有 blog（见上面的 `blog: false`）：不关掉的话插件会去找 `docs/blog/`，每个 locale 报
+        // 一次警告。
+        indexBlog: false,
+      },
+    ],
+  ],
   themeConfig: {
     // Readers can collapse the docs sidebar away; the toggle button appears next to it.
     docs: {
@@ -293,29 +312,6 @@ const config: Config = {
       theme: prismThemes.github,
       darkTheme: prismThemes.dracula,
       additionalLanguages: ['bash', 'rust', 'sql', 'toml'],
-    },
-
-    // 搜索是可选的：本地搜索/托管搜索都行，但都需要先在 Algolia 上建一个 index（DocSearch 免费
-    // 申请：https://docsearch.algolia.com/apply）。建好之后把下面这段的注释去掉、填上自己的值。
-    //
-    // Search is optional and needs an Algolia index first (DocSearch is free:
-    // https://docsearch.algolia.com/apply). Uncomment the block below, fill in your own values, and
-    // set `algoliaIndexBaseUrl` to the sub-path the index was crawled from (usually `/<repo>/`).
-    //
-    algolia: {
-      // The application ID provided by Algolia
-      appId: 'J72GU161MT',
-
-      // Public API key: it is safe to commit it
-      apiKey: 'ed529cc7365e034dee6c1359a3ecddda',
-
-      indexName: 'duckfn-quantstats',
-      // The index URLs carry the GitHub Pages sub-path; a deployment served from a domain root
-      // (`npm start`) has to drop it again, otherwise hits link to /zh-Hans/<sub-path>/...
-      replaceSearchResultPathname: {
-        from: '^/duckfn-quantstats/',
-        to: '/',
-      },
     },
   } satisfies Preset.ThemeConfig,
 };

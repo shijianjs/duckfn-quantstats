@@ -43,8 +43,10 @@ does. The rule is anchored now (`/build`); keep it that way.
 4. `static/img/docusaurus-social-card.jpg` (the preview image) and `static/img/logo.svg`.
 5. The pages under `docs/docs/` and their translations under
    `i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
-6. Optional: search. See the commented `algolia` block in `docusaurus.config.ts`; DocSearch is free but
-   needs an index (https://docsearch.algolia.com/apply).
+6. Search is built in. `docusaurus.config.ts` registers `@easyops-cn/docusaurus-search-local`, which
+   indexes the pages **at build time**, once per locale, into a lunr index whose file name carries a
+   hash; the index ships with the site. There is nothing to sign up for: no account, no API key and no
+   index to request, and therefore no configuration step.
 7. One-time setup in the repository: Settings → Pages → Build and deployment → Source:
    **GitHub Actions**.
 
