@@ -20,6 +20,28 @@ SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，
 写 `main` 的代价是实打实的：构建出来的二进制会自称 main 上的开发版本（`X.Y.Z-dev.N`），与这里声明的 `version`
 对不上，而且同一个注册项在不同时间构建出的是不同代码。
 
+## `repo.ref_next`：下一个大版本那一腿
+
+社区注册表除了正式版那条腿，还跑一条**预发布**腿（他们的 `build_next.yml`：DuckDB 用
+`v2.0-cyanoptera` 分支、ci-tools 用 `main`、并带 `require_ref_next: true`）。这条腿只认描述文件里的
+`repo.ref_next`：没有这个字段就直接跳过，日志里打一句
+`Skipping prerelease validation: repo.ref_next is not defined` —— 也就是那条 PR 什么都没验证。
+
+本扩展对 2.0 的改动落在 **wasm 链接**上：2.0 那一支的 emsdk 里，后链接的 `-O3` 会把模块交给 wasm-opt，
+而它拒绝 emcc 递过来的参数（`Unknown option '--enable-bulk-memory-opt'`），`wasm_eh` / `wasm_mvp` 都停在
+`link_wasm_release`。Makefile 里那份带 `ifneq ($(DUCKDB_WASM_PLATFORM),)` 守卫的 `-O0` 覆盖把 wasm-opt
+整步跳过（与 duckfn-kuva / duckfn-statrs 里是同一处临时措施），所以 `ref_next` 指向**加上这份覆盖之后**的
+提交（`b432271`），而不是与 `ref` 同一个 SHA。
+
+一个已知的本地限制：`test/sql/quantstats/html_reports_values.test` 依赖社区扩展 webbed，而 webbed 目前只为
+**已发布**的引擎发布构建（`community-extensions.duckdb.org` 上没有 2.0 预览版的 webbed，实测 404）。
+用本地 2.0 预览引擎跑整套会挂在 `INSTALL webbed FROM community` 上（其余 5 个文件全过）；CI 的
+`duckdb-next-build` 腿与注册表的预发布腿实测都是绿的 —— 等 2.0 正式发布、webbed 也跟着重建，这条限制
+自然消失，届时不用改这里。
+
+改动 `ref_next` 的时机：先在本仓 `.github/workflows/MainDistributionPipeline.yml` 的 `duckdb-next-build`
+腿下改到绿，再把 `ref_next` 换成那次运行的提交 SHA，改完复制进社区仓那份克隆、推到同一条 PR 分支。
+
 ## 字段为什么这么写（都不是猜的）
 
 - `language: Rust` / `build: cargo`：本仓 Makefile 就是官方 Rust 模板那一套（include
