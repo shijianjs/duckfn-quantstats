@@ -38,6 +38,26 @@ jobs:
       extension_name: duckfn_quantstats
       extra_toolchains: rust;python3
 
+  # 2.0 预发布那一路：DuckDB 与 ci-tools 都取 v2.0-cyanoptera（与上面那条腿同一套配对方式）。
+  # 入口不能沿用 v1.5-variegata —— 老分支的 `_extension_distribution.yml` 会「按 arch 现建 Docker 镜像」，
+  # 而 `docker/linux_*/Dockerfile` 第 4 行的 `yum groupinstall -y "Development Tools"` 现在会挂在 EPEL
+  # 元数据下载上（2026-10-14 实测；三个 ref 的 Dockerfile 逐字相同，所以不是我们代码的问题，重跑即可过）；
+  # 2.0 分支的 workflow 已经没有这一步。只在 tag 之外跑：Release 只挂上面那条 1.5.6 的产物。
+  #
+  # The upcoming-DuckDB leg: DuckDB and ci-tools both from v2.0-cyanoptera, the same pairing the stable leg
+  # above uses. Not v1.5-variegata as the entry ref — that branch still builds a per-arch Docker image whose
+  # `yum groupinstall` step fails on EPEL metadata (the Dockerfile is byte-identical across refs, so it was
+  # never about our code, and a re-run passes); the 2.0 branch no longer has that step. Skipped on tags.
+  duckdb-next-build:
+    name: Build extension binaries (DuckDB 2.0 prerelease)
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
+    with:
+      duckdb_version: v2.0-cyanoptera
+      ci_tools_version: v2.0-cyanoptera
+      extension_name: duckfn_quantstats
+      extra_toolchains: rust;python3
+
   # 发布 GitHub Release：把上面那个 job 为每个平台构建出的扩展二进制挂到当前 tag 的 Release 上
   # （已经有 Release 就只补资产）。关键是那个 `if`：只有当前 ref 是版本 tag 才跑 —— PR 上
   # `github.ref` 是 `refs/pull/<编号>/merge`、推 main 是 `refs/heads/main`，两者都不匹配，所以这两种触发
