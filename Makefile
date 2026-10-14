@@ -67,6 +67,33 @@ all: configure debug
 include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 
+# 覆盖 base.Makefile 的 wasm 链接：把 `-O3` 换成 `-O0`。
+#
+# 必须和 base 一样套 `ifneq ($(DUCKDB_WASM_PLATFORM),)` 守卫：base 只在 wasm 平台把 link_wasm_* 定义成
+# emcc 命令，原生平台走 else 分支得到**空的** link_wasm_*。若无条件重定义，会把原生那条空目标也改成
+# emcc，于是 linux/macos/windows 构建时报 `emcc: command not found`（Error 127）。
+#
+# 换 -O0 的原因：DuckDB 2.0 那一支（ci-tools / DuckDB 的 `v2.0-cyanoptera`）的 emsdk 里，后链接的
+# `-O3` 会把模块交给 wasm-opt 做优化，而它拒绝 emcc 递过来的参数：`Unknown option
+# '--enable-bulk-memory-opt'`（2026-10-14 实测，wasm_eh 与 wasm_mvp 都停在 `link_wasm_release`）。
+# wasm-opt 只是优化器：`-O0` 跳过它，wasm-ld 的产物本身合法、DuckDB-Wasm 能加载运行，只是未经体积优化。
+# 与 duckfn-kuva / duckfn-statrs 里那份覆盖是同一处临时措施，等上游把 emsdk 对齐好就可以整块删掉。
+#
+# Same `ifneq` guard as base.Makefile (base leaves link_wasm_* empty for native platforms, so an
+# unconditional redefinition would make native builds call `emcc` — Error 127). The `-O0` swap: on the
+# DuckDB 2.0 line (ci-tools / DuckDB `v2.0-cyanoptera`) the post-link `-O3` step hands the module to
+# wasm-opt, which rejects the flags emcc passes (`Unknown option '--enable-bulk-memory-opt'`, measured
+# 2026-10-14, wasm_eh and wasm_mvp both dying in `link_wasm_release`). wasm-opt is only an optimizer, so
+# `-O0` skips it and wasm-ld's output stays valid and loadable. Same workaround as duckfn-kuva and
+# duckfn-statrs; delete this block once upstream's emsdk is aligned.
+ifneq ($(DUCKDB_WASM_PLATFORM),)
+link_wasm_debug:
+	emcc $(EXTENSION_BUILD_PATH)/debug/$(EXTENSION_LIB_FILENAME) -o $(EXTENSION_BUILD_PATH)/debug/$(EXTENSION_FILENAME_NO_METADATA) -O0 -g -sSIDE_MODULE=2 -sEXPORTED_FUNCTIONS="_$(EXTENSION_NAME)_init_c_api"
+
+link_wasm_release:
+	emcc $(EXTENSION_BUILD_PATH)/release/$(EXTENSION_LIB_FILENAME) -o $(EXTENSION_BUILD_PATH)/release/$(EXTENSION_FILENAME_NO_METADATA) -O0 -sSIDE_MODULE=2 -sEXPORTED_FUNCTIONS="_$(EXTENSION_NAME)_init_c_api"
+endif
+
 configure: venv platform extension_version
 
 debug: build_extension_library_debug build_extension_with_metadata_debug
