@@ -33,11 +33,12 @@ SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，
 整步跳过（与 duckfn-kuva / duckfn-statrs 里是同一处临时措施），所以 `ref_next` 指向**加上这份覆盖之后**的
 提交（`b432271`），而不是与 `ref` 同一个 SHA。
 
-一个已知的本地限制：`test/sql/quantstats/html_reports_values.test` 依赖社区扩展 webbed，而 webbed 目前只为
-**已发布**的引擎发布构建（`community-extensions.duckdb.org` 上没有 2.0 预览版的 webbed，实测 404）。
-用本地 2.0 预览引擎跑整套会挂在 `INSTALL webbed FROM community` 上（其余 5 个文件全过）；CI 的
-`duckdb-next-build` 腿与注册表的预发布腿实测都是绿的 —— 等 2.0 正式发布、webbed 也跟着重建，这条限制
-自然消失，届时不用改这里。
+一个已知的本地限制：`test/sql/quantstats/html_reports_values.test` 依赖社区扩展 webbed，而 webbed 的构建是
+**按引擎版本 + 平台**发的：本机那个 PyPI 预览轮子（引擎自称 `v2.0.0-alpha43763`）没有对应的 webbed 构建，
+`INSTALL webbed FROM community` 直接 404（实测；其余 5 个文件全过）。CI 里没这个问题 —— 真正跑 sqllogictest
+的那两个平台（macOS arm64、Windows amd64）上这个文件是 `SUCCESS`；linux 上 ci-tools 本来就跳过测试
+（见 `.github/workflows/MainDistributionPipeline.yml` 里 `duckdb-next-build` 的注记）。也就是说这条限制只取决于
+「当前引擎那个具体版本号有没有 webbed 构建」，不是 2.0 本身的问题 —— 换一个 webbed 有构建的预览版本就不复现。
 
 改动 `ref_next` 的时机：先在本仓 `.github/workflows/MainDistributionPipeline.yml` 的 `duckdb-next-build`
 腿下改到绿，再把 `ref_next` 换成那次运行的提交 SHA，改完复制进社区仓那份克隆、推到同一条 PR 分支。
