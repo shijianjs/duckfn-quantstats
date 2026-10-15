@@ -1,0 +1,69 @@
+#
+# Checks the docs site (docs/ is its own npm project, not a workspace root): install, typecheck, build.
+#
+# Why it exists: the Rust workflows carry `paths` filters, so a pull request that only touches the docs
+# — a Dependabot bump, say — would otherwise run nothing at all. These are the same steps the deploy
+# runs, minus the publish.
+#
+# What it deliberately does *not* run: `npm test` (the Playwright suite over the site's runnable SQL
+# blocks). That one needs the wasm extension and stays a local command (`just test_wasm`), which is the
+# same call duckfn's own repository makes.
+name: npm checks
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - '.github/workflows/NpmChecks.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/NpmChecks.yml'
+  workflow_dispatch:
+
+# `contents: read` is what the release-asset fetch in the Build step authenticates with.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: typecheck, build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Same major as the docs deploy (DeployDocs.yml): "green here" then means "green there".
+          node-version: 22
+          cache: npm
+          # The docs site is a standalone npm project: its lockfile lives in docs/, not at the root.
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install dependencies
+        working-directory: docs
+        # `npm ci` also fails when the lockfile and package.json disagree, which is the check that
+        # catches a hand-edited manifest.
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: docs
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: docs
+        # The site preloads `<extension>.duckdb_extension.wasm`, and that file is *not* in the
+        # repository (docs/.gitignore ignores static/duckdb-extensions/; a local build writes it there,
+        # the Pages deploy fetches it). Pointing the entry at the release — the same two lines
+        # DeployDocs uses — is what lets a checkout build the site at all.
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          DOCS_EXTENSION_FROM_RELEASE: '1'
+        run: npm run build
