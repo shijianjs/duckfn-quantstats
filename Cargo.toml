@@ -158,7 +158,7 @@ fastrand = "2.5"
 # upstream MSRV mistake. 2.8/2.9 carry the same code; 2.7.0 is the last version that compiles on 1.86
 # (`lol_html@3` fails with E0658 in its own dispatcher.rs). Moving up means raising this project's MSRV and the
 # CI toolchain with it.
-lol_html = "=2.7.0"
+lol_html = "=3.0.1"
 
 # 下面两个只服务配置里的 `open_in_browser`（用系统默认浏览器打开报告），各管一段：
 #
