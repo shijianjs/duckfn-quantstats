@@ -215,13 +215,17 @@ fn rewrite(
         apply_header_fragments,
     ));
 
-    // `RewriteStrSettings` 的字段是公开的，所以直接填那个 vec（2.x 上没有 `append_*` 那套建造者）。
+    // lol_html 3 起 `RewriteStrSettings` 的字段是私有的，装配改走建造者（一次一个 handler）；
+    // 2.x 那年字段公开、可以直接填 vec。本仓库 MSRV 1.88 之后才升得动 3.x（它自己用 let-chains）。
     //
-    // `RewriteStrSettings`' fields are public, so the vector goes straight in (2.x has no `append_*` builders).
-    let settings = RewriteStrSettings {
-        element_content_handlers: handlers,
-        ..RewriteStrSettings::new()
-    };
+    // Since lol_html 3 `RewriteStrSettings`' fields are private, so assembly goes through the builder
+    // (one handler at a time); on 2.x the fields were public and the vector went straight in. 3.x only
+    // became possible once this repository's MSRV was 1.88 (it uses let-chains itself).
+    let settings = handlers
+        .into_iter()
+        .fold(RewriteStrSettings::new(), |settings, handler| {
+            settings.append_element_content_handler(handler)
+        });
 
     rewrite_str(report, settings)
 }
