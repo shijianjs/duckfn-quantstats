@@ -95,8 +95,15 @@ flowchart LR
 
 ### Installing a release
 
-```sql
-LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/duckfn_quantstats-windows_amd64.duckdb_extension';
+The release asset is named `duckfn_quantstats-<platform>.duckdb_extension`, and it has to be renamed before it
+can be loaded: `LOAD` takes an extension name or a local path — it fetches no URLs (`INSTALL '<url>'` is the one
+that downloads) — and DuckDB takes the entry-point symbol from the file name, so the release name fails with
+`did not contain function "duckfn_quantstats-windows_amd64_init_c_api"`.
+
+```shell
+curl -LO https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/duckfn_quantstats-windows_amd64.duckdb_extension
+mv duckfn_quantstats-windows_amd64.duckdb_extension duckfn_quantstats.duckdb_extension
+duckdb -unsigned -c "LOAD './duckfn_quantstats.duckdb_extension';"
 ```
 
 A locally built extension needs `duckdb -unsigned`, and so does a released file a user downloads,

@@ -91,8 +91,14 @@ flowchart LR
 
 ### 安装发布产物
 
-```sql
-LOAD 'https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/duckfn_quantstats-windows_amd64.duckdb_extension';
+Release 里的资产命名是 `duckfn_quantstats-<平台>.duckdb_extension`，加载之前必须改名：`LOAD` 收的是扩展名或
+本地路径 —— 它不会去下载 URL（下载那条路是 `INSTALL '<url>'`）—— 而入口点符号由文件名决定，直接用 Release 里
+的名字会报 `did not contain function "duckfn_quantstats-windows_amd64_init_c_api"`。
+
+```shell
+curl -LO https://github.com/shijianjs/duckfn-quantstats/releases/latest/download/duckfn_quantstats-windows_amd64.duckdb_extension
+mv duckfn_quantstats-windows_amd64.duckdb_extension duckfn_quantstats.duckdb_extension
+duckdb -unsigned -c "LOAD './duckfn_quantstats.duckdb_extension';"
 ```
 
 本地构建的产物要 `duckdb -unsigned`；用户下载的发布产物同样要，因为它没有 DuckDB 发行密钥的签名。
