@@ -143,27 +143,31 @@ FROM (
  * "where do I get it, what does it cost, where does it run" — not "what is it
  * written in".
  */
-function badges(repoUrl: string): HeroBadge[] {
+function badges(repoUrl: string, locale: string): HeroBadge[] {
+  const weeklyLabel = locale.startsWith('zh') ? '%E5%91%A8%E4%B8%8B%E8%BD%BD' : 'Weekly%20Downloads';
+  const weeklyAlt = locale.startsWith('zh') ? 'DuckDB 社区仓的周下载量' : 'Weekly downloads from the DuckDB community extensions';
+  const releaseLabel = locale.startsWith('zh') ? '&label=%E7%89%88%E6%9C%AC' : '';
+  const licenseLabel = locale.startsWith('zh') ? '%E8%AE%B8%E5%8F%AF%E8%AF%81' : 'license';
   return [
     {
-      href: `${repoUrl}/releases`,
-      src: `https://img.shields.io/github/v/release/${repoUrl.replace(/^https:\/\/github\.com\//, '')}?style=flat`,
-      alt: 'Latest release',
+      href: 'https://duckdb.org',
+      src: 'https://img.shields.io/badge/DuckDB-1.3%2B-fff100?logo=duckdb&style=flat',
+      alt: 'DuckDB 1.3 or newer',
     },
     {
       href: 'https://duckdb.org/community_extensions/extensions/duckfn_quantstats',
-      src: 'https://img.shields.io/badge/DuckDB%20community-extension-14459b.svg?style=flat',
-      alt: 'Published in the DuckDB community extensions',
+      src: `https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=${weeklyLabel}&color=blue&logo=duckdb&logoColor=a899ff&style=flat`,
+      alt: weeklyAlt,
+    },
+    {
+      href: `${repoUrl}/releases`,
+      src: `https://img.shields.io/github/v/release/${repoUrl.replace(/^https:\/\/github\.com\//, '')}?style=flat&logo=github${releaseLabel}`,
+      alt: 'Latest release',
     },
     {
       href: `${repoUrl}/blob/main/LICENSE`,
-      src: 'https://img.shields.io/badge/license-MIT-14459b.svg?style=flat',
+      src: `https://img.shields.io/badge/${licenseLabel}-MIT-14459b.svg?style=flat&logo=github`,
       alt: 'MIT license',
-    },
-    {
-      href: 'https://duckdb.org',
-      src: 'https://img.shields.io/badge/DuckDB-1.3%2B-14459b.svg?style=flat',
-      alt: 'DuckDB 1.3 or newer',
     },
   ];
 }
@@ -172,6 +176,7 @@ function heroContent(
   logoSrc: string,
   introHref: string,
   repoUrl: string,
+  locale: string,
   title: string,
   tagline: string,
 ): HeroContent {
@@ -192,7 +197,7 @@ function heroContent(
       href: repoUrl,
       icon: 'simple-icons:github',
     },
-    badges: badges(repoUrl),
+    badges: badges(repoUrl, locale),
   };
 }
 
@@ -507,8 +512,9 @@ function SqlAndReport(): ReactNode {
 }
 
 export default function Home(): ReactNode {
-  const {siteConfig} = useDocusaurusContext();
+  const {siteConfig, i18n} = useDocusaurusContext();
   const repoUrl = siteConfig.customFields?.repoUrl as string;
+  const locale = i18n.currentLocale;
   // Not a hard-coded "/img/...": the site is published under /<repo>/ on GitHub
   // Pages, and only useBaseUrl adds that prefix. The dfk-* components render
   // plain anchors, so every internal href is resolved here before it is passed
@@ -535,6 +541,7 @@ export default function Home(): ReactNode {
             logoUrl,
             introUrl,
             repoUrl,
+            locale,
             siteConfig.title,
             translate({id: 'homepage.tagline', message: siteConfig.tagline}),
           ),

@@ -2,7 +2,10 @@
 
 # duckfn_quantstats
 
-[![周下载](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=%E5%91%A8%E4%B8%8B%E8%BD%BD&color=blue&logo=duckdb)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
+[![DuckDB 1.3+](https://img.shields.io/badge/DuckDB-1.3%2B-fff100?logo=duckdb&style=flat)](https://duckdb.org/)
+[![周下载](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=%E5%91%A8%E4%B8%8B%E8%BD%BD&color=blue&logo=duckdb&logoColor=a899ff&style=flat)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
+[![版本](https://img.shields.io/github/v/release/shijianjs/duckfn-quantstats?style=flat&logo=github&label=%E7%89%88%E6%9C%AC)](https://github.com/shijianjs/duckfn-quantstats/releases)
+[![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-14459b.svg?style=flat&logo=github)](https://github.com/shijianjs/duckfn-quantstats/blob/main/LICENSE)
 
 一个 DuckDB 扩展，用 **SQL 直接出 quantstats HTML tearsheet**：把一张按日期排列的长表交给它，
 函数内部按 `symbol` 分组，每个标的产出一份完整的报告（配置里指名基准时，一个标的对几个基准就出几份），
