@@ -125,8 +125,9 @@ duckdb -unsigned -c "LOAD './duckfn_quantstats.duckdb_extension';"
 - **DuckDB**：`MainDistributionPipeline.yml` 里的 `duckdb_version`（配合它的 `DUCKDB_VERSION`，后者还
   参与发布产物命名）—— 它决定 CI 签出哪份 DuckDB 源码、测试跑在哪个引擎上。它**不再**等于 `Makefile` 里的
   `TARGET_DUCKDB_VERSION`：后者携带的是声明的 C API 下限（`append_extension_metadata.py -dv`），在头文件下限
-  动之前一直是 `v1.2.0`。头文件本身来自 `Cargo.toml` 钉的 `libduckdb-sys`（1.10506.0 → DuckDB 1.5.6），
-  在 quack-rs 出 2.0 那一支之前不会动 —— 2.0 流水线构建并测试的是 2.0 引擎，不是 2.0 头文件。不稳定
+  动之前一直是 `v1.2.0`。头文件本身来自 `Cargo.toml` 钉的 `libduckdb-sys`；锁文件现在解析到 `1.20000.0`
+  （DuckDB 2.0.0 的头文件，走稳定区 v1 API），所以 2.0 流水线构建并测试的是 2.0 引擎与 2.0 头文件，而产物
+  仍声明 `v1.2.0` 的 C API 下限。不稳定
   区关着的时候，产物里没有任何地方去读引擎的确切版本：quack-rs 的槽位布局检查在发问之前就返回 `StableOnly`
   （`quack-rs/src/abi.rs`），`Makefile` 里那个 `QUACK_RS_TARGET_DUCKDB_VERSION` 导出因此也就不需要了。
 - **本地光改钉版不够**：`configure/venv` 是一次性的目录戳，`make` 之后不会再刷新里面的测试运行器。改完钉版

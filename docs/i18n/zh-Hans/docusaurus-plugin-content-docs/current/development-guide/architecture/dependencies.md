@@ -24,10 +24,11 @@ description: 哪个 crate 负责哪一段，以及每个为什么被选中。
 - [quack-rs](https://crates.io/crates/quack-rs)：DuckDB C API 绑定，`duckfn_entrypoint!` 展开出的代码直接
   引用它。
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys)：只取头文件，开启 `loadable-extension`，
-  因此**不需要在本地编译 DuckDB**。版本下限是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
-  编码成 `1.<major*10000 + minor*100 + patch>.0`，1.5.6 就是 `1.10506.0`），即本构建所依据的那个发行版。
-  duckfn 与 quack-rs 自己的下限都是 `>=1.4.4, <2`，这里收得更紧是本项目自己的取舍，钉住依赖树里那份头文件
-  是哪个版本。它已经不再由 `duckdb-1-5` feature 决定 —— 那个关掉了（见上面的 `duckfn` 一条）。
+  因此**不需要在本地编译 DuckDB**。依赖的下限仍是 `>= 1.10500`（DuckDB 1.5.0：这个 crate 把 DuckDB 版本
+  编码成 `1.<major*10000 + minor*100 + patch>.0`），而已提交的锁文件现在解析到 `1.20000.0`（DuckDB 2.0.0
+  的头文件，走稳定区 v1 API）—— 头文件动了，`Makefile` 里声明的 C API 下限没动。duckfn 与 quack-rs
+  自己的下限都是 `>=1.4.4, <2`，这里收得更紧是本项目自己的取舍。它已经不再由 `duckdb-1-5` feature
+  决定 —— 那个关掉了（见上面的 `duckfn` 一条）。
 - [quantstats-rs](https://crates.io/crates/quantstats-rs)：报告本体。它的公开 API 里只有 `html()`
   一个可调用入口（`mod stats` 是私有的，`compute_performance_metrics` 拿不到），所以两条路径都基于它，
   不自己重算指标 —— 那会与报告里的数字形成两套真相。

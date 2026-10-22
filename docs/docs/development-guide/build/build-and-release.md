@@ -135,9 +135,10 @@ Add a row on every release; the last row is the current one.
   also names the release assets) — that one picks the DuckDB source CI checks out and which engine the
   tests run against. It is *not* the `TARGET_DUCKDB_VERSION` in the `Makefile` any more: that one carries
   the declared C API floor (`append_extension_metadata.py -dv`) and stays at `v1.2.0` until the header
-  floor moves. The headers themselves come from the `libduckdb-sys` pinned in `Cargo.toml` (1.10506.0 →
-  DuckDB 1.5.6) and stay there until quack-rs ships a 2.0 line — the 2.0 pipeline builds and tests
-  against the 2.0 engine, not against 2.0 headers. Nothing in the built extension reads the engine's exact version while the unstable
+  floor moves. The headers themselves come from the `libduckdb-sys` pinned in `Cargo.toml`; the lock now
+  resolves `1.20000.0` (DuckDB 2.0.0 headers on the stable v1 API), so the 2.0 pipeline builds and tests
+  against both the 2.0 engine and 2.0 headers while the artifact still declares the `v1.2.0` C API floor.
+  Nothing in the built extension reads the engine's exact version while the unstable
   region is off: quack-rs' slot-layout guard returns `StableOnly` before it ever asks
   (`quack-rs/src/abi.rs`), which is why the `QUACK_RS_TARGET_DUCKDB_VERSION` export is gone from the
   `Makefile`.

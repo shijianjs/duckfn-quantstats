@@ -80,23 +80,23 @@ quack-rs = "0.18.0"
 # loadable-extension：走 DuckDB 的 API 函数表分发，而不是链接 libduckdb，
 # 这也是「无需在本地编译 DuckDB」的原因（仅使用头文件，不链接库）。
 #
-# 版本下限是 DuckDB 1.5：这是我们构建所依据的发行版，不再由 `duckdb-1-5` feature 决定 —— 那个已经关掉，
-# 编出来的是纯稳定 C API 的产物。duckfn 与 quack-rs 自己的下限都是 `>=1.4.4, <2`，这里收得更紧是我们
-# 自己的取舍：钉住依赖树里那份头文件是哪个版本。
+# 版本下限是 DuckDB 1.5，不再由 `duckdb-1-5` feature 决定 —— 那个已经关掉，编出来的是纯稳定 C API 的产物。
+# duckfn 与 quack-rs 自己的下限都是 `>=1.4.4, <2`，这里收得更紧是我们的取舍；锁文件当前解析到 2.0 头文件
+# （`1.20000.0`），仍走稳定区 v1 API。
 # libduckdb-sys 把 DuckDB 版本编码成
-# `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，1.5.6 → 1.10506.0），
-# 于是 `>=1.10500` 就是「DuckDB >= 1.5」。
+# `1.<major*10000 + minor*100 + patch>.0`（1.5.0 → 1.10500.0，2.0.0 → 1.20000.0），
+# 于是 `>=1.10500` 就是「DuckDB >= 1.5」，同时也覆盖 2.0。
 #
 # `loadable-extension` dispatches through DuckDB's API table instead of linking
 # libduckdb — that is what keeps a local DuckDB build unnecessary (headers only).
 #
-# The lower bound is DuckDB 1.5: that is the release this build rests on, and it is no longer driven by
-# the `duckdb-1-5` feature — that one is off, so what comes out is a pure stable C API binary. duckfn
-# and quack-rs each carry a `>=1.4.4, <2` floor of their own; holding it tighter here is our own choice:
-# it pins which headers the dependency tree uses.
+# The lower bound is DuckDB 1.5 and is no longer driven by the `duckdb-1-5` feature — that one is off, so
+# what comes out is a pure stable C API binary. duckfn and quack-rs each carry a `>=1.4.4, <2` floor of
+# their own; holding it tighter here is our own choice. The lock currently resolves 2.0 headers
+# (`1.20000.0`) on the stable v1 API.
 # libduckdb-sys encodes a DuckDB version as
-# `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 1.5.6 → 1.10506.0), so `>=1.10500`
-# means "DuckDB >= 1.5".
+# `1.<major*10000 + minor*100 + patch>.0` (1.5.0 → 1.10500.0, 2.0.0 → 1.20000.0), so `>=1.10500`
+# means "DuckDB >= 1.5" and also covers 2.0.
 libduckdb-sys = { version = ">=1.10500, <2", features = ["loadable-extension"] }
 quantstats-rs = "0.1.0"
 

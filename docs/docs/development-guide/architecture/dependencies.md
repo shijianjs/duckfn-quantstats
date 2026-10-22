@@ -29,12 +29,12 @@ it is responsible for.
 - [quack-rs](https://crates.io/crates/quack-rs): DuckDB C API bindings; the code expanded from
   `duckfn_entrypoint!` refers to it directly.
 - [libduckdb-sys](https://crates.io/crates/libduckdb-sys): headers only, with `loadable-extension`
-  enabled — so **no local DuckDB build is required**. The version floor is `>= 1.10500` (DuckDB 1.5.0:
-  the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`, so 1.5.6 is
-  `1.10506.0`), which is the release this build rests on. duckfn and quack-rs each carry a
-  `>=1.4.4, <2` floor of their own; holding it tighter here is this project's own choice, and it pins
-  which headers the dependency tree uses. It is no longer driven by the `duckdb-1-5` feature — that one
-  is off (see the `duckfn` entry above).
+  enabled — so **no local DuckDB build is required**. The dependency keeps a `>= 1.10500` floor (DuckDB
+  1.5.0: the crate encodes a DuckDB version as `1.<major*10000 + minor*100 + patch>.0`), while the
+  checked-in lock now resolves `1.20000.0` (DuckDB 2.0.0 headers on the stable v1 API) — the headers
+  moved, the declared C API floor in the `Makefile` did not. duckfn and quack-rs each carry a
+  `>=1.4.4, <2` floor of their own; holding it tighter here is this project's own choice. It is no
+  longer driven by the `duckdb-1-5` feature — that one is off (see the `duckfn` entry above).
 - [quantstats-rs](https://crates.io/crates/quantstats-rs): the report itself. Its public API exposes
   only `html()` as a callable entry point (`mod stats` is private, so `compute_performance_metrics` is
   unreachable), so both paths are built on it instead of recomputing metrics — that would create a

@@ -31,9 +31,9 @@ TARGET_DUCKDB_VERSION=v1.2.0
 # 版本上。它由我们自己维护 —— workflow 与社区 registry 都不会改写它：ci-tools 里 `set_duckdb_version` 对 C API
 # 扩展是 nop，registry 的 `duckdb_version` 只决定签出哪份 DuckDB 源码、产物怎么命名、deploy 到哪个版本目录。
 #
-# 它**不**决定头文件从哪来：本项目的头文件由 `Cargo.toml` 钉的 `libduckdb-sys` 决定（1.10505.0 → DuckDB 1.5.5，
-# 见它 build.rs 的 `duckdb_version_from_pkg_version`）。`rust.Makefile` 还会把它当
-# `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION` 转给 cargo，但依赖树里没有 crate 读它。
+# 它**不**决定头文件从哪来：本项目的头文件由 `Cargo.toml` 钉的 `libduckdb-sys` 决定 —— 锁文件现在解析到
+# 1.20000.0（DuckDB 2.0.0 的头文件，走稳定区 v1 API；见它 build.rs 的 `duckdb_version_from_pkg_version`）。
+# `rust.Makefile` 还会把它当 `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION` 转给 cargo，但依赖树里没有 crate 读它。
 #
 # 哪天把 `USE_UNSTABLE_C_API` 改回 1，这一行就得**换成引擎的发行版本号**（`C_STRUCT_UNSTABLE` 下它按发行版本
 # 解释、且要求逐字相等），并给 quack-rs 补上 `QUACK_RS_TARGET_DUCKDB_VERSION=$(TARGET_DUCKDB_VERSION)`：它的 ABI
@@ -53,7 +53,8 @@ TARGET_DUCKDB_VERSION=v1.2.0
 # the version directory to deploy to.
 #
 # It does **not** decide where the headers come from: they come from the `libduckdb-sys` pinned in `Cargo.toml`
-# (1.10505.0 → DuckDB 1.5.5, see `duckdb_version_from_pkg_version` in its build.rs). `rust.Makefile` also forwards
+# (the lock now resolves 1.20000.0 → DuckDB 2.0.0 headers on the stable v1 API; see
+# `duckdb_version_from_pkg_version` in its build.rs). `rust.Makefile` also forwards
 # this value to cargo as `DUCKDB_EXTENSION_MIN_DUCKDB_VERSION`, but no crate in the tree reads it.
 #
 # Flipping `USE_UNSTABLE_C_API` back to 1 turns this line back into an engine **release** version
