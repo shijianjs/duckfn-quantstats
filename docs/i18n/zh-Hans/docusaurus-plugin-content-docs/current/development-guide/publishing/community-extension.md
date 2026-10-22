@@ -73,7 +73,6 @@ SQL」写，一律英文。完整说明见[函数描述](./function-descriptions
 | `extension.maintainers` | 你的 GitHub 账号。 |
 | `repo.github` | `shijianjs/duckfn-quantstats`。 |
 | `repo.ref` | 该发布版本对应的**提交 SHA**（40 位）—— `git rev-list -n 1 v0.1.0` —— 不是 `main`，也不是 tag 名。注册指向不可变的代码，从分支构建出来的东西会自称开发版本。 |
-| `repo.ref_next` | 社区注册表的**预发布腿**要构建的那个提交：那条腿以这个字段为门禁，没有它直接跳过。这里钉的是「wasm 链接按 2.0 工具链调过」的那个提交 —— 依据见 `community-extension/AGENTS.md`。 |
 | `docs.hello_world` | 一个可运行示例，会被渲染成代码块。不要在这里写 `INSTALL` / `LOAD`：页面自己会加。 |
 | `docs.extended_description` | 函数表周围的说明文字。 |
 

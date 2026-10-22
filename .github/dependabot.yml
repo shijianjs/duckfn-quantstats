@@ -1,14 +1,14 @@
 # Dependabot：三个生态各开一条 PR，由 CI 验。
 #
 # 这里**没有** gitsubmodule（extension-ci-tools）：子模块跟的是上游 duckdb/extension-ci-tools 的 main
-# 分支，而 MainDistributionPipeline.yml 用的是 v1.5-variegata / v2.0-cyanoptera 这两个 tag 的复用工作流，
+# 分支，而 MainDistributionPipeline.yml 用的是 v2.0-cyanoptera 这个 tag 的复用工作流，
 # 两者本来就不同步；自动跟上 main 只会让根 Makefile include 进来的 makefile 与工作流声明的
 # ci_tools_version 悄悄错位。换 DuckDB 版本是人做的事，不由机器人提议。
 #
 # Dependabot: three ecosystems, one pull request each, all validated by CI.
 #
 # gitsubmodule is deliberately absent: extension-ci-tools tracks upstream's main branch while
-# MainDistributionPipeline.yml pins the reusable workflow to the v1.5-variegata / v2.0-cyanoptera tags,
+# MainDistributionPipeline.yml pins the reusable workflow to the v2.0-cyanoptera tag,
 # so an automatic bump would desync the makefiles the root Makefile includes from the ci_tools_version
 # the workflow declares. Moving to a new DuckDB release stays a manual step.
 version: 2
@@ -25,13 +25,13 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
-      # DuckDB 绑定层单独成组：quack-rs 与 libduckdb-sys 的版本号直接编码引擎版本
-      # （libduckdb-sys 1.10506.0 = DuckDB 1.5.6 的头文件），而 CI 的 duckdb_version 钉的是 v1.5.6 ——
-      # 只升依赖不升引擎，测试引擎与产物就会版本不符而挂。这条 PR 必须人工核对引擎版本一起动。
+      # DuckDB 绑定层单独成组：libduckdb-sys 的版本号编码头文件对应的引擎版本（当前 1.10506.0 =
+      # DuckDB 1.5.6；2.0 的头文件是 1.20000.0），而 CI 的 duckdb_version 已钉 v2.0.0。绑定升到
+      # 1.20000.0 要等 quack-rs 支持 2.0，且须人工核对头文件与引擎的配对，不能只让机器人升依赖。
       #
-      # quack-rs as its own group: it (and libduckdb-sys) encodes the engine version in its own version
-      # (libduckdb-sys 1.10506.0 = DuckDB 1.5.6 headers) while CI pins duckdb_version to v1.5.6, so
-      # bumping the binding without the engine makes the test engine and the artefact disagree.
+      # quack-rs as its own group: libduckdb-sys encodes the header engine in its crate version
+      # (1.10506.0 = DuckDB 1.5.6 today, 1.20000.0 = 2.0.0) while CI already pins duckdb_version v2.0.0.
+      # Moving to 1.20000.0 waits for quack-rs' 2.0 line and needs a human to check the pair.
       duckdb:
         patterns:
           - quack-rs

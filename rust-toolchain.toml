@@ -1,31 +1,19 @@
 # 固定构建用的 Rust 工具链（下游依赖 duckfn 不继承本文件，它只作用于本仓库自己的构建）。
 #
-# 为什么钉：`duckfn 0.2.0` 要求 rustc **1.88**（它的过程宏 crate 依赖 syn 3，后者带 darling 0.24）。
-# 而官方 ci-tools 的 `v1.5-variegata`（本仓库 CI 用的那条）把 wasm 作业的 Rust 钉在 **1.86.0** ——
-# 于是 native 作业照绿、每个 `wasm_*` 作业在编译期就挂：
+# 官方 ci-tools 的 v2.0-cyanoptera 已经把 Rust 钉在 1.97.1，这里写同一个版本，让本地构建与 CI 使用
+# 同一个 rustc。为什么不是更低的 1.88 / 1.89：较新的 stable 才给 wasm32-unknown-emscripten 的预编译
+# std 带上展开运行时，`catch_unwind` 在浏览器里才能把 panic 转成可读错误（旧版 std 是 panic=abort，
+# panic 在浏览器里会崩成 RangeError）。
 #
-# ```text
-# error: rustc 1.86.0 is not supported by the following packages:
-#   darling@0.24.1 requires rustc 1.88.0
-# ```
-#
-# 为什么是 1.97.1 而不是 1.88：只有较新的 stable 才给 `wasm32-unknown-emscripten` 的预编译 std 带上
-# 展开运行时，`catch_unwind` 在浏览器里才能把 panic 转成可读错误（1.88 的 std 是 panic=abort，
-# panic 在浏览器里崩成 RangeError）。dtolnay/rust-toolchain 只把它的工具链设成 rustup **default**，
-# 而本文件优先级高于 default，于是 cargo 用下面钉的版本编译（rustup 自动补装工具链与列出的 target）。
-#
-# Rust ≥1.89 的 wasm 产物可能需要 `call-indirect-overlong`，而 CI 钉死的 emsdk 3.1.71（binaryen v120）
-# 优化不了它 → 由本仓库 Makefile 的 `-O0` 链接覆盖兜住那一步。两者是一套：删掉任何一个，另一个就不再需要。
-# 完整故事见 duckfn 仓库的 docs/docs/duckdb-versions/wasm-toolchain.md。
-#
-# 等 DuckDB 2.0 的官方流水线（Rust 1.97）成为 CI 默认之后，就可以删掉本文件。
+# 本文件与 Makefile 的 -O0 链接覆盖是一套：Rust >= 1.89 的 wasm 产物可能带 call-indirect-overlong，
+# 2.0 分支的 wasm-opt 仍不接受 emcc 递过去的参数，所以 wasm 链接继续走 -O0。完整故事见 duckfn 仓库
+# 的 docs/docs/duckdb-versions/wasm-toolchain.md。
 #
 # Pins the Rust used to build this repository (a downstream dependency on duckfn does not inherit it).
-# The floor is 1.88 because duckfn 0.2.0 needs it (syn 3 pulls in darling 0.24), while ci-tools'
-# v1.5-variegata pins the wasm job at 1.86 — so only the wasm jobs fail, at compile time. The pin is
-# 1.97.1 rather than 1.88 because a recent stable ships the wasm std *with* unwinding. Keep it together
-# with the Makefile's -O0 link override (Rust >= 1.89 can emit a module needing call-indirect-overlong,
-# which the pinned emsdk's binaryen cannot optimise).
+# ci-tools' v2.0-cyanoptera already pins 1.97.1; this file keeps local builds on the same rustc. 1.97.1
+# rather than an older stable because only recent stable ships the wasm32-unknown-emscripten std *with*
+# unwinding, so catch_unwind turns a panic into a readable error in the browser. Keep it together with
+# the Makefile's -O0 wasm link override.
 [toolchain]
 channel = "1.97.1"
 targets = ["wasm32-unknown-emscripten"]

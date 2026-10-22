@@ -12,9 +12,10 @@ block on this page runs against one snapshot, and every one of them runs *here*,
 
 ## Prerequisites
 
-- **DuckDB 1.3 or newer.** The extension is built against DuckDB 1.5.5 headers, but the version it
-  carries is a floor rather than an exact match: it was measured on 1.3.2, 1.4.0, 1.4.5, 1.5.0, 1.5.5
-  and 1.5.6.
+- **DuckDB 1.4 or newer.** The extension is built for DuckDB 2.0.0, but the version it
+  carries is a floor rather than an exact match: it was measured on 1.4.0, 1.4.5, 1.5.0, 1.5.5, 1.5.6
+  and 2.0.0. The C API is binary compatible across these versions, so there is no separate 1.5 build:
+  on an older DuckDB, install the same 2.0 release asset.
 - Any way to send SQL to it. These pages use the `duckdb` CLI, but a Python/Java/Node client or a GUI
   works the same.
 

@@ -52,36 +52,24 @@ concurrency:
 jobs:
   duckdb-stable-build:
     name: Build extension binaries
-    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v1.5-variegata
-    with:
-      duckdb_version: v1.5.6
-      ci_tools_version: v1.5-variegata
-      extension_name: duckfn_quantstats
-      extra_toolchains: rust;python3
-
-  # 2.0 预发布那一路：DuckDB 与 ci-tools 都取 v2.0-cyanoptera（与上面那条腿同一套配对方式）。
-  # 入口不能沿用 v1.5-variegata —— 老分支的 `_extension_distribution.yml` 会「按 arch 现建 Docker 镜像」，
-  # 而 `docker/linux_*/Dockerfile` 第 4 行的 `yum groupinstall -y "Development Tools"` 现在会挂在 EPEL
-  # 元数据下载上（2026-10-14 实测；三个 ref 的 Dockerfile 逐字相同，所以不是我们代码的问题，重跑即可过）；
-  # 2.0 分支的 workflow 已经没有这一步。只在 tag 之外跑：Release 只挂上面那条 1.5.6 的产物。
-  #
-  # The upcoming-DuckDB leg: DuckDB and ci-tools both from v2.0-cyanoptera, the same pairing the stable leg
-  # above uses. Not v1.5-variegata as the entry ref — that branch still builds a per-arch Docker image whose
-  # `yum groupinstall` step fails on EPEL metadata (the Dockerfile is byte-identical across refs, so it was
-  # never about our code, and a re-run passes); the 2.0 branch no longer has that step. Skipped on tags.
-  # 这个分支的 CI 只在 macOS arm64 与 Windows amd64 上真跑 sqllogictest：linux_amd64 由 ci-tools 的
-  # `SKIP_TESTS` 跳过（日志里打 `Skipping tests..`，stable 腿同样如此），linux_arm64 / wasm / mingw 也不跑。
-  # 所以本地 `just test` 仍是主要的测试闸门。
-  #
-  # On this branch CI only runs the sqllogictest suite on macOS arm64 and Windows amd64 — ci-tools skips it on
-  # linux_amd64 (`Skipping tests..`; the stable leg behaves the same), linux_arm64, wasm and mingw. A local
-  # `just test` therefore stays the main test gate.
-  duckdb-next-build:
-    name: Build extension binaries (DuckDB 2.0 prerelease)
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    # DuckDB 2.0 的官方分发流水线：入口 workflow 与 ci_tools_version 都取 v2.0-cyanoptera，
+    # duckdb_version 钉 v2.0.0（社区注册表现在默认也构建这一版）。Rust 由 ci-tools 的 dtolnay
+    # 步骤钉在 1.97.1，仓库根的 rust-toolchain.toml 只负责让本地构建用同一个版本。
+    #
+    # The DuckDB 2.0 distribution pipeline: entry workflow and ci_tools_version both from
+    # v2.0-cyanoptera, duckdb_version pinned to v2.0.0 (now the registry default too). ci-tools pins
+    # Rust at 1.97.1; the repo-level rust-toolchain.toml only keeps local builds on that version.
+    #
+    # 这个矩阵只在 macOS arm64 与 Windows amd64 上真跑 sqllogictest：linux_amd64 由 ci-tools 的
+    # `SKIP_TESTS` 跳过（日志里打 `Skipping tests..`），linux_arm64 / wasm / mingw 也不跑。
+    # 所以本地 `just test` 仍是主要的测试闸门。
+    #
+    # This matrix only runs the sqllogictest suite on macOS arm64 and Windows amd64 — ci-tools skips it
+    # on linux_amd64 (`Skipping tests..`), linux_arm64, wasm and mingw. A local `just test` therefore
+    # stays the main test gate.
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@v2.0-cyanoptera
     with:
-      duckdb_version: v2.0-cyanoptera
+      duckdb_version: v2.0.0
       ci_tools_version: v2.0-cyanoptera
       extension_name: duckfn_quantstats
       extra_toolchains: rust;python3
@@ -113,7 +101,7 @@ jobs:
       # 与上面 `duckdb_version` 一致：它也是 ci-tools 给产物命名时用的那一段。
       #
       # Must match `duckdb_version` above: it is also the segment ci-tools uses to name the artifacts.
-      DUCKDB_VERSION: v1.5.6
+      DUCKDB_VERSION: v2.0.0
     steps:
       # 取回全部 tag：生成 release notes 时要知道「上一个版本 tag 是哪个」。
       #

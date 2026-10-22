@@ -2,7 +2,7 @@
 
 # duckfn_quantstats
 
-[![DuckDB 1.3+](https://img.shields.io/badge/DuckDB-1.3%2B-fff100?logo=duckdb&style=flat)](https://duckdb.org/)
+[![DuckDB 1.4+](https://img.shields.io/badge/DuckDB-1.4%2B-fff100?logo=duckdb&style=flat)](https://duckdb.org/)
 [![Weekly Downloads](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=Weekly%20Downloads&color=blue&logo=duckdb&logoColor=a899ff&style=flat)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
 [![Release](https://img.shields.io/github/v/release/shijianjs/duckfn-quantstats?style=flat&logo=github)](https://github.com/shijianjs/duckfn-quantstats/releases)
 [![License](https://img.shields.io/badge/license-MIT-14459b.svg?style=flat&logo=github)](https://github.com/shijianjs/duckfn-quantstats/blob/main/LICENSE)
@@ -16,8 +16,8 @@ list.
 No Python, no `pip install quantstats`, no notebook: it is a DuckDB extension, so it runs wherever
 DuckDB runs — Linux, macOS, Windows, and DuckDB-Wasm in the browser.
 
-**Requires DuckDB 1.3 or newer** — built against DuckDB 1.5.5 headers, declaring the C API floor it needs
-(v1.2.0), so one binary loads into 1.3.2 through 1.5.6 alike.
+**Requires DuckDB 1.4 or newer** — built for DuckDB 2.0.0, declaring the C API floor it needs
+(v1.2.0), so one binary loads into 1.4.0 through 2.0.0 alike.
 
 ## Install
 

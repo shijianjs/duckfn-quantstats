@@ -151,8 +151,8 @@ function badges(repoUrl: string, locale: string): HeroBadge[] {
   return [
     {
       href: 'https://duckdb.org',
-      src: 'https://img.shields.io/badge/DuckDB-1.3%2B-fff100?logo=duckdb&style=flat',
-      alt: 'DuckDB 1.3 or newer',
+      src: 'https://img.shields.io/badge/DuckDB-1.4%2B-fff100?logo=duckdb&style=flat',
+      alt: 'DuckDB 1.4 or newer',
     },
     {
       href: 'https://duckdb.org/community_extensions/extensions/duckfn_quantstats',

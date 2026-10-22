@@ -2,7 +2,7 @@
 
 # duckfn_quantstats
 
-[![DuckDB 1.3+](https://img.shields.io/badge/DuckDB-1.3%2B-fff100?logo=duckdb&style=flat)](https://duckdb.org/)
+[![DuckDB 1.4+](https://img.shields.io/badge/DuckDB-1.4%2B-fff100?logo=duckdb&style=flat)](https://duckdb.org/)
 [![周下载](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=%E5%91%A8%E4%B8%8B%E8%BD%BD&color=blue&logo=duckdb&logoColor=a899ff&style=flat)](https://duckdb.org/community_extensions/extensions/duckfn_quantstats)
 [![版本](https://img.shields.io/github/v/release/shijianjs/duckfn-quantstats?style=flat&logo=github&label=%E7%89%88%E6%9C%AC)](https://github.com/shijianjs/duckfn-quantstats/releases)
 [![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-14459b.svg?style=flat&logo=github)](https://github.com/shijianjs/duckfn-quantstats/blob/main/LICENSE)
@@ -14,7 +14,7 @@
 不用 Python、不用 `pip install quantstats`、不用 notebook：它是 DuckDB 扩展，所以 DuckDB 能跑的地方
 它就能跑 —— Linux、macOS、Windows，以及浏览器里的 DuckDB-Wasm。
 
-**要求 DuckDB 1.5 及以上**（本扩展在 v1.5.6 上构建与测试）。
+**要求 DuckDB 1.4 及以上**（本扩展依据 v2.0.0 构建与测试，同一份产物可加载进 1.4.x / 1.5.x）。
 
 ## 安装
 

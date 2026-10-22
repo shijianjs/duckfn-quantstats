@@ -20,28 +20,15 @@ SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，
 写 `main` 的代价是实打实的：构建出来的二进制会自称 main 上的开发版本（`X.Y.Z-dev.N`），与这里声明的 `version`
 对不上，而且同一个注册项在不同时间构建出的是不同代码。
 
-## `repo.ref_next`：下一个大版本那一腿
+## DuckDB 2.0 已转正：`ref` 直接指向 2.0 的提交
 
-社区注册表除了正式版那条腿，还跑一条**预发布**腿（他们的 `build_next.yml`：DuckDB 用
-`v2.0-cyanoptera` 分支、ci-tools 用 `main`、并带 `require_ref_next: true`）。这条腿只认描述文件里的
-`repo.ref_next`：没有这个字段就直接跳过，日志里打一句
-`Skipping prerelease validation: repo.ref_next is not defined` —— 也就是那条 PR 什么都没验证。
+社区注册表现在默认构建 DuckDB 2.0.0，描述文件里不再有 `ref_next`：原先指向 2.0 的那个提交已经提升为
+`repo.ref`，旧 1.5 提交也不再保留 `variegata` 字段（本仓库不再发 1.5 构建）。之后每次发版照旧把
+`repo.ref` 换成新发布提交的 SHA 即可。
 
-本扩展对 2.0 的改动落在 **wasm 链接**上：2.0 那一支的 emsdk 里，后链接的 `-O3` 会把模块交给 wasm-opt，
-而它拒绝 emcc 递过来的参数（`Unknown option '--enable-bulk-memory-opt'`），`wasm_eh` / `wasm_mvp` 都停在
-`link_wasm_release`。Makefile 里那份带 `ifneq ($(DUCKDB_WASM_PLATFORM),)` 守卫的 `-O0` 覆盖把 wasm-opt
-整步跳过（与 duckfn-kuva / duckfn-statrs 里是同一处临时措施），所以 `ref_next` 指向**加上这份覆盖之后**的
-提交（`b432271`），而不是与 `ref` 同一个 SHA。
+这条扩展从 1.4 起就是二进制兼容的，所以 2.0 的产物在 1.4.x / 1.5.x 上同样能加载；旧版本用户装的
+是同一份 release 资产，不需要单独的 1.5 构建。
 
-一个已知的本地限制：`test/sql/quantstats/html_reports_values.test` 依赖社区扩展 webbed，而 webbed 的构建是
-**按引擎版本 + 平台**发的：本机那个 PyPI 预览轮子（引擎自称 `v2.0.0-alpha43763`）没有对应的 webbed 构建，
-`INSTALL webbed FROM community` 直接 404（实测；其余 5 个文件全过）。CI 里没这个问题 —— 真正跑 sqllogictest
-的那两个平台（macOS arm64、Windows amd64）上这个文件是 `SUCCESS`；linux 上 ci-tools 本来就跳过测试
-（见 `.github/workflows/MainDistributionPipeline.yml` 里 `duckdb-next-build` 的注记）。也就是说这条限制只取决于
-「当前引擎那个具体版本号有没有 webbed 构建」，不是 2.0 本身的问题 —— 换一个 webbed 有构建的预览版本就不复现。
-
-改动 `ref_next` 的时机：先在本仓 `.github/workflows/MainDistributionPipeline.yml` 的 `duckdb-next-build`
-腿下改到绿，再把 `ref_next` 换成那次运行的提交 SHA，改完复制进社区仓那份克隆、推到同一条 PR 分支。
 
 ## 字段为什么这么写（都不是猜的）
 

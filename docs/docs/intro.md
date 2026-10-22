@@ -23,11 +23,11 @@ INSTALL duckfn_quantstats FROM community;   -- once; needs network
 LOAD duckfn_quantstats;                     -- afterwards, this is all a session needs
 ```
 
-:::tip[DuckDB 1.3 or newer]
-The extension is built against DuckDB 1.5.5 headers, but it stays inside the stable region of DuckDB's
+:::tip[DuckDB 1.4 or newer]
+The extension is built for DuckDB 2.0.0, but it stays inside the stable region of DuckDB's
 C API: the version it carries is a floor rather than an exact match, so one binary serves a whole
-range of engines. It was measured on 1.3.2, 1.4.0, 1.4.5, 1.5.0, 1.5.5 and 1.5.6, where it loads and
-runs; 1.2 and older are not supported.
+range of engines. It was measured on 1.4.0, 1.4.5, 1.5.0, 1.5.5, 1.5.6 and 2.0.0, where it loads and
+runs; 1.3 and older are not supported.
 :::
 
 ## The two functions

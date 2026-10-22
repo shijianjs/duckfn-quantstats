@@ -116,8 +116,8 @@ fetches a signed build for the user's platform.
 This extension stays inside the **stable region of DuckDB's C API** (`USE_UNSTABLE_C_API=0` in the
 `Makefile`), which changes what the metadata carries: under `abi_type = C_STRUCT` that field is read as
 a **C API version**, not as a DuckDB release, and an engine refuses the file only when its own C API is
-older. The `Makefile` therefore pins `v1.2.0` — the level DuckDB 1.3.2 through 1.5.5 all sit at — and one
-binary serves the whole range: measured on 1.3.2, 1.4.0, 1.4.5, 1.5.0, 1.5.5 and 1.5.6, where it loads
+older. The `Makefile` therefore pins `v1.2.0` — the level DuckDB 1.3.2 through 2.0.0 all sit at — and one
+binary serves the whole range: measured on 1.4.0, 1.4.5, 1.5.0, 1.5.5, 1.5.6 and 2.0.0, where it loads
 and runs a real call. Naming a release there instead (v1.5.6) would leave only that engine willing to
 take it — the binding this is meant to avoid.
 
@@ -135,8 +135,9 @@ Add a row on every release; the last row is the current one.
   also names the release assets) — that one picks the DuckDB source CI checks out and which engine the
   tests run against. It is *not* the `TARGET_DUCKDB_VERSION` in the `Makefile` any more: that one carries
   the declared C API floor (`append_extension_metadata.py -dv`) and stays at `v1.2.0` until the header
-  floor moves. The headers themselves come from the `libduckdb-sys` pinned in `Cargo.toml` (1.10505.0 →
-  DuckDB 1.5.5). Nothing in the built extension reads the engine's exact version while the unstable
+  floor moves. The headers themselves come from the `libduckdb-sys` pinned in `Cargo.toml` (1.10506.0 →
+  DuckDB 1.5.6) and stay there until quack-rs ships a 2.0 line — the 2.0 pipeline builds and tests
+  against the 2.0 engine, not against 2.0 headers. Nothing in the built extension reads the engine's exact version while the unstable
   region is off: quack-rs' slot-layout guard returns `StableOnly` before it ever asks
   (`quack-rs/src/abi.rs`), which is why the `QUACK_RS_TARGET_DUCKDB_VERSION` export is gone from the
   `Makefile`.
