@@ -11,7 +11,7 @@
 
 - 这个扩展做什么：duckdb 插件，提供 quantstats 报告。
 - 社区扩展注册仓（`duckdb/community-extensions`）的 fork 在本机的 clone：
-  `S:\workspace\my\rust\duckdb\duckdb-community-extensions`（`origin` = `shijianjs/duckdb-community-extensions`）
+  `S:\workspace\github\shijianjs\duckdb-community-extensions`（`origin` = `shijianjs/duckdb-community-extensions`）
   —— 扩展就是在这份克隆里注册的（往 `extensions/` 下加目录），字段草稿在本仓的 `community-extension/`
 
 > 扩展名、crate 名、duckfn 版本**不要抄到这里**：

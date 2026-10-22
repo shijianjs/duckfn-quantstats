@@ -78,12 +78,12 @@ SHA（`extensions/h3`、`extensions/orc` 都是），跟着走既不用解释，
 上游注册仓（`duckdb/community-extensions`）的 fork 与本地克隆：
 
 - fork：`shijianjs/duckdb-community-extensions`
-- 克隆：`S:\workspace\my\rust\duckdb\duckdb-community-extensions`（`origin` 就是这个 fork，没有配 `upstream`）
+- 克隆：`S:\workspace\github\shijianjs\duckdb-community-extensions`（`origin` 就是这个 fork，没有配 `upstream`）
 
 流程是「加分支 → 复制两个文件 → 提交 → 推分支 → 开 PR」，本仓这边一行都不用改：
 
 ```powershell
-$p = 'S:\workspace\my\rust\duckdb\duckdb-community-extensions'
+$p = 'S:\workspace\github\shijianjs\duckdb-community-extensions'
 git -C $p checkout main; git -C $p pull              # 先和 fork 的 main 同步
 git -C $p checkout -b add-duckfn-quantstats          # 已有同名分支就跳过这步
 
