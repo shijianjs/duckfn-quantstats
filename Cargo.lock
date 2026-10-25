@@ -318,9 +318,9 @@ dependencies = [
 
 [[package]]
 name = "duckfn"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3479449d3bef12499d5d4f1509827a5a72e772b1bbb209eba299a1c9a292ba4"
+checksum = "375890e68ed04b5e8795efdccf4e456817356788fa6d3aa94c94b9ff8ec8a795"
 dependencies = [
  "chrono",
  "clap",
@@ -335,9 +335,9 @@ dependencies = [
 
 [[package]]
 name = "duckfn-macro"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c15c937daddec3a8dd945d295a503d45ee7dceee690d8909a7795f8c68e31b4c"
+checksum = "ca41311497e53056e03a6c2b9af0e53c0f67903d2d365c03877caf160e5ac25a"
 dependencies = [
  "darling",
  "proc-macro2",
@@ -693,12 +693,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mutants"
-version = "0.0.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "add0ac067452ff1aca8c5002111bd6b1c895baee6e45fcbc44e0193aea17be56"
-
-[[package]]
 name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -834,13 +828,12 @@ dependencies = [
 
 [[package]]
 name = "quack-rs"
-version = "0.18.0"
+version = "0.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc2e38943b270bcd6c2df14407e226f496b60c7ffa035c11d0b154a7fbf7f6d9"
+checksum = "1d806ed0366bf334f5dfd067e634372d1101465a10c5b6f2a50049573f1c2c2d"
 dependencies = [
  "cc",
  "libduckdb-sys",
- "mutants",
 ]
 
 [[package]]
