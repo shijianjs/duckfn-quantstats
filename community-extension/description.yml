@@ -49,6 +49,10 @@ docs:
         FROM prices
     );
   extended_description: |
+    Documentation: [user guide](https://shijianjs.github.io/duckfn-quantstats/docs/intro) ·
+    [function reference](https://shijianjs.github.io/duckfn-quantstats/docs/guide/functions) - installation,
+    the full option table, the error paths and worked examples.
+
     Two aggregate functions that turn one date-ordered long table into a whole set of
     [quantstats](https://github.com/ranaroussi/quantstats) HTML tearsheets, one report per instrument
     (and one per benchmark, when the options name several):
@@ -97,5 +101,4 @@ docs:
     `open_in_browser` is ignored too (there is no browser process to launch; the HTML string comes back
     to the host as it is).
 
-    The full option table, the error paths and the development notes:
-    <https://shijianjs.github.io/duckfn-quantstats/docs/intro>.
+    Development notes: <https://github.com/shijianjs/duckfn-quantstats>.
