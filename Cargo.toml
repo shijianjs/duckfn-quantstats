@@ -155,7 +155,7 @@ fastrand = "2.5"
 # `RewriteStrSettings`' fields became private, so assembly goes through the
 # `append_element_content_handler` builder (see src/extension/functions/translation/report.rs). Still an
 # exact pin — a breaking 4.x should be looked at by a human first.
-lol_html = "=3.0.1"
+lol_html = "=3.0.3"
 
 # 下面两个只服务配置里的 `open_in_browser`（用系统默认浏览器打开报告），各管一段：
 #
