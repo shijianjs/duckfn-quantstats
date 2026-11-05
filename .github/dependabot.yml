@@ -49,6 +49,18 @@ updates:
         update-types:
           - minor
           - patch
+    ignore:
+      # quack-rs 必须跟 duckfn 框架用同一个大版本：`duckfn_entrypoint!` 与各个派生宏展开出来的代码
+      # 引用 `quack_rs::` 路径，而 duckfn 0.3.x 钉的是 quack-rs 0.19。单独把 quack-rs 提到 0.20，会让
+      # `duckfn::Value` 与 `quack_rs::prelude::Value` 变成两个 crate 的类型，派生宏生成的方法对不上
+      # trait（E0053）。等 duckfn 升到 quack-rs 0.20 之后一起提，再删掉这条。
+      #
+      # quack-rs has to move together with the duckfn framework: code expanded by `duckfn_entrypoint!`
+      # and the derive macros refers to `quack_rs::` paths, and duckfn 0.3.x pins quack-rs 0.19. A lone
+      # bump makes `duckfn::Value` and `quack_rs::prelude::Value` two distinct types, so the generated
+      # trait methods no longer match (E0053). Bump both once duckfn moves, then drop this entry.
+      - dependency-name: "quack-rs"
+        update-types: ["version-update:semver-major"]
 
   # npm：文档站自己是 `docs/package.json` + `docs/package-lock.json`（不是 npm workspace），所以
   # directory 指到 docs/。
