@@ -1,0 +1,139 @@
+---
+title: duckfn_quantstats
+description: 'quantstats HTML tearsheets from SQL: one DuckDB extension, no Python. The functions, the options, and how the reports are written.'
+hide_table_of_contents: true
+wrapperClassName: dfk-home
+---
+
+import Link from '@docusaurus/Link';
+import ReportFrame from '@site/src/components/ReportFrame';
+import {registerDfkElements} from 'duckfn-docs-kit';
+
+import styles from '@site/src/pages/index.module.css';
+
+{registerDfkElements()}
+
+{/* `MDXPage` supplies the `<Layout>` and the page grid; `dfk-home` is what
+    lets `src/css/home.css` give the page the full width it needs. The badge
+    `href`s carry the repository URL inline because an MDX page cannot read
+    `customFields`. */}
+
+<dfk-hero
+  logo-src="/img/logo.svg"
+  title="duckfn_quantstats"
+  tagline="quantstats HTML reports, one SQL call per instrument">
+
+<dfk-action kind="primary" href="/docs/intro">Get started</dfk-action>
+
+<dfk-action kind="secondary" href="https://github.com/shijianjs/duckfn-quantstats" icon="simple-icons:github">GitHub</dfk-action>
+
+<dfk-badge href="https://duckdb.org" src="https://img.shields.io/badge/DuckDB-1.4%2B-fff100?logo=duckdb&style=flat" alt="DuckDB 1.4 or newer" />
+
+<dfk-badge href="https://duckdb.org/community_extensions/extensions/duckfn_quantstats" src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fcommunity-extensions.duckdb.org%2Fdownloads-last-week.json&query=%24.duckfn_quantstats&label=Weekly%20Downloads&color=blue&logo=duckdb&logoColor=a899ff&style=flat" alt="Weekly downloads from the DuckDB community extensions" />
+
+<dfk-badge href="https://github.com/shijianjs/duckfn-quantstats/releases" src="https://img.shields.io/github/v/release/shijianjs/duckfn-quantstats?style=flat&logo=github" alt="Latest release" />
+
+<dfk-badge href="https://github.com/shijianjs/duckfn-quantstats/blob/main/LICENSE" src="https://img.shields.io/badge/license-MIT-14459b.svg?style=flat&logo=github" alt="MIT license" />
+
+</dfk-hero>
+
+<dfk-features section-title="What this extension gives you">
+
+<dfk-feature icon="lucide:layout-list" title="The whole table, one call">
+Hand it one date-ordered long table and it groups by symbol inside the aggregate, so the SQL needs no GROUP BY and a hundred instruments still mean one SELECT.
+</dfk-feature>
+
+<dfk-feature icon="lucide:line-chart" title="Returns or prices">
+qs_html_reports takes periodic returns; qs_html_reports_by_prices takes prices or NAVs and differences them itself, so the pct_change window can stay out of your SQL.
+</dfk-feature>
+
+<dfk-feature icon="lucide:scale" title="Benchmarks are symbols">
+The benchmark is an ordinary symbol of the same table, named in the options; it is input only and gets no report of its own. Several benchmarks mean several reports.
+</dfk-feature>
+
+<dfk-feature icon="lucide:folder-output" title="On disk or in the browser">
+output_dir writes every report to a local folder, under a never-colliding name the function generates; open_in_browser opens them once they are there.
+</dfk-feature>
+
+<dfk-feature icon="lucide:globe" title="Any DuckDB client, any platform">
+The CLI, Python, Java/JVM, Node, R or DuckDB-Wasm in the browser: one INSTALL brings the same signed extension to every platform DuckDB ships on, and the reports are plain SQL wherever they run. No quantstats install, no Python environment to keep in step.
+</dfk-feature>
+
+<dfk-feature icon="lucide:life-buoy" title="This documentation site">
+Bilingual (English and Simplified Chinese), with examples that run in the page against a real snapshot, and the full option reference next to them.
+</dfk-feature>
+
+</dfk-features>
+
+<section className={styles.sectionTint}>
+<div className={styles.sectionInner}>
+
+## One query, a tearsheet per instrument
+
+This is the whole interface: one aggregate call over a long table of prices, no grouping to write, no Python. On the right is the report it returns for GOOGL, with the S&P 500 as its benchmark — the real output, rendered in an iframe.
+
+<div className={styles.codeGrid}>
+
+```sql title="duckdb"
+-- once per session: INSTALL duckfn_quantstats FROM community; LOAD duckfn_quantstats;
+WITH prices AS (
+    SELECT *
+    FROM read_csv('https://shijianjs.github.io/duckfn-quantstats/demo/prices.csv')
+)
+SELECT (r).symbol, (r).benchmark, length((r).html) AS html_bytes
+FROM (
+    SELECT unnest(qs_html_reports_by_prices(
+               symbol, date, price,
+               {'benchmark': ['SPX'],
+                'benchmark_title': ['S&P 500'],
+                'title': symbol,
+                'strategy_title': symbol}::qs_html_report_options)) AS r
+    FROM prices
+);
+```
+
+<div className={styles.codeColumn}>
+
+<ReportFrame
+  src="/demo/qs_report_GOOGL-S&P_500.html"
+  fullscreen="Fullscreen"
+  openTab="Open in a new tab"
+/>
+
+The report it produced for GOOGL — charts, metrics table and benchmark column included. Scroll inside the frame, or open the full report under /demo/.
+
+</div>
+</div>
+
+<div className={styles.showcaseLinkRow}>
+<Link className={styles.showcaseLink} to="/docs/guide/functions">
+
+The two functions, in detail
+
+<iconify-icon icon="lucide:arrow-right" className={styles.showcaseLinkArrow} aria-hidden="true" />
+
+</Link>
+</div>
+
+</div>
+</section>
+
+<dfk-next-steps section-title="Where to go next">
+
+<dfk-step href="/docs/getting-started/quick-start" title="Quick start">
+Install it, point it at your table, and read the first reports.
+</dfk-step>
+
+<dfk-step href="/docs/guide/functions" title="Functions">
+The two SQL names, the result shape, and how a benchmark becomes reports.
+</dfk-step>
+
+<dfk-step href="/docs/guide/output-and-browser" title="Reports on disk">
+output_dir, the generated file names, and opening a report in the browser.
+</dfk-step>
+
+<dfk-step href="/docs/development-guide/architecture/project-structure" title="Development guide">
+For contributors: the internals, the build, the tests, the release.
+</dfk-step>
+
+</dfk-next-steps>
