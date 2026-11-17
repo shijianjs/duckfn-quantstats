@@ -15,11 +15,8 @@ on:
     paths:
       - 'docs/**'
       - '.github/workflows/NpmChecks.yml'
-  push:
-    branches: [main]
-    paths:
-      - 'docs/**'
-      - '.github/workflows/NpmChecks.yml'
+  # Pushing to main does not trigger CI; run `gh workflow run NpmChecks.yml` when the docs build
+  # needs to be verified.
   workflow_dispatch:
 
 # `contents: read` is what the release-asset fetch in the Build step authenticates with.
