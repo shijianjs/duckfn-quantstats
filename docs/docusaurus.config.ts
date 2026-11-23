@@ -68,7 +68,7 @@ const baseUrl = process.env.DOCS_BASE_URL ?? '/';
 const config: Config = {
   title: EXTENSION_NAME,
   tagline: 'quantstats HTML reports, one SQL call per instrument',
-  favicon: 'img/logo.svg',
+  favicon: 'img/logo.png',
 
   // Future flags, see https://docusaurus.io/docs/api/docusaurus-config#future
   future: {
@@ -220,7 +220,7 @@ const config: Config = {
       title: EXTENSION_NAME,
       logo: {
         alt: `${EXTENSION_NAME} logo`,
-        src: 'img/logo.svg',
+        src: 'img/logo.png',
       },
       items: [
         // 顶栏两项 = 两个侧边栏（见 sidebars.ts）：怎么用这个扩展 / 怎么开发它。

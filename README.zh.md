@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/static/img/logo.png" alt="duckfn_quantstats logo" width="180" />
+</div>
+
 [English](README.md) | [简体中文](README.zh.md) | [文档](https://shijianjs.github.io/duckfn-quantstats/zh-Hans/)
 
 # duckfn_quantstats

@@ -38,9 +38,10 @@ does. The rule is anchored now (`/build`); keep it that way.
    and the runnable blocks' extension preload all read them from there.
 2. `tagline` in `docusaurus.config.ts`, plus the copyright line in the footer and in
    `i18n/zh-Hans/docusaurus-theme-classic/footer.json`.
-3. The logo and palette: `static/img/logo.svg` is a placeholder, and the brand ramp in
+3. The brand: `static/img/logo.png` is this project's own mark, and the brand ramp in
    `src/css/custom.css` was picked to match it — replace both together, or neither.
-4. `static/img/docusaurus-social-card.jpg` (the preview image) and `static/img/logo.svg`.
+4. `static/img/docusaurus-social-card.jpg` (the preview image) is still the Docusaurus default; put
+   this project's mark on one before publishing.
 5. The pages under `docs/docs/` and their translations under
    `i18n/zh-Hans/docusaurus-plugin-content-docs/current/`.
 6. Search is built in. `docusaurus.config.ts` registers `@easyops-cn/docusaurus-search-local`, which
