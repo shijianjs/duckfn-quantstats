@@ -10,7 +10,7 @@
 /build
 /configure
 /.idea/*
-!/.idea/icon.svg
+!/.idea/icon.png
 duckdb_unittest_tempdir
 /test/bin
 venv
